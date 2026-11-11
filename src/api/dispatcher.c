@@ -119,6 +119,7 @@
 #include "modules/dispatcher/handler_template.h"
 #include "modules/dispatcher/handler_auth.h"
 #include "modules/dispatcher/handler_resource.h"                                            
+#include "modules/dispatcher/handler_host_device.h"
 #include "modules/dispatcher/handler_backup.h"
 #include "modules/dispatcher/handler_replication_hostkey.h"
 #include "modules/dispatcher/handler_security.h"
@@ -1251,6 +1252,8 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "device.gpu.detach",   (gpointer)handle_device_gpu_detach);
 
                                                                       
+    g_hash_table_insert(g_rpc_routes, "host.device.list",    (gpointer)handle_host_device_list);
+
     g_hash_table_insert(g_rpc_routes, "webhook.dlq.list",    (gpointer)handle_webhook_dlq_list);
     g_hash_table_insert(g_rpc_routes, "webhook.dlq.retry",   (gpointer)handle_webhook_dlq_retry);
 

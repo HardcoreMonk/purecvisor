@@ -126,6 +126,12 @@ static void test_rpc_timeout_hostkey_scan(void) {
     g_assert_cmpint(pcv_get_rpc_timeout("backup.replicate"), ==, pcv_get_rpc_timeout("vm.list"));
 }
 
+
+static void test_rpc_timeout_guest_exec(void) {
+    g_assert_cmpint(pcv_get_rpc_timeout("vm.guest.exec"), ==, 20);
+    g_assert_cmpint(pcv_get_rpc_timeout("vm.guest.ping"), ==, pcv_get_rpc_timeout("vm.list"));
+}
+
 static void test_rpc_timeout_dlq_retry(void) {
     g_assert_cmpint(pcv_get_rpc_timeout("webhook.dlq.retry"), ==, 70);
     g_assert_cmpint(pcv_get_rpc_timeout("webhook.dlq.list"), ==, pcv_get_rpc_timeout("vm.list"));
@@ -178,6 +184,7 @@ void test_rest_middleware_register(void) {
     g_test_add_func("/middleware/rpc_timeout_long_running", test_rpc_timeout_long_running);
     g_test_add_func("/middleware/rpc_timeout_hostkey_scan", test_rpc_timeout_hostkey_scan);
     g_test_add_func("/middleware/rpc_timeout_dlq_retry", test_rpc_timeout_dlq_retry);
+    g_test_add_func("/middleware/rpc_timeout_guest_exec", test_rpc_timeout_guest_exec);
     g_test_add_func("/middleware/rpc_timeout_null_safe", test_rpc_timeout_null_safe);
     g_test_add_func("/middleware/etag_compute_basic", test_etag_compute_basic);
     g_test_add_func("/middleware/etag_deterministic", test_etag_deterministic);

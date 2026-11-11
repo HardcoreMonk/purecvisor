@@ -14,6 +14,7 @@
 
 
 #include "host_hardware_inventory.h"
+#include "hw_ids.h"
 
 #include <errno.h>
 #include <math.h>
@@ -28,12 +29,6 @@
 #define PCV_HW_MAX_NETWORK_INTERFACES 128U
 #define PCV_HW_MAX_TEXT_BYTES 256U
 #define PCV_HW_MAX_SMBIOS_BYTES (8U * 1024U * 1024U)
-#define PCV_HW_MAX_PCI_IDS_BYTES (16U * 1024U * 1024U)
-
-typedef struct {
-    GHashTable *vendors;
-    GHashTable *devices;
-} PcvPciIds;
 
 
 
@@ -617,18 +612,6 @@ collect_memory(const gchar *root, const gchar **coverage)
     return memory;
 }
 
-static gboolean
-is_hex4_prefix(const gchar *text)
-{
-    if (!text)
-        return FALSE;
-    for (guint i = 0; i < 4; i++) {
-        if (!g_ascii_isxdigit(text[i]))
-            return FALSE;
-    }
-    return g_ascii_isspace(text[4]);
-}
-
 static gchar *
 normalized_hex_id(const gchar *raw, guint digits)
 {
@@ -642,75 +625,6 @@ normalized_hex_id(const gchar *raw, guint digits)
             return NULL;
     }
     return g_ascii_strdown(start, (gssize)digits);
-}
-
-static PcvPciIds *
-load_pci_ids(const gchar *root)
-{
-
-
-
-
-
-
-
-
-
-
-    PcvPciIds *ids = g_new0(PcvPciIds, 1);
-    ids->vendors = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-    ids->devices = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-
-    const gchar *candidates[] = { "usr/share/misc/pci.ids", "usr/share/hwdata/pci.ids" };
-    gchar *contents = NULL;
-    gsize length = 0;
-    for (guint i = 0; i < G_N_ELEMENTS(candidates); i++) {
-        gchar *path = root_path(root, candidates[i]);
-        gboolean ok = g_file_get_contents(path, &contents, &length, NULL);
-        g_free(path);
-        if (ok && length <= PCV_HW_MAX_PCI_IDS_BYTES)
-            break;
-        g_clear_pointer(&contents, g_free);
-    }
-    if (!contents)
-        return ids;
-
-    gchar **lines = g_strsplit(contents, "\n", -1);
-    gchar *current_vendor = NULL;
-    for (guint i = 0; lines[i] != NULL; i++) {
-        const gchar *line = lines[i];
-        if (line[0] != '\t' && is_hex4_prefix(line)) {
-            g_free(current_vendor);
-            current_vendor = g_ascii_strdown(line, 4);
-            gchar *name = clean_text(line + 5);
-            if (name)
-                g_hash_table_replace(ids->vendors, g_strdup(current_vendor), name);
-        } else if (line[0] == '\t' && line[1] != '\t'
-                   && current_vendor && is_hex4_prefix(line + 1)) {
-            gchar *device_id = g_ascii_strdown(line + 1, 4);
-            gchar *key = g_strdup_printf("%s:%s", current_vendor, device_id);
-            gchar *name = clean_text(line + 6);
-            if (name)
-                g_hash_table_replace(ids->devices, key, name);
-            else
-                g_free(key);
-            g_free(device_id);
-        }
-    }
-    g_free(current_vendor);
-    g_strfreev(lines);
-    g_free(contents);
-    return ids;
-}
-
-static void
-free_pci_ids(PcvPciIds *ids)
-{
-    if (!ids)
-        return;
-    g_hash_table_unref(ids->vendors);
-    g_hash_table_unref(ids->devices);
-    g_free(ids);
 }
 
 static const gchar *
@@ -797,7 +711,7 @@ collect_pci(const gchar *root, const gchar **coverage)
     gchar *dir_path = root_path(root, "sys/bus/pci/devices");
     GPtrArray *names = sorted_directory_names(dir_path);
     g_free(dir_path);
-    PcvPciIds *ids = load_pci_ids(root);
+    PcvHwIds *ids = pcv_hw_ids_load(root, PCV_HW_IDS_PCI);
     guint source_count = 0;
     guint returned_count = 0;
     if (names) {
@@ -836,18 +750,12 @@ collect_pci(const gchar *root, const gchar **coverage)
             set_sysfs_hex_member(device, root, relative, "revision", 2, NULL);
             g_free(relative);
 
-            if (vendor_id) {
-                const gchar *vendor_name = g_hash_table_lookup(ids->vendors, vendor_id);
-                if (vendor_name)
-                    json_object_set_string_member(device, "vendor_name", vendor_name);
-            }
-            if (vendor_id && device_id) {
-                gchar *key = g_strdup_printf("%s:%s", vendor_id, device_id);
-                const gchar *device_name = g_hash_table_lookup(ids->devices, key);
-                if (device_name)
-                    json_object_set_string_member(device, "device_name", device_name);
-                g_free(key);
-            }
+            const gchar *vendor_name = pcv_hw_ids_vendor(ids, vendor_id);
+            if (vendor_name)
+                json_object_set_string_member(device, "vendor_name", vendor_name);
+            const gchar *device_name = pcv_hw_ids_device(ids, vendor_id, device_id);
+            if (device_name)
+                json_object_set_string_member(device, "device_name", device_name);
             g_free(vendor_id);
             g_free(device_id);
             g_free(class_id);
@@ -874,7 +782,7 @@ collect_pci(const gchar *root, const gchar **coverage)
         }
         g_ptr_array_free(names, TRUE);
     }
-    free_pci_ids(ids);
+    pcv_hw_ids_free(ids);
     json_object_set_array_member(pci, "devices", devices);
     set_count_metadata(pci, source_count, returned_count);
     *coverage = names ? "available" : "unavailable";

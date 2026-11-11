@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: A Single Edge hypervisor control plane for one Linux/KVM node
 template: splash
-lastUpdated: 2026-10-08
+lastUpdated: 2026-11-11
 sidebar:
   hidden: true
 ---
@@ -15,19 +15,21 @@ import DocumentationMap from '../../../components/DocumentationMap.astro';
   <section class="pcv-hero" id="_top" aria-labelledby="pcv-hero-title">
     <div class="pcv-shell pcv-hero-grid">
       <div class="pcv-hero-copy">
-        <h1 class="pcv-hero-title" id="pcv-hero-title">PURECVISOR 2.1.0</h1>
-        <p class="pcv-hero-lead">
-          <span>Install and operate VMs, containers, ZFS storage, and networking on one Linux/KVM host.</span>
-          <span>The Web UI, REST API, and CLI share one local control plane.</span>
-        </p>
+        <p class="pcv-eyebrow">PURECVISOR 2.2.0 · SINGLE EDGE</p>
+        <h1 class="pcv-hero-title" id="pcv-hero-title">Turn one Linux server into a virtualization platform</h1>
+        <p class="pcv-hero-lead">Manage VMs, containers, ZFS storage and networking from one control plane: Web&nbsp;UI, REST&nbsp;API and CLI.</p>
         <div class="pcv-actions">
-          <a class="pcv-button pcv-button-primary" href="#service-demos">Watch service demos <span aria-hidden="true">▷</span></a>
-          <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/overview/#14-5분-퀵스타트">5-minute quickstart <span aria-hidden="true">→</span></a>
-          <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/installation/">Installation guide</a>
+          <a class="pcv-button pcv-button-primary" href="/ko/getting-started/installation/">Installation guide <span aria-hidden="true">→</span></a>
+          <a class="pcv-button pcv-button-ghost" href="#service-demos">Watch service demos <span aria-hidden="true">▷</span></a>
         </div>
+        <p class="pcv-hero-quickstart"><a class="pcv-hero-quickstart-link" href="/ko/getting-started/overview/#14-5분-퀵스타트">5-minute quickstart <span aria-hidden="true">→</span></a></p>
         <p class="pcv-hero-note">Ubuntu Server 26.04.1 LTS · Single Edge · HTTPS :443 by default</p>
       </div>
 
+      <div class="pcv-hero-media">
+        <img class="pcv-hero-shot pcv-hero-shot-light" src="/assets/landing/dashboard-light-en.webp" width="2048" height="1189" decoding="async" alt="PureCVisor Web UI operations dashboard with sample data: host CPU, memory, ZFS pool and network gauges, a workload table of VMs and containers, and cards for alerts, security events and pending self-healing approvals." />
+        <img class="pcv-hero-shot pcv-hero-shot-dark" src="/assets/landing/dashboard-dark-en.webp" width="2048" height="1189" decoding="async" alt="PureCVisor Web UI operations dashboard with sample data: host CPU, memory, ZFS pool and network gauges, a workload table of VMs and containers, and cards for alerts, security events and pending self-healing approvals." />
+      </div>
     </div>
   </section>
   <ServiceShowcase locale="en" />

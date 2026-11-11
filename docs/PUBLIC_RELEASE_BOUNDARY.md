@@ -9,6 +9,8 @@
 > **현행화 기준:** 2026-09-15
 > **판정 목적:** 소스 공개 전에 Single Edge 공개 범위 밖 기능이 산출물, 소스, 문서에서 기능 절차로 노출되지 않는지 확인한다.
 
+> **2026-11-11 현황:** 공개 `2.2.0`은 `2.1.0` 위에 호스트 장치 화면과 조회·USB 장치 영구 할당·Windows 게스트 명령 실행을 더한 기능 릴리스다. 게시 전 공개 계약 게이트 47개, release·debug C 단위 시험, 브라우저 UI 시험, 패키지·격리 Ubuntu lifecycle과 개발 호스트 실제 업그레이드를 확인했다. 전체 감사·지원 환경 인증은 여전히 미완료다.
+>
 > **2026-11-09 현황:** 공개 `2.1.0`(`cca325c`)은 `2.0.4` 위에 Single Edge 기능을 반영한 기능 릴리스다. 게시 전 공개 계약 게이트 47개, release·debug C 단위 시험, 브라우저 UI 시험, 패키지·격리 Ubuntu lifecycle과 개발 호스트 실제 업그레이드를 확인했다. 전체 감사·지원 환경 인증은 여전히 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
 
 ---
@@ -55,6 +57,9 @@ endpoint가 아니며 문서 build와 운영 기준은 [PUBLIC_DOCUMENTATION_SIT
 - VM 구성 관측: ADMIN read-only `vm.inspect`(UUID 지정, `configuration_view=inactive-redacted`)는
   Single Edge 공통 조회 계약이다. 이름 fallback·VM 변경·HCP project/connection/Plan·migration·source
   보호는 포함하지 않는다.
+- 호스트 장치: VIEWER read-only `host.device.list`(REST `GET /api/v1/host/devices`, `pcvctl host devices`)는 이 호스트의
+  GPU·USB·블루투스 장치와 VM 할당을 sysfs와 libvirt 정의에서 읽는 단일 노드 조회다. 할당·해제는 기존 `vm.usb.attach`·`detach`와
+  `device.gpu.attach`·`detach`를 그대로 쓰며, 비ADMIN에게는 자기 테넌트에 허용된 장치와 자기 VM 이름만 보인다.
 - UI: Single Edge 메뉴, Single Edge endpoint registry, `운영 > 이벤트 센터` 같은 단일 노드 운영 triage 화면
 - 운영 스크립트: 로컬 단일 노드 설치와 선택적 원격 단일 노드 배포
 - 실패 가드: `make multi`는 잘못된 에디션 빌드를 차단하기 위해 exit code `2`로 실패해야 한다.

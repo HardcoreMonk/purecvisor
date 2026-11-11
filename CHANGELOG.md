@@ -1,5 +1,80 @@
 # Changelog
 
+## 2.2.0 기능 릴리스 — 2026-11-11
+
+2.1.0 이후의 Single Edge 기능·안정성 변경을 담은 기능 릴리스다. DB 스키마와 `daemon.conf` 형식은 바뀌지 않았고 새
+설정 키도 없다. 기존 RPC 메서드와 REST 경로는 그대로 쓸 수 있지만 USB 장치 할당과 Windows 게스트 명령 실행의 동작이
+바뀌었다. 업그레이드 전에 아래 "업그레이드 시 확인할 점"을 확인한다.
+
+### 신규 기능
+
+- 호스트 장치 화면과 조회를 추가했다. 웹 UI `인프라 > 호스트 장치`가 호스트의 GPU·USB·블루투스 장치를 장치 기준 표
+  한 장으로 보이고(할당된 VM과 실행 중·영구·지금만·호스트에서 빠짐·옛 장치 번호 상태), 같은 화면에서 USB
+  (`vm.usb.attach`·`detach`)와 GPU(`device.gpu.attach`·`detach`)를 할당·해제한다. 읽기 RPC `host.device.list`(VIEWER),
+  REST `GET /api/v1/host/devices`, CLI `pcvctl host devices [--all]`가 같은 데이터를 준다. ADMIN이 아니면 자기 테넌트에
+  허용된 장치 행만 보이고 VM 이름은 자기 VM 것만 보인다(남의 VM 할당은 "다른 VM", CLI `(other VM)`).
+- USB 장치를 영구 할당한다. `vm.usb.attach`·`detach`가 실행 중 VM은 live와 영구 정의를, 꺼진 VM은 영구 정의를
+  바꾼다. 선택 인자 `startup_policy`(`mandatory`·`requisite`·`optional`, 기본 `optional`)와 `persistent`(기본 `true`,
+  `false`면 실행 중 VM의 live 정의에만 — CLI `--live-only`)를 더했다. `vm.usb.list`는 항목마다 `live`·`persistent`·
+  `startup_policy`·`missing`을 보인다.
+- Windows 게스트에서 명령을 실행한다. `vm.guest.exec`가 `guest-get-osinfo`로 Windows 게스트를 가려 PowerShell로
+  실행하고(응답 `shell`·`os_id`), 여러 줄·따옴표·제어 문자가 섞인 명령을 그대로 보낸다. 출력은 늘 유효 UTF-8이며 원문이
+  UTF-8이 아니면 원문 바이트를 `stdout_b64`·`stderr_b64`로 함께 싣는다.
+
+### 안정성·동작
+
+- USB 변경 두 RPC는 메인 루프가 아니라 새 1칸 실행 줄(VM 장치 변경, 대기 8)에서 돈다. `host.device.list`는 libvirt
+  읽기 줄에서 돌고 외부 명령 없이 sysfs와 `pci.ids`·`usb.ids`만 읽는다.
+- `vm.guest.exec`는 서버가 처리를 시작한 때부터 15초 안에 답한다. 그 안에 끝나지 않은 명령은 `exited: false`로
+  돌아온다. 클라이언트 상한은 REST·CLI 20초, 웹 UI 25초다. 게스트 agent가 응답하지 않으면 명령을 보내지 않고
+  −32000 `guest agent on '<vm>' is not responding: …`로 끝난다.
+- 'GPU 장치' 화면의 패스스루 버튼은 호스트 장치 화면으로 옮기는 '호스트 장치에서 할당'이 됐고 VM 이름 입력은 빠졌다.
+  같은 화면의 CLI 참조에 `pcvctl gpu attach`·`detach`를 적었다.
+- `make test`의 root 단계는 운영 상태 경로를 빈 tmpfs로 가린 사설 mount 네임스페이스 안에서만 돈다. 컨테이너 rootfs
+  시험은 만든 임시 트리를 지워 `/tmp`에 디렉터리를 남기지 않는다.
+- 공개 문서 사이트 첫 화면을 글과 실제 Web UI 대시보드 화면(견본 데이터, 사이트 테마·언어별)의 2단 구성으로 바꿨다.
+
+### 수정
+
+- 웹 UI에서 숨긴 버전 배지가 빈 테두리로 보이던 것을 고쳤다(`.version-badge[hidden]`).
+- `device.gpu.attach`·`detach`가 GPU의 IOMMU 그룹 링크를 장치 깊이와 무관하게 그룹 번호로 푼다. 이전에는 PCI 장치
+  경로 깊이가 흔한 위치와 다른 GPU(루트 포트 바로 아래 내장 GPU, 카드 안 PCIe 스위치 뒤 GPU)가 "Cannot inspect IOMMU
+  group"으로 할당·해제에 실패했다.
+
+### 업그레이드 시 확인할 점
+
+- `sudo apt install ./purecvisor-single_2.2.0_amd64.deb`로 설치한 뒤 `sudo systemctl restart purecvisorsd`로 실행
+  중인 데몬을 새 바이너리로 바꾼다. DB 스키마 이관은 없고 기존 `daemon.conf`와 데이터는 보존된다.
+- **업그레이드 전에 붙인 USB 장치는 live에만 있다**(`vm.usb.list`의 `persistent: false`). 같은 `usb-attach`를 한 번 더
+  보내면 영구 정의에 저장된다. 그대로 두면 이전처럼 다음 정지 때 사라진다.
+- 기본 `startup_policy`는 `optional`이다 — 장치가 빠져 있어도 VM이 시작하고 목록에 `missing: true`가 보인다. 장치가
+  없으면 시작하지 않아야 하는 VM은 떼고 `--startup-policy mandatory`로 다시 붙인다.
+- 같은 장치를 다시 붙여도 오류가 아니다(바꾼 것이 없으면 `live: false`·`config: false`). 2.1.0은 같은 장치를 다시
+  붙이면 −32000(REST 500)이었다. 영구 정의의 정책이 다르면 −32002(REST 409)이므로 떼고 다시 붙여 정책을 바꾼다. detach는
+  장치가 있는 쪽에서만 떼며 어디에도 없으면 −32000이다.
+  `usb-list` plain·CSV 출력은 앞 두 칸 뒤에 `live,persistent,startup_policy,missing` 네 칸이 붙으므로 칸 수를 고정한
+  스크립트는 고친다.
+- Windows 게스트의 `pcvctl vm guest-exec`·`POST /api/v1/vms/{name}/guest-exec` `command`는 PowerShell 언어다. cmd 문법은
+  `cmd /c "…"`로 감싼다. 종료 코드는 외부 명령 그대로이고, 외부 명령이 stderr에 쓴 줄은 텍스트로 오지만 그것만으로
+  1이 되지 않는다. cmdlet 오류와 명령을 멈추는 오류(`throw`, `-ErrorAction Stop`)는 1이며 명령 안 `exit N`은 N이다.
+  PowerShell 시작에 1–1.5초가 더 든다.
+- 게스트 명령은 15초 안에 끝나지 않으면 `exited: false`로 돌아온다(2.1.0은 약 10초).
+- 'GPU 장치' 화면의 'VFIO Passthrough' 버튼과 'VM Name' 입력이 없어졌다. `pcvctl gpu list|attach|detach`는 그대로다.
+- `pcvctl host devices`의 STATE 칸은 영어 고정 토큰(`live`·`persistent`·`live-only`·`stale-address`·`not-on-host`·
+  `host-display`·`driver=<이름>`·`vm-off`·`blocked=<이유>` 등)을 `;`로 잇는다. JSON은 전역 옵션
+  `pcvctl --format=json host devices --all`이다.
+- 케이블 재연결·펌웨어 업데이트로 장치가 다시 열거되면 실행 중 VM은 장치를 잃고 자동으로 다시 붙지 않는다. 호스트 장치
+  화면은 그 상태를 "호스트에서 빠짐"·"옛 장치 번호"로 보이며 복구는 '해제' 뒤 '할당…'이다.
+- BPF 소스는 2.1.0과 같다. 선택형 BPF tarball의 객체·manifest는 2.1.0 tarball과 바이트 동일하므로 2.1.0 BPF
+  객체를 그대로 써도 된다.
+- 웹 UI 정적 자산의 버전 표기가 `2.2.0`으로 바뀐다. 업그레이드 뒤 브라우저를 새로고침해 새 UI를 받는다.
+
+### 2.1.0으로 되돌릴 때
+
+- DB 스키마가 같으므로 2.1.0 패키지를 다시 설치하고 데몬을 재시작하면 된다.
+- 2.2.0에서 영구 정의에 저장한 USB 항목(`startupPolicy` 포함)은 libvirt 도메인 정의에 그대로 남고, 2.1.0에서도 VM은 그
+  정의대로 시작한다. 2.1.0의 `vm.usb.attach`는 live에만 붙이므로 영구 항목은 `virsh` 등으로 정리한다.
+
 ## 2.1.0 기능 릴리스 — 2026-11-09
 
 2.0.4 이후의 Single Edge 기능·보안·안정성 변경을 담은 기능 릴리스다. 기존 RPC 메서드와 REST 경로는 그대로 쓸 수

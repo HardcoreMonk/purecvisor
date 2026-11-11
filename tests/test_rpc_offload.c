@@ -1135,6 +1135,43 @@ test_ctr_mutate_lane(Fx *fx, gconstpointer unused)
 
                                                                                             
 static void
+test_vm_device_mutate_lane(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    g_assert_cmpint(pcv_rpc_offload_lane_of("vm.usb.attach"), ==, PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("vm.usb.detach"), ==, PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("vm.usb.list"), ==, PCV_OFFLOAD_LANE_LIBVIRT_READ);
+    pcv_rpc_offload_set_now_fn_for_test(_fake_now);
+    _hold_set(FALSE);
+    g_assert_true(_submit("vm.usb.attach", "a", _h_hold));
+    _wait_until(_running_at_least, GUINT_TO_POINTER(1));
+    for (guint i = 0; i < 8; i++)
+        g_assert_true(_submit("vm.usb.detach", "q", _h_ok));
+    g_assert_false(_submit("vm.usb.attach", "over", _h_ok));
+    g_usleep(100000);
+    g_mutex_lock(&g_fx.mu);
+    g_assert_cmpuint(g_fx.handler_calls, ==, 1);
+    g_fx.now_us += ((gint64)PCV_OFFLOAD_MUTATE_MAX_WAIT_SEC + 1) * G_USEC_PER_SEC;
+    g_mutex_unlock(&g_fx.mu);
+    _hold_set(TRUE);
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(9));
+    g_assert_cmpuint(g_fx.handler_calls, ==, 1);
+    gchar *msg = NULL;
+    g_assert_cmpint(_last_error_code(&msg), ==, PURE_RPC_ERR_BUSY);
+    g_assert_cmpstr(msg, ==, "vm.usb.detach: queued too long");
+    g_free(msg);
+}
+
+static void
+test_host_device_list_lane(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    g_assert_cmpint(pcv_rpc_offload_lane_of("host.device.list"), ==, PCV_OFFLOAD_LANE_LIBVIRT_READ);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("gpu.list"), ==, PCV_OFFLOAD_LANE_HOST_READ);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("host.devices.list"), ==, -1);
+}
+
+static void
 _h_self_audit(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
@@ -1225,6 +1262,8 @@ test_rpc_offload_register(void)
     ADD("stall_mark_per_request", test_stall_mark_per_request);
     ADD("net_lane_serial", test_net_lane_serial);
     ADD("ctr_mutate_lane", test_ctr_mutate_lane);
+    ADD("vm_device_mutate_lane", test_vm_device_mutate_lane);
+    ADD("host_device_list_lane", test_host_device_list_lane);
     ADD("registered_async_method_audits_once", test_registered_async_method_audits_once);
 #undef ADD
 }

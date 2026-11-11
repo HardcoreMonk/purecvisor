@@ -258,14 +258,6 @@ main	route:vm.start	libvirt	_vm_start_prepare	virDomainGetInfo
 main	route:vm.start	libvirt	pure_virt_get_domain	virDomainLookupByName
 main	route:vm.start	libvirt	pure_virt_get_domain	virDomainLookupByUUIDString
 main	route:vm.start	pool	_vm_start_prepare	virt_conn_pool_acquire
-main	route:vm.usb.attach	libvirt	handle_vm_usb_attach	virDomainAttachDeviceFlags
-main	route:vm.usb.attach	libvirt	pure_virt_get_domain	virDomainLookupByName
-main	route:vm.usb.attach	libvirt	pure_virt_get_domain	virDomainLookupByUUIDString
-main	route:vm.usb.attach	pool	PCV_REQUIRE_VIRT_CONN	virt_conn_pool_acquire
-main	route:vm.usb.detach	libvirt	handle_vm_usb_detach	virDomainDetachDeviceFlags
-main	route:vm.usb.detach	libvirt	pure_virt_get_domain	virDomainLookupByName
-main	route:vm.usb.detach	libvirt	pure_virt_get_domain	virDomainLookupByUUIDString
-main	route:vm.usb.detach	pool	PCV_REQUIRE_VIRT_CONN	virt_conn_pool_acquire
 main	route:vpc.backend.list	spawn-unbounded	_host_pool_is_free	pcv_spawn_sync
 main	route:vpc.backend.list	spawn-unbounded	_line_uses_managed_edge	pcv_spawn_sync
 main	route:vpc.backend.list	spawn-unbounded	_run_argv	pcv_spawn_sync

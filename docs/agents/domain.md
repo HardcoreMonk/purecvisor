@@ -43,4 +43,4 @@ Draft -> Review -> Approved -> Implemented -> Verified -> Archived
 
 - `inspection`: ADMIN UUID 전용 inactive-redacted 구성 관측(`vm.inspect`). source 보호·disk 내용 revision과 구분한다.
 - `dispatcher 계열`·`rest 계열`·`VM 계열`: 파일 분할 뒤 게이트·시험이 원래 파일 하나 대신 함께 읽는 파일 묶음 — 원래 파일(`src/api/dispatcher.c`·`src/api/rest_server.c`·`src/modules/virt/vm_manager.c`·`src/modules/dispatcher/handler_vm_lifecycle.c`·`handler_vm_hotplug.c`)과 분할로 생긴 파일(`scripts/split/targets/*.toml`의 `split_files`). 코드는 `scripts/rpc_extract.py`의 `dispatcher_family`·`rest_family`·`vm_family`다.
-- `메인 루프 차단 도달`: 메인 루프·REST 스레드에서 정적으로 닿는 차단 호출의 행 집합(`scripts/mainloop_reach_baseline.txt`). `오프로드 레인`은 그 경로를 메인 루프 밖에서 돌리는 `rpc_offload.c`의 실행 줄(`LIBVIRT_READ`·`HOST_READ`·`NET_MUTATE`·`STORAGE_MUTATE`·`CTR_MUTATE`)이다.
+- `메인 루프 차단 도달`: 메인 루프·REST 스레드에서 정적으로 닿는 차단 호출의 행 집합(`scripts/mainloop_reach_baseline.txt`). `오프로드 레인`은 그 경로를 메인 루프 밖에서 돌리는 `rpc_offload.c`의 실행 줄(`LIBVIRT_READ`·`HOST_READ`·`NET_MUTATE`·`STORAGE_MUTATE`·`VM_DEVICE_MUTATE`·`CTR_MUTATE`)이다.

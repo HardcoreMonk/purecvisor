@@ -5,7 +5,7 @@
 > **2026-10-02 역사 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **기준 시점:** 2026-11-09 공개 소스 2.1.0 (SQLite 9개 파일·28개 영구 테이블)
+> **기준 시점:** 2026-11-11 공개 소스 2.2.0 (SQLite 9개 파일·28개 영구 테이블)
 >
 > **대상:** `purecvisor-single`의 SQLite 기반 영속 상태
 >
@@ -189,6 +189,9 @@ example.db-shm
 저장 role 마이그레이션의 1회성 표식으로만 사용한다(1 = 실효 role 동결, 2 = 저장 role 하향, §6).
 Local VPC는 `PRAGMA user_version=2`, 자원 등록은 `PRAGMA user_version=2`(§11)를 사용하며 지원
 버전보다 높은 DB를 변경하지 않고 거부한다. Job 상태 DB도 `PRAGMA user_version=2`를 쓴다(§5).
+
+2.1.0 대비 2.2.0의 스키마 변화는 없다. USB 영구 할당은 libvirt 도메인 정의가 정본이고 `host.device.list`는 sysfs와
+libvirt 정의를 읽기만 한다.
 
 2.0.4 대비 2.1.0의 스키마 변화는 다음과 같다. 모두 데몬 시작 또는 첫 사용 때 자동으로 적용되며,
 이전 판 바이너리로 되돌릴 때의 주의는 각 절에 적는다.

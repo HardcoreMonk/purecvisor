@@ -132,7 +132,7 @@ require_literal "reader-code-toolbar" "ui/docs.html" "documentation code blocks 
 require_literal "behavior: 'instant'" "ui/docs.html" "documentation deep links must align immediately after font loading"
 require_literal "22개" "DESIGN.md" "DESIGN.md must require full numbered chapter visibility"
 require_literal "하나의 Linux/KVM 노드, 하나의 제어면." "DESIGN.md" "DESIGN.md must publish the live-site hero contract"
-require_literal "PURECVISOR 2.1.0 · SINGLE EDGE" "ui/docs.html" "documentation landing must expose the live eyebrow"
+require_literal "PURECVISOR 2.2.0 · SINGLE EDGE" "ui/docs.html" "documentation landing must expose the live eyebrow"
 require_literal "Single Edge 서비스 아키텍처" "ui/docs.html" "documentation landing must expose the architecture source"
 require_literal "pcv-architecture-legend" "ui/docs.html" "documentation landing must expose the seven-layer legend"
 require_literal "data-nav-group" "ui/docs.html" "documentation header must expose dropdown groups"

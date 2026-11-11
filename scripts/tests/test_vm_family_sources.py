@@ -19,7 +19,7 @@ import rpc_extract
 import split_target              
 
 CONFIGS = ("vm_hotplug", "vm_lifecycle", "vm_manager")
-FLOORS = {"vm_hotplug": 32, "vm_lifecycle": 66, "vm_manager": 70}
+FLOORS = {"vm_hotplug": 34, "vm_lifecycle": 66, "vm_manager": 70}
 
 
 def _tsv(rel: str) -> list[tuple[str, str]]:

@@ -81,6 +81,7 @@ function NAV_SECTIONS() {
       { id: 'dpdk', ko: 'DPDK', en: 'DPDK', ico: 'ci-terminal' },
       { id: 'sriov', ko: 'SR-IOV', en: 'SR-IOV', ico: 'ci-layers' },
       { id: 'pool-info', ko: '커넥션 풀', en: 'Connection Pool', ico: 'ci-chart-line' },
+      { id: 'host-devices', ko: '호스트 장치', en: 'Host Devices', ico: 'ci-desktop-tower' },
       { id: 'gpu', ko: 'GPU 장치', en: 'GPU Devices', ico: 'ci-desktop-tower' },
       { id: 'topology', ko: '토폴로지', en: 'Topology', ico: 'ci-chart-line' },
       { id: 'host', ko: '호스트 상태', en: 'Host Health', ico: 'ci-monitor' } ] },

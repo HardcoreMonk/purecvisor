@@ -16,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <sys/mount.h>
@@ -658,6 +659,14 @@ test_mountinfo_absent_and_invalid(void)
     g_assert_false(found);
 }
 
+                                                                            
+static int
+walk_rm_cb(const char *path, const struct stat *sb, int typeflag, struct FTW *ftwbuf)
+{
+    (void)sb; (void)typeflag; (void)ftwbuf;
+    return remove(path);
+}
+
                                                                                 
 static void
 test_rootfs_walk_dir(void)
@@ -736,6 +745,9 @@ test_rootfs_walk_dir(void)
     g_assert_cmpuint(n, ==, 0);
 
     close(rootfd);
+                                                            
+    g_assert_cmpint(nftw(base, walk_rm_cb, 16, FTW_DEPTH | FTW_PHYS), ==, 0);
+    g_assert_false(g_file_test(base, G_FILE_TEST_EXISTS));
     g_free(abslink); g_free(rellink); g_free(ok); g_free(mnt); g_free(host); g_free(rootfs); g_free(base); g_free(deep);
 }
 

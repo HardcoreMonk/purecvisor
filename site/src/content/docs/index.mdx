@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: 단일 Linux/KVM 노드를 위한 Single Edge 하이퍼바이저 제어면
 template: splash
-lastUpdated: 2026-10-08
+lastUpdated: 2026-11-11
 sidebar:
   hidden: true
 ---
@@ -15,19 +15,21 @@ import DocumentationMap from '../../components/DocumentationMap.astro';
   <section class="pcv-hero" id="_top" aria-labelledby="pcv-hero-title">
     <div class="pcv-shell pcv-hero-grid">
       <div class="pcv-hero-copy">
-        <h1 class="pcv-hero-title" id="pcv-hero-title">PURECVISOR 2.1.0</h1>
-        <p class="pcv-hero-lead">
-          <span>한 대의 Linux/KVM 호스트에서 VM, 컨테이너, ZFS 스토리지와 네트워크를 설치하고 운영합니다.</span>
-          <span>Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.</span>
-        </p>
+        <p class="pcv-eyebrow">PURECVISOR 2.2.0 · SINGLE EDGE</p>
+        <h1 class="pcv-hero-title" id="pcv-hero-title">한 대의 Linux 서버를 가상화 플랫폼으로</h1>
+        <p class="pcv-hero-lead">VM·컨테이너·ZFS 스토리지·네트워크를 Web&nbsp;UI·REST&nbsp;API·CLI 하나의 제어면으로 관리합니다.</p>
         <div class="pcv-actions">
-          <a class="pcv-button pcv-button-primary" href="#service-demos">서비스 영상 보기 <span aria-hidden="true">▷</span></a>
-          <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/overview/#14-5분-퀵스타트">5분 퀵스타트 <span aria-hidden="true">→</span></a>
-          <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/installation/">설치 가이드</a>
+          <a class="pcv-button pcv-button-primary" href="/ko/getting-started/installation/">설치 가이드 <span aria-hidden="true">→</span></a>
+          <a class="pcv-button pcv-button-ghost" href="#service-demos">서비스 영상 보기 <span aria-hidden="true">▷</span></a>
         </div>
+        <p class="pcv-hero-quickstart"><a class="pcv-hero-quickstart-link" href="/ko/getting-started/overview/#14-5분-퀵스타트">5분 퀵스타트 <span aria-hidden="true">→</span></a></p>
         <p class="pcv-hero-note">Ubuntu Server 26.04.1 LTS · Single Edge · 기본 HTTPS :443</p>
       </div>
 
+      <div class="pcv-hero-media">
+        <img class="pcv-hero-shot pcv-hero-shot-light" src="/assets/landing/dashboard-light.webp" width="2048" height="1189" decoding="async" alt="PureCVisor Web UI 운영 대시보드 화면(견본 데이터). 호스트 CPU·메모리·ZFS 풀·네트워크 게이지, VM과 컨테이너 워크로드 표, 알림·보안 이벤트와 자가치유 승인 대기 카드가 한 화면에 보입니다." />
+        <img class="pcv-hero-shot pcv-hero-shot-dark" src="/assets/landing/dashboard-dark.webp" width="2048" height="1189" decoding="async" alt="PureCVisor Web UI 운영 대시보드 화면(견본 데이터). 호스트 CPU·메모리·ZFS 풀·네트워크 게이지, VM과 컨테이너 워크로드 표, 알림·보안 이벤트와 자가치유 승인 대기 카드가 한 화면에 보입니다." />
+      </div>
     </div>
   </section>
   <ServiceShowcase locale="ko" />

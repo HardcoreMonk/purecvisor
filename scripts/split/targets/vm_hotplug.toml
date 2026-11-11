@@ -33,4 +33,4 @@ async = false
 policy = "none"
 
 [extra]
-min_functions = 32                                                                             
+min_functions = 34

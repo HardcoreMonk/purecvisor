@@ -26,12 +26,15 @@
 
 G_BEGIN_DECLS
 
-                                                                                                                           
+                                                                                                                      
+                                                                                                        
+                                                                                           
 typedef enum {
     PCV_OFFLOAD_LANE_LIBVIRT_READ,
     PCV_OFFLOAD_LANE_HOST_READ,
     PCV_OFFLOAD_LANE_NET_MUTATE,
     PCV_OFFLOAD_LANE_STORAGE_MUTATE,
+    PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE,
     PCV_OFFLOAD_LANE_CTR_MUTATE,
     PCV_OFFLOAD_LANE_COUNT
 } PcvOffloadLane;

@@ -553,6 +553,10 @@ pcv_rest_map_platform(PcvRestRequest *rq)
     }
 
                                                                      
+    else if (g_strcmp0(resource, "host") == 0) {
+        if (g_strcmp0(name, "devices") == 0 && g_strcmp0(method, "GET") == 0)
+            rq->rpc = pcv_rest_build_rpc("host.device.list", NULL);
+    }
 
                                                             
     else if (g_strcmp0(resource, "vnc") == 0 && *name != '\0') {

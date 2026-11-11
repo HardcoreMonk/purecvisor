@@ -340,8 +340,8 @@ def collect(g: Graph):
             if lane == "HOST_READ" and names & GUARD_OUT:
                 violations.append(f"{method}(HOST_READ)가 가드 밖 spawn {sorted(names & GUARD_OUT)}에 닿습니다")
             spawns = {n for k, _, n in g.sinks_of(reach) if k.startswith("spawn")}
-            if lane == "LIBVIRT_READ" and spawns:
-                violations.append(f"{method}(LIBVIRT_READ)가 spawn {sorted(spawns)}에 닿습니다")
+            if lane in ("LIBVIRT_READ", "VM_DEVICE_MUTATE") and spawns:
+                violations.append(f"{method}({lane})가 spawn {sorted(spawns)}에 닿습니다")
             continue
         root = "route:" + method
         reaches[root] = reach

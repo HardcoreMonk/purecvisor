@@ -181,6 +181,8 @@
 #include "cli_security_close.h"                                                                   
 #include "cli_agent_set.h"                                                                    
 #include "cli_secret_echo.h"                                                    
+#include "cli_vm_usb.h"
+#include "cli_host_device.h"
 #include "modules/dispatcher/rpc_utils.h"                                  
 #include "modules/network/dpdk_manager.h"                               
 
@@ -3588,113 +3590,6 @@ void cmd_iso_list(int argc, char *argv[]) {
 
                                                                               
                                                                        
-void cmd_vm_usb_attach(int argc, char *argv[]) {
-    if (argc < 5) {
-        printf("%sUsage: pcvctl vm usb-attach <name> <vendor_id> <product_id>%s\n",
-            cc(CYBER_YELLOW), cc(CYBER_RESET));
-        printf("Example: pcvctl vm usb-attach web-prod 0x1234 0x5678\n");
-        return;
-    }
-    JsonObject *params = json_object_new();
-    json_object_set_string_member(params, "vm_id", argv[2]);
-    json_object_set_string_member(params, "vendor_id", argv[3]);
-    json_object_set_string_member(params, "product_id", argv[4]);
-    GError *error = NULL;
-    gchar *resp = purectl_send_request("vm.usb.attach", params, &error);
-    if (error) {
-        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
-        g_error_free(error); return;
-    }
-    print_action_response(resp, "USB_ATTACH");
-    g_free(resp);
-}
-
-                                                                              
-                                         
-void cmd_vm_usb_detach(int argc, char *argv[]) {
-    if (argc < 5) {
-        printf("%sUsage: pcvctl vm usb-detach <name> <vendor_id> <product_id>%s\n",
-            cc(CYBER_YELLOW), cc(CYBER_RESET));
-        printf("Example: pcvctl vm usb-detach web-prod 0x1234 0x5678\n");
-        return;
-    }
-    JsonObject *params = json_object_new();
-    json_object_set_string_member(params, "vm_id", argv[2]);
-    json_object_set_string_member(params, "vendor_id", argv[3]);
-    json_object_set_string_member(params, "product_id", argv[4]);
-    GError *error = NULL;
-    gchar *resp = purectl_send_request("vm.usb.detach", params, &error);
-    if (error) {
-        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
-        g_error_free(error); return;
-    }
-    print_action_response(resp, "USB_DETACH");
-    g_free(resp);
-}
-
-                                                                       
-                                                 
-void cmd_vm_usb_list(int argc, char *argv[]) {
-    if (argc < 3) {
-        printf("%sUsage: pcvctl vm usb-list <name>%s\n",
-            cc(CYBER_YELLOW), cc(CYBER_RESET));
-        return;
-    }
-    JsonObject *params = json_object_new();
-    json_object_set_string_member(params, "vm_id", argv[2]);
-    GError *error = NULL;
-    gchar *resp = purectl_send_request("vm.usb.list", params, &error);
-    if (error) {
-        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
-        g_error_free(error); return;
-    }
-    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
-
-    JsonParser *parser = json_parser_new();
-    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
-        g_object_unref(parser); g_free(resp); return;
-    }
-
-    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
-    if (json_object_has_member(root, "error")) {
-        JsonObject *err = json_object_get_object_member(root, "error");
-        g_printerr("%s[!] %s%s\n", ce(CYBER_RED),
-            json_object_get_string_member_with_default(err, "message", "USB list failed"),
-            ce(CYBER_RESET));
-    } else if (json_object_has_member(root, "result") &&
-               JSON_NODE_HOLDS_ARRAY(json_object_get_member(root, "result"))) {
-        JsonArray *arr = json_node_get_array(json_object_get_member(root, "result"));
-        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
-            for (guint i = 0; i < json_array_get_length(arr); i++) {
-                JsonObject *usb = json_array_get_object_element(arr, i);
-                printf("%s,%s\n",
-                    json_object_get_string_member_with_default(usb, "vendor_id", "-"),
-                    json_object_get_string_member_with_default(usb, "product_id", "-"));
-            }
-        } else {
-            print_cyber_banner();
-            printf("%s [ VM USB DEVICES ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
-            printf("%s%-14s %-14s%s\n", cc(CYBER_CYAN), "VENDOR_ID", "PRODUCT_ID", cc(CYBER_RESET));
-            printf("──────────────────────────────\n");
-            for (guint i = 0; i < json_array_get_length(arr); i++) {
-                JsonObject *usb = json_array_get_object_element(arr, i);
-                printf(" %-14s %-14s\n",
-                    json_object_get_string_member_with_default(usb, "vendor_id", "-"),
-                    json_object_get_string_member_with_default(usb, "product_id", "-"));
-            }
-            if (json_array_get_length(arr) == 0)
-                printf(" (no USB hostdev attached)\n");
-            printf("──────────────────────────────\n");
-        }
-    } else {
-        print_action_response(resp, "USB_LIST");
-    }
-    g_object_unref(parser);
-    g_free(resp);
-}
-
-                                                                       
-                                                        
                                                                           
 
    
@@ -4265,7 +4160,7 @@ void cmd_vm_guest_exec(int argc, char *argv[]) {
                 printf("%s%s%s", cc(CYBER_RED), err_out,
                     err_out[strlen(err_out)-1] != '\n' ? "\n" : "");
             if (!exited)
-                printf("%s[still running — exit code unavailable within 10s budget]%s\n",
+                printf("%s[still running — exit code unavailable within 15s budget]%s\n",
                     cc(CYBER_YELLOW), cc(CYBER_RESET));
             const gchar *ec_color = (exitc == 0) ? cc(CYBER_GREEN) : cc(CYBER_RED);
             printf("%s[exit_code: %s%lld%s]%s\n",
@@ -7184,64 +7079,6 @@ static void cmd_healing_history(int argc __attribute__((unused)), char *argv[] _
 
                                         
                                                               
-static void cmd_gpu_list(int argc, char *argv[]) {
-    GError *e = NULL; gchar *r = purectl_send_request("gpu.list", NULL, &e);
-    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
-    if (!r) return;
-    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
-    JsonParser *parser = json_parser_new();
-    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
-    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
-    if (json_object_has_member(root, "error")) {
-        JsonObject *err = json_object_get_object_member(root, "error");
-        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
-    } else {
-        JsonArray *arr = json_object_has_member(root, "result")
-            ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
-        if (arr && json_array_get_length(arr) > 0) {
-            printf("%s%-12s %-40s %-10s%s\n", cc(CYBER_BOLD), "PCI_ADDR", "DEVICE", "DRIVER", cc(CYBER_RESET));
-            printf("──────────────────────────────────────────────────────────────────\n");
-            for (guint i = 0; i < json_array_get_length(arr); i++) {
-                JsonObject *g = json_array_get_object_element(arr, i);
-                printf("%-12s %-40s %-10s\n",
-                    json_object_get_string_member_with_default(g, "pci_addr", "-"),
-                    json_object_get_string_member_with_default(g, "device", "-"),
-                    json_object_get_string_member_with_default(g, "driver", "-"));
-            }
-        } else {
-            printf("No GPUs found.\n");
-        }
-    }
-    g_object_unref(parser); g_free(r);
-}
-
-                                                               
-static void cmd_gpu_assignment(int argc, char *argv[]) {
-    if (argc < 4) {
-        printf("%sUsage: pcvctl gpu %s <vm_name> <canonical_pci_addr>%s\n",
-            cc(CYBER_YELLOW), argc >= 2 ? argv[1] : "attach|detach", cc(CYBER_RESET));
-        return;
-    }
-    gboolean attach = g_strcmp0(argv[1], "attach") == 0;
-    JsonObject *params = json_object_new();
-    json_object_set_string_member(params, "vm_name", argv[2]);
-    json_object_set_string_member(params, "pci_addr", argv[3]);
-    GError *error = NULL;
-    gchar *resp = purectl_send_request(
-        attach ? "device.gpu.attach" : "device.gpu.detach", params, &error);
-    if (error) {
-        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
-        g_error_free(error);
-        return;
-    }
-    if (resp) {
-        print_action_response(resp, attach ? "GPU_ATTACH" : "GPU_DETACH");
-        g_free(resp);
-    }
-}
-
-                                                                       
-                            
                                                                           
 
 typedef struct {
@@ -8355,8 +8192,8 @@ static CommandRoute routes[] = {
     {"vm","snapshot-delete-all", cmd_vm_snapshot_delete_all, "Bulk delete snapshots (--prefix/--keep)"},
     {"vm","export-ova",          cmd_vm_export_ova,          "Export VM to OVA (--output-dir)"},
     {"vm","import-ova",          cmd_vm_import_ova,          "Import VM from OVA (<ova_path> <name>)"},
-    {"vm","usb-list",            cmd_vm_usb_list,            "List USB hostdevs attached to VM"},
-    {"vm","usb-attach",          cmd_vm_usb_attach,          "Attach USB host device (<vendor_id> <product_id>)"},
+    {"vm","usb-list",            cmd_vm_usb_list,            "List USB hostdevs (live/persistent/policy)"},
+    {"vm","usb-attach",          cmd_vm_usb_attach,          "Attach USB host device (<vendor_id> <product_id> [--startup-policy] [--live-only])"},
     {"vm","usb-detach",          cmd_vm_usb_detach,          "Detach USB host device (<vendor_id> <product_id>)"},
                                     
     {"monitor","processes",  cmd_monitor_processes,  "Top processes (--type/--top)"},
@@ -8367,6 +8204,7 @@ static CommandRoute routes[] = {
     {"gpu","list",           cmd_gpu_list,            "List GPUs (lspci)"},
     {"gpu","attach",         cmd_gpu_assignment,      "Assign a VFIO-prebound GPU to a shut off VM"},
     {"gpu","detach",         cmd_gpu_assignment,      "Remove a GPU from a shut off VM"},
+    {"host","devices", cmd_host_devices, "List host GPU/USB devices and VM assignments ([--all])"},
     {NULL,NULL,NULL,NULL}
 };
 
@@ -8410,6 +8248,7 @@ static const CommandGroupInfo help_groups[] = {
     {"security",       "HIDS/HIPS Security Guard"},
     {"security-group", "VM 보안 그룹"},
     {"gpu",            "GPU 상태·메트릭"},
+    {"host",           "호스트 장치"},
     {"config",         "설정 이력·검증"},
     {"grpc",           "gRPC 상태·연결"},
     {"healing",        "자가 치유 이력"},

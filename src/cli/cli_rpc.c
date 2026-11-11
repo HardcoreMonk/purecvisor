@@ -283,12 +283,14 @@ gchar *purectl_send_request(const gchar *method,
                                                                                             
                                                                                
                                                                                                                                                                                                                       
+                                                                                                              
                                 
     guint sock_timeout = g_strcmp0(method, "vm.inspect") == 0 ? 35
                        : (g_strcmp0(method, "backup.replication.hostkey.scan") == 0 ||
                           g_strcmp0(method, "backup.replication.hostkey.trust") == 0) ? 40
                        : g_strcmp0(method, "webhook.dlq.retry") == 0 ? 70
                        : g_strcmp0(method, "container.exec") == 0 ? 65
+                       : g_strcmp0(method, "vm.guest.exec") == 0 ? 20
                        : g_strcmp0(method, "container.snapshot.rollback") == 0 ? 75 : 10;
     g_socket_set_timeout(sock, sock_timeout);
 

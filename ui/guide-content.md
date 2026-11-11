@@ -1,7 +1,7 @@
 # PureCVisor Single Edge 운영 가이드
-> **2026-11-09 공개 소스 기준 (2.1.0):** 2.0.4 이후의 Single Edge 기능을 담은 기능 릴리스입니다. 내부 구조 분할과 VM 상세 조회·백업 복제 호스트 키 고정·관리면 보호·세션 로그아웃·비동기 감사·LXC unprivileged 기본·자원/볼륨 경계·보안 사건 상한이 포함됩니다.
-> DB 스키마는 데몬 시작 때 자동 이관되고 설정 파일은 그대로 쓰지만, 일부 기본값과 응답 의미가 바뀌었습니다. 변경 목록과 업그레이드·원복 안내는 저장소의 `CHANGELOG.md` 2.1.0 항목을 따릅니다.
-> 실행 중이던 컨테이너는 업그레이드 뒤 한 번 정지·시작해야 전용 시작 유닛으로 옮겨집니다.
+> **2026-11-11 공개 소스 기준 (2.2.0):** 2.1.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다. 호스트 장치 화면과 조회(`host.device.list`), USB 장치 영구 할당, Windows 게스트 명령 실행이 포함됩니다.
+> DB 스키마와 설정 파일은 그대로지만 USB 할당과 Windows 게스트 명령 실행의 동작이 바뀌었습니다. 변경 목록과 업그레이드·원복 안내는 저장소의 `CHANGELOG.md` 2.2.0 항목을 따릅니다.
+> 업그레이드 전에 붙인 USB 장치는 live 정의에만 있으므로 같은 `usb-attach`를 한 번 더 보내 영구 정의에 저장합니다.
 
 > **2026-11-08 공개 소스 기준 (2.0.4):** 읽기 전용으로 붙인 컨테이너 볼륨이 컨테이너 안에서 읽기 전용으로 유지되도록 고친 보안 수정 릴리스입니다.
 > 새 기능은 없으며 데이터·설정 형식과 API는 그대로입니다. 변경 목록과 업그레이드 안내는 저장소의 `CHANGELOG.md` 2.0.4 항목을 따릅니다.
@@ -28,7 +28,7 @@
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.1.0
+> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.2.0
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
@@ -42,7 +42,7 @@
 > ACL/NAT 필터 전달까지입니다. 완결되지 않은 OVN/NFV Load Balancer와 VM 자동 포트 내부
 > helper는 공개 기능이 아니며, Local VPC의 선택형 OVN backend는 별도 지원 gate를 따릅니다.
 >
-> **문서 현행화(2026-11-09)**: 2.1.0 공개 소스 기준으로 최신 릴리스 기준(1.0), 프로젝트 통계 스냅샷(18.6)과 공개 소스·문서 현황(22.8)을 갱신했습니다. 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
+> **문서 현행화(2026-11-11)**: 2.2.0 공개 소스 기준으로 최신 릴리스 기준(1.0), 프로젝트 통계 스냅샷(18.6)과 공개 소스·문서 현황(22.8)을 갱신했습니다. 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -78,13 +78,13 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.1.0`입니다.<br>
+현재 공개 제품 버전은 `2.2.0`입니다.<br>
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
-**2026-11-09 공개 현황:** 공개 소스 [`cca325c`](https://github.com/HardcoreMonk/purecvisor/commit/cca325c07832aefdb7608ab3633d92247c108520)가 `2.1.0` 릴리스입니다. 2.0.4 위에 VM 구성 관측, 세션 단위 로그아웃, 백업 복제 호스트 키 고정, 관리면 보호, LXC unprivileged 기본, 호스트 자원·볼륨 경계와 보안 사건 상한을 더한 기능 릴리스이며 Single Edge 범위를 유지합니다.
+**2026-11-11 공개 현황:** 공개 `2.2.0` 릴리스는 2.1.0 위에 호스트 장치 화면과 조회, USB 장치 영구 할당, Windows 게스트 명령 실행과 GPU IOMMU 그룹 판정 수정을 더한 기능 릴리스이며 Single Edge 범위를 유지합니다.
 
-게시 전 검증에서 공개판 계약 게이트(`make check-all`) 47개, release·debug 빌드 각각의 C 단위 시험 2,495개(환경 의존 22개 생략)와 브라우저 UI 시험 573개가 통과했습니다. 패키지 검사, 격리된 Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림도 확인했습니다.
+게시 전 검증에서 공개판 계약 게이트(`make check-all`) 47개, release·debug 빌드 각각의 C 단위 시험 2,514개(환경 의존 22개 생략)와 브라우저 UI 시험 613개가 통과했습니다. 패키지 검사, 격리된 Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림도 확인했습니다.
 
 지정 공개 소스 검증은 통과했지만 전체 소스 감사와 지원 환경 인증은 미완료이며, 전체 감사 판정은 `FAIL(미완료)`입니다. 회차별 결과와 GPU Passthrough 영상의 검증 범위는 [품질 게이트의 공개 현황](/ko/development/quality-gates/#228-2026-09-15-공개-소스문서-현황)을 따릅니다.
 
@@ -289,12 +289,12 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "node_name": "standalone"
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.1.0`이다.<br>
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.2.0`이다.<br>
 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
 Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
 `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
@@ -357,7 +357,7 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 ### 2.1 솔루션 권장사항 — Ubuntu 26.04.1 LTS
 
-PureCVisor 2.1.0 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
+PureCVisor 2.2.0 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
 Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
 
 > **설치 기준**
@@ -522,7 +522,7 @@ SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습�
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 의존성 자동 해결 포함 설치
-sudo apt install -y ./purecvisor-single_2.1.0_amd64.deb
+sudo apt install -y ./purecvisor-single_2.2.0_amd64.deb
 
 # 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
 sudoedit /etc/purecvisor/daemon.conf
@@ -541,7 +541,7 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).<br>
-2.0.4 이하에서 2.1.0로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
+2.1.0 이하에서 2.2.0으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.<br>
 같은 버전을 다시 설치할 때는 `sudo apt install --reinstall ./purecvisor-single_<버전>_amd64.deb`를 사용한다.
 - 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 `FSA-PKG-02` 시정 이후 패키지 기준이며 이미 설치된 구형 패키지에는 적용되지 않는다.
@@ -745,7 +745,7 @@ ls -lh bin/
 #### 품질 검증
 
 ```bash
-# 전체 unit·integration test
+# 전체 unit·integration test (root 단계는 운영 상태 경로를 빈 tmpfs로 가린 사설 mount 네임스페이스 안에서만 돈다)
 make test
 
 # 공개 경계와 계약 게이트 전체
@@ -1393,7 +1393,7 @@ NODE_IPV4="<configured-management-ipv4>"
 curl -ksS "https://${NODE_IPV4}/api/v1/health" \
   | jq '{status,service,version,node_name,tls:.checks.tls}'
 curl -ksS -o /tmp/pcv-live-app.bundle.js \
-  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.1.0"
+  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.2.0"
 
 sha256sum ui/app.bundle.js \
   /usr/local/share/purecvisor/ui/app.bundle.js \
@@ -1404,7 +1404,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 ```
 
 세 SHA-256 값은 같아야 하며 외부 런타임 참조를 찾는 `rg` 명령은 결과가 없어야 합니다.
-health의 `status=ok`, `version=2.1.0`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
+health의 `status=ok`, `version=2.2.0`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
 
 ### 2.9 logrotate 설정
 
@@ -1657,7 +1657,7 @@ sudo curl --fail --silent --show-error --cacert /etc/purecvisor/pki/node.crt \
 sudo pcvctl vm list
 ```
 
-서비스는 `active/running`, health는 `status=ok`·`version=2.1.0`·`cluster=false`인지
+서비스는 `active/running`, health는 `status=ok`·`version=2.2.0`·`cluster=false`인지
 확인합니다. libvirt·TLS·BPF 세부 상태도 확인하고 `https://<관리-IPv4>/ui/`에서 로그인합니다.
 최초 자체서명 인증서는 hostname·관리 주소를 확정한 뒤 생성하며, HTTPS 검사에서 신뢰와
 SAN 주소가 일치해야 합니다. 외부 접속은 관리망에서 443/tcp를 허용하고 평문 8080은
@@ -2120,15 +2120,32 @@ pcvctl device disk detach web-prod --target vdb
 #### USB 핫플러그
 
 ```bash
-# USB 장치 목록
+# USB 장치 목록 — 항목마다 live(실행 중 정의)·persistent(영구 정의)·startup_policy·missing
 pcvctl vm usb-list web-prod
 
-# USB 장치 연결
+# USB 장치 연결 — 실행 중이면 live와 영구 정의 둘 다, 꺼져 있으면 영구 정의만(기본 startup_policy optional)
 pcvctl vm usb-attach web-prod 0x1234 0x5678
+pcvctl vm usb-attach web-prod 0x1234 0x5678 --startup-policy mandatory
 
-# USB 장치 분리
+# 실행 중 VM에 지금만 연결 — live 정의에만 붙고 영구 정의는 그대로라 VM을 끄면 빠진다(RPC·REST persistent: false)
+pcvctl vm usb-attach web-prod 0x1234 0x5678 --live-only
+
+# USB 장치 분리 — 장치가 있는 쪽(live·영구)에서만
 pcvctl vm usb-detach web-prod 0x1234 0x5678
 ```
+
+- `vendor_id`·`product_id`는 `0x`+16진 4자리다(`0X1234`도 같은 장치로 본다). 실행 중 VM에는 live와 영구 정의 모두에, 꺼진 VM에는 영구 정의에만 붙는다. 영구 정의가 없는(transient) 실행 중 VM은 live에만 붙는다. 응답의 `live`·`config`는 이번 호출이 바꾼 쪽이고, attach 응답 `startup_policy`는 호출 뒤 영구 정의에 적힌 값이다(속성이 없으면 `mandatory`, 영구 정의에 없으면 null).
+- `--startup-policy`(REST·RPC `startup_policy`)는 `mandatory`·`requisite`·`optional` 중 하나이고 기본은 `optional`이다 — 장치가 빠져 있어도 VM이 시작하고 목록에 `missing: true`가 보인다. libvirt 기본(`mandatory`)과 일부러 다르다: 빠지기 쉬운 장치 하나 때문에 VM이 시작하지 못하면 안 된다. 장치가 없으면 시작하지 않아야 하는 VM은 `mandatory`로 붙인다. 다른 값은 −32602다.
+- `--live-only`(RPC·REST `persistent: false`, 생략하면 `true`)는 실행 중 VM의 live 정의에만 붙이고 영구 정의는 쓰지 않는다 — VM을 끄면 빠진다. live에 이미 있으면 아무것도 바꾸지 않는다(`live: false`·`config: false`). 영구 정의를 쓰지 않으므로 그 정책과 비교하지 않고, 응답 `startup_policy`는 영구 정의에 적힌 값이다(영구 정의에 없으면 null). 영구 정의가 없는(transient) VM에서는 생략과 같다. 꺼진 VM에는 붙일 곳이 없어 −32002(REST 409) `USB device <v>:<p> cannot be attached to VM '<vm>' without saving it: the VM is not running`이다. `persistent`가 JSON boolean이 아니면 −32602 `persistent must be a boolean`, `persistent: false`와 `startup_policy`를 함께 주면 −32602 `startup_policy applies only when persistent is true`다(둘 다 잠금 전 판정). 플래그가 없으면 CLI는 `persistent`를 보내지 않는다.
+- 실행 중 VM에 호스트에 없는 장치를 붙이면 −32000 `USB device <v>:<p> could not be attached to the running VM '<vm>'; nothing was changed: …`로 끝나고 영구 정의도 그대로다. live에 붙인 뒤 영구 정의 저장이 실패하면 이번 호출이 붙인 live만 되돌린다.
+- 같은 장치를 다시 붙여도 오류가 아니다 — 이미 같은 상태면 성공(`live: false`·`config: false`)이고 모자란 쪽만 채운다. 영구 정의의 정책이 다르면 −32002(REST 409)이므로 떼고 다시 붙여 정책을 바꾼다. 자리표시자(`missing`)로 남은 장치, 같은 장치가 여러 항목인 정의도 −32002다.
+- detach는 장치가 있는 쪽에서만 뗀다. 어디에도 없으면 −32000 `USB device <v>:<p> is not attached to VM '<vm>' (live or persistent)`이다 — vid:pid 오타가 성공으로 보이지 않는다.
+- 업그레이드 전에 붙인 장치는 live에만 있다(목록 `persistent: false`). 같은 `usb-attach`를 한 번 더 보내면 영구 정의에 저장된다. 그대로 두면 다음 정지 때 사라진다.
+- `usb-list` 표는 `VENDOR_ID PRODUCT_ID LIVE PERSISTENT POLICY`(자리표시자는 LIVE 칸 `missing`)이고, plain·CSV는 앞 두 칸 뒤에 `live,persistent,startup_policy,missing`을 덧붙인다.
+- `usb-attach`·`usb-detach`의 표 형식 성공 요약 `changed: live=<yes|no>, persistent=<yes|no> · startup_policy: <값>`은 이번 호출이 바꾼 쪽을 보인다(이미 같은 상태라 바꾼 것이 없으면 둘 다 `no`). 장치가 지금 live·영구 정의에 있는지는 `usb-list`가 보인다.
+- 두 변경 RPC는 메인 루프가 아니라 `VM 장치 변경` 줄(1칸·대기 8)에서 돈다(아래 "libvirtd·외부 명령이 응답하지 않을 때" 표). 같은 VM에 다른 작업이 진행 중이면 −32004가 먼저 온다.
+- Web UI `인프라 > 호스트 장치` 화면(13.2 '호스트 장치 화면')이 장치마다 할당된 VM과 실행 중·영구 상태를 보이고 이 RPC들로 할당·해제한다. 할당 창의 '영구로 저장' 체크를 끄면 `persistent: false`로 보낸다. CLI 쪽 같은 표는 `pcvctl host devices`다.
+- 한계: 케이블 재연결·펌웨어 업데이트로 장치가 다시 열거되면 실행 중 VM은 장치를 잃는다. 펌웨어가 제품 ID를 바꾸면 영구 정의도 새 ID로 다시 붙여야 한다. VM을 다시 시작하거나 떼고 다시 붙인다. 호스트 장치 화면·`pcvctl host devices`는 live 항목이 가리키는 장치 번호가 호스트에 없으면 '호스트에서 빠짐'(같은 ID가 다른 번호로 있으면 '옛 장치 번호', CLI 토큰 `stale-address`)으로 보이고 '실행 중'으로 보이지 않는다.
 
 #### 디스크 리사이즈
 
@@ -2384,8 +2401,9 @@ pcvctl vm guest-shutdown web-prod
 echo '{"jsonrpc":"2.0","method":"vm.guest.shutdown","params":{"name":"web-prod"},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
-# Guest Agent를 통한 명령 실행 (base64 stdout/stderr)
+# Guest Agent를 통한 명령 실행 (Linux /bin/sh, Windows PowerShell — 응답 stdout/stderr는 유효 UTF-8)
 pcvctl vm guest-exec web-prod "hostname -I"
+pcvctl vm guest-exec win-guest 'cmd /c dir "C:\Program Files" /b'
 
 echo '{"jsonrpc":"2.0","method":"vm.guest.exec","params":{
   "name":"web-prod",
@@ -2423,7 +2441,17 @@ curl -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/vms/web-prod/disk-usage
 ```
 
-Web UI 명령 실행 칸은 게스트의 `/bin/sh -c`가 그대로 실행하는 한 줄이라 인자도 같은 칸에 적습니다. 서버가 읽지 않던 Args 입력은 없앴습니다.
+게스트 명령 실행(`vm.guest.exec`) 계약:
+
+- 셸은 게스트 OS로 정한다. 데몬이 먼저 `guest-get-osinfo`(5초)를 묻고 `id`가 `mswindows`면 PowerShell(`powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand`), 그 밖이나 조회 실패면 `/bin/sh -c`로 실행한다. 응답 `shell`(`sh`·`powershell`)과 `os_id`(게스트가 알려 줄 때)로 어느 쪽인지 보인다.
+- **Windows 게스트의 `command`는 PowerShell 언어다.** cmd 문법·배치 파일은 `cmd /c "…"`로 감싼다(예: `cmd /c dir "C:\Program Files" /b`). 따옴표·한글·여러 줄이 그대로 간다. 래퍼가 콘솔 출력 코드 페이지를 UTF-8로 바꾸므로 그 안에서 실행한 `cmd /c echo 한글`도 UTF-8로 나오지만, `ipconfig`처럼 지역화된 도구는 영어로 출력할 수 있다. PowerShell 시작에 1–1.5초가 더 든다. 명령은 게스트 agent 계정(Windows LocalSystem, Linux root)으로 돈다.
+- 종료 코드: Linux는 셸 종료 코드 그대로다. Windows는 외부 명령의 종료 코드를 그대로 넘기고 다른 오류보다 먼저 본다(`cmd /c exit 3` → 3). 외부 명령이 stderr에 쓴 줄은 `stderr`에 텍스트로 오지만 그것만으로 종료 코드가 1이 되지 않는다(`cmd /c "echo warn 1>&2"` → 0). cmdlet 오류(예: `Get-Item C:\nope`)와 명령을 멈추는 오류(`throw`, `-ErrorAction Stop`)는 1이고 `stderr`에 텍스트로 남는다 — cmdlet 오류 뒤의 출력은 이어지고, 멈추는 오류는 그 자리에서 끝난다. 명령 안의 `exit N`은 그 자리에서 N으로 끝난다(그 앞 출력은 남는다). 그 밖은 0이다.
+- 시간: 서버는 처리를 시작한 때부터 15초 안에 답한다. 그 안에 끝나지 않은 명령은 `exited: false`(아직 실행 중, `exitcode` −1)로 돌아오고 게스트에서는 계속 돌 수 있다. REST·CLI는 20초, Web UI는 25초까지 기다린다 — 서버 예산보다 먼저 끊지 않는다.
+- 출력: `stdout`·`stderr`는 늘 유효 UTF-8이다. 원문이 UTF-8이 아니면(예: Linux 게스트의 비UTF-8 출력이나 NUL이 섞인 출력) 잘못된 바이트는 U+FFFD로 보이고 원문 바이트는 `stdout_b64`·`stderr_b64`(base64)로 함께 온다. Windows는 PowerShell이 출력을 UTF-8로 다시 써서 보내므로 `*_b64`가 보통 나타나지 않는다 — 코드 페이지를 따르지 않는 도구가 낸 바이트는 PowerShell 단계에서 이미 U+FFFD가 되어 b64로도 되살릴 수 없다. 출력 잘림 표시(`out-truncated`)는 전달하지 않는다.
+- 게스트 agent가 응답하지 않으면(연결 끊김·멈춤) 명령을 보내지 않고 −32000 `guest agent on '<vm>' is not responding: …`로 끝난다.
+- 한계 — agent 작업 겹침: 같은 VM에 다른 agent 작업(예: 응답하지 않는 agent에 다른 도구가 보낸 명령)이 걸려 있으면 데몬의 호출은 libvirt가 그 작업을 끝낼 때까지 기다린다. 이 대기는 15초 예산이 다스리지 못한다 — 실측에서 약 29초 뒤 −32000이었고, 그 사이 REST·CLI는 20초에서 시간 초과로 먼저 끊는다. 이전 판도 같다. 살아 있는 agent에서 명령 실행이 겹치는 것은 기다리지 않는다.
+
+Web UI 명령 실행 칸은 위 셸(Linux `/bin/sh -c`, Windows PowerShell)이 그대로 실행하는 한 줄이라 인자도 같은 칸에 적습니다. 서버가 읽지 않던 Args 입력은 없앴습니다.
 
 VM 내부 설치 명령:
 
@@ -5842,7 +5870,7 @@ dot·NODE/VERSION/UPTIME·KVM/DISK 점검 2종), 우측에 인증 카드를 배�
 |------|------|
 | (무제) | 운영 대시보드 |
 | 워크로드 | 가상 머신(요약·콘솔·스냅샷·성능·타임라인), 컨테이너, 템플릿 |
-| 인프라 | 네트워크, OVN SDN, 오버레이 네트워크, 보안 그룹, 스토리지, 백업, iSCSI 타깃, DPDK, SR-IOV, 커넥션 풀, GPU 장치, 토폴로지, 비동기 작업 관리, 호스트 상태 |
+| 인프라 | 네트워크, OVN SDN, 오버레이 네트워크, 보안 그룹, 스토리지, 백업, iSCSI 타깃, DPDK, SR-IOV, 커넥션 풀, 호스트 장치, GPU 장치, 토폴로지, 비동기 작업 관리, 호스트 상태 |
 | 관제 | 운영 개요, 이벤트 센터, 알림, 보안 이벤트, 감사 로그, 활동 로그, VM/스토리지/호스트 모니터, 히트맵, API 성능, 자가치유 |
 | 시스템 | 계정과 권한(ADMIN), API 관리(ADMIN), 설정 관리 |
 | 도움말 | 도움말, Swagger API |
@@ -5863,6 +5891,36 @@ dot·NODE/VERSION/UPTIME·KVM/DISK 점검 2종), 우측에 인증 카드를 배�
 표시 구간을 함께 바꾼다. 창 전환·필터 칩 변경·폴링 갱신은 해당 블록 내부만 다시 그리므로
 화면 전체가 스켈레톤으로 되돌아가거나 스크롤이 초기화되지 않는다. 필터 칩 상태는 URL 쿼리
 (`?status=running&type=vm`)에 반영돼 링크 공유·새로고침 후에도 복원된다.
+
+#### 호스트 장치 화면
+
+`인프라 > 호스트 장치`(라우트 `host-devices`, `GPU 장치` 바로 위, `Ctrl+K` 팔레트에도 있다)는 호스트의 GPU·USB·블루투스 장치를 장치 기준 표 한 장으로 보이고, 장치마다 어느 VM에 할당됐는지와 그 상태를 함께 보인다. 데이터는 읽기 RPC `host.device.list`(VIEWER, REST `GET /api/v1/host/devices`) 한 번이고, 화면을 열 때·새로고침·동작 뒤에만 읽는다(자동 갱신 없음). 이 RPC는 `libvirt 읽기` 줄에서 돌고 외부 명령 없이 sysfs와 `pci.ids`·`usb.ids`만 읽는다.
+
+| 요소 | 내용 |
+|------|-----|
+| 머리줄 | 필터 칩 전체·할당됨·미할당(URL `?hdassign=`에 남는다), 허브·저장 장치 숨김 안내와 '보기'(다시 열면 숨김), 새로고침 |
+| 표 | 묶음 GPU → USB → 블루투스, 열 장치·ID·할당·상태·동작. GPU 보조 줄은 함께 옮겨 가는 IOMMU 그룹 동반 function, USB 보조 줄은 종류(키보드·마우스·오디오·저장 장치·블루투스·허브). 할당이 없으면 점선 '호스트' 배지, 볼 수 없는 VM의 할당은 '다른 VM' |
+| 상태 | 실행 쪽 말(실행 중 · 호스트에서 빠짐 · 옛 장치 번호 · 자리만 있음 · 같은 ID 장치 여럿)과 영구 쪽 말(영구 · 지금만(VM을 끄면 빠짐) · 영구만 · 영구(VM 꺼짐))을 " · "로 잇는다. '실행 중'은 live 항목이 가리키는 장치가 지금 호스트에 있을 때만 나온다. 경고 말은 노란 글이다 |
+| 동작 | 할당이 없으면 '할당…', 있으면 '해제'(할당이 둘 이상이면 '해제…'에서 VM을 고른다). 실행 중 VM의 영구 정의에만 있고 지금 붙어 있지 않은 USB는 '지금 붙이기'가 함께 있다. 쓸 수 없는 동작은 이유를 글로 쓴다 |
+| 할당 창 | VM 선택, '영구로 저장 — VM을 다시 켜도 붙어 있음'(끄면 `vm.usb.attach` `persistent: false` — 꺼진 VM·GPU는 켠 채 잠김), 호스트가 키보드·마우스·저장 장치로 쓰는 장치는 확인 체크 전 '할당' 잠김, 블루투스는 경고만 |
+
+- 권한: VIEWER는 보기만 한다. USB 할당·해제는 OPERATOR 이상(`vm.usb.attach`·`detach` — OPERATOR는 자기 VM만), GPU 할당·해제는 ADMIN(`device.gpu.attach`·`detach`)이다. ADMIN이 아니면 자기 테넌트에 허용된 장치 행만 보이고 VM 이름은 자기 VM 것만 보인다.
+- 호스트에서 빠짐·옛 장치 번호·자리만 있음의 복구는 '해제' 뒤 다시 '할당…' 두 단계다. 장치를 다시 꽂아도 자동으로 붙지 않는다. 호스트에 없는 PCI 정의(`managed='no'`)는 '해제 불가'이고 정의는 운영자가 정리한다.
+- 목록을 읽지 못하면 '장치 없음'이 아니라 오류 문구와 다시 시도가 보인다. VM 정의 하나라도 읽지 못하면 표 일부를 보내지 않고 −32000이다. 장치가 512개를 넘으면 앞부분만 보이고 안내 줄이 전체를 보는 명령을 알려 준다.
+- 화면의 할당·해제는 기존 RPC를 그대로 보내므로 권한·감사·VM 잠금·레인이 CLI와 같다(USB 변경은 `VM 장치 변경` 줄).
+- GPU 행의 할당 창은 실행 중 VM을 고를 수 없게 두고, 실행 중 VM이 쓰는 GPU의 '해제'는 'VM을 끈 뒤 가능'으로 잠근다. 호스트 화면을 쓰는 GPU는 '할당 불가'이고, 그룹 전체가 `vfio-pci`가 아니거나 IOMMU 그룹에 다른 장치가 섞이면 이유 글과 함께 잠긴다. 'GPU 장치' 화면의 '호스트 장치에서 할당' 버튼은 요청 없이 이 화면으로 옮긴다 — 할당 동작은 이 화면 한 곳에만 있다. CLI는 정지 VM에 `pcvctl gpu attach <vm> <pci>`·`gpu detach`를 쓴다.
+
+CLI는 같은 응답을 표로 보인다.
+
+```bash
+# 장치 표(허브 등 숨김 행 제외) — 할당마다 한 줄, 할당이 없으면 ASSIGNED host
+pcvctl host devices
+
+# 숨김 행까지, 응답 JSON 원문
+pcvctl --format=json host devices --all
+```
+
+표 머리는 `GROUP ID NAME ASSIGNED STATE`이고 볼 수 없는 VM은 `(other VM)`이다. STATE는 영어 토큰을 `;`로 잇는다 — `live`, `persistent` 또는 `live-only`, `placeholder`·`stale-address`·`ambiguous`·`attach-now`(USB), `not-on-host`·`host-display`·`driver=<이름>`(GPU), `vm-off`·`partial`·`managed=yes`·`blocked=<이유>` 순서이고 낱말이 없으면 `-`다. 예를 들어 VM이 잡고 있던 장치를 뽑아 호스트에 없는 USB는 `live;persistent;stale-address;not-on-host`다. 표 형식은 GPU 동반 function을 `  + <pci_addr> <이름>` 줄로, 잘림·sources 안내를 표 아래 줄로 보인다. plain은 탭 구분, CSV는 RFC 4180 인용이다. 인자는 `--all`만 받고 그 밖은 사용법(종료 2)이다.
 
 ### 13.3 테마 시스템
 
@@ -5997,6 +6055,7 @@ ui/
     ├── network.js      # 네트워크 관리
     ├── storage.js      # 스토리지 관리
     ├── monitor.js      # 모니터링 대시보드, 운영 이벤트 센터
+    ├── host-devices.js # 호스트 장치(GPU·USB) 표와 할당·해제 창
     ├── security.js     # 보안 이벤트 UI
     ├── help.js         # 도움말, Swagger API
     ├── nav.js          # 네비게이션, 라우팅, 이벤트 센터 route
@@ -6452,13 +6511,13 @@ pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
 | `vm guest-agent-status <name>` | Guest Agent channel/package 상태 진단 |
 | `vm guest-agent-ensure-channel <name>` | Guest Agent libvirt channel 보정 |
 | `vm guest-ping <name>` | Guest Agent 연결 확인 |
-| `vm guest-exec <name> <command>` | Guest Agent 명령 실행 |
+| `vm guest-exec <name> <command>` | Guest Agent 명령 실행 (Linux `/bin/sh -c`, Windows PowerShell — 15초 예산) |
 | `vm guest-shutdown <name>` | Guest Agent 안전 종료 |
 | `vm export-ova <name> --output-dir /tmp` | OVA 내보내기 |
 | `vm import-ova <ova_path> <name> [--pool pcvpool/vms]` | OVA 가져오기 |
-| `vm usb-list <name>` | USB hostdev 목록 |
-| `vm usb-attach <name> <vendor_id> <product_id>` | USB hostdev 연결 |
-| `vm usb-detach <name> <vendor_id> <product_id>` | USB hostdev 분리 |
+| `vm usb-list <name>` | USB hostdev 목록 (live·영구·startup_policy·missing) |
+| `vm usb-attach <name> <vendor_id> <product_id> [--startup-policy mandatory\|requisite\|optional] [--live-only]` | USB hostdev 연결 (실행 중 live+영구, 꺼짐 영구, 기본 optional, `--live-only`면 실행 중 VM live만) |
+| `vm usb-detach <name> <vendor_id> <product_id>` | USB hostdev 분리 (있는 쪽 live·영구에서) |
 
 #### NIC 관리
 
@@ -6594,6 +6653,9 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `dpdk bind <pci>` | DPDK 바인드 |
 | `sriov enable <pf> [num_vfs]` | SR-IOV 활성화 |
 | `gpu list` | GPU 목록 |
+| `host devices [--all]` | 호스트 GPU·USB·블루투스 장치와 VM 할당 표 (`--all` 숨김 행 포함, JSON은 `--format=json`) |
+| `gpu attach <vm> <pci>` | 정지 VM에 사전 VFIO GPU group 할당 |
+| `gpu detach <vm> <pci>` | 정지 VM에서 GPU group 제거 |
 | `audit list --limit N` | 감사 로그 |
 | `federation site join <url>` | 페더레이션 가입 |
 
@@ -6760,10 +6822,12 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 
 | 줄 | 동시 실행 | 대기 칸 | RPC |
 |---|---:|---:|---|
-| libvirt 읽기 | 2 | 32 | `monitor.fleet`, `quota.get`, `vm.cpu.stats`, `vm.memory.stats`, `vm.blkio.get`, `vm.usb.list`, `device.nic.list`, `vm.vnc`, `get_vnc_info`, `qos.vm.get`, `resource.unregistered.list` |
-| 외부 명령 읽기 | 2 | 32 | `dpdk.list`, `dpdk.status`, `gpu.list`, `gpu.metrics`, `sriov.list`, `backup.history`, `container.env.list`, `container.volume.list`, `network.host.info`, `network.info`, `network.qos.get`, `storage.pool.health`, `push.subscribe` |
+| libvirt 읽기 | 2 | 32 | `monitor.fleet`, `quota.get`, `vm.cpu.stats`, `vm.memory.stats`, `vm.blkio.get`, `vm.usb.list`, `device.nic.list`, `vm.vnc`, `get_vnc_info`, `qos.vm.get`, `resource.unregistered.list`, `host.device.list` |
+| 외부 명령 읽기 | 2 | 32 | `dpdk.list`, `dpdk.status`, `gpu.list`, `gpu.metrics`, `sriov.list`, `backup.history`, `container.env.list`, `container.volume.list`, `network.host.info`, `network.info`, `network.qos.get`, `storage.pool.health`, `vm.snapshot.list`, `push.subscribe` |
 | 망 변경 | 1 | 8 | `security_group.create`·`delete`·`detach`·`rule.add`·`rule.remove`, `vm.security_group.set`, `dpdk.bind`·`unbind` |
-| 저장소 변경 | 1 | 8 | `storage.pool.create`, `vm.snapshot.create`·`delete`·`delete_all`·`list` |
+| 저장소 변경 | 1 | 8 | `storage.pool.create`, `vm.snapshot.create`·`delete`·`delete_all` |
+| VM 장치 변경 | 1 | 8 | `vm.usb.attach`·`detach` |
+| 컨테이너 볼륨 변경 | 1 | 8 | `container.volume.attach`·`detach` |
 
 | 보이는 것 | 뜻 | 할 일 |
 |---|---|---|
@@ -6984,33 +7048,33 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 
 ### 18.6 프로젝트 통계
 
-2026-11-09 공개 `2.1.0` 소스의 현재 도움말·필수 gate는 다음과 같습니다. 소스 게시와
+2026-11-11 공개 `2.2.0` 소스의 현재 도움말·필수 gate는 다음과 같습니다. 소스 게시와
 전체 실환경 인증은 구분합니다.
 
 | 현재 항목 | 값·범위 |
 |---|---|
-| 도움말 표시 | RPC 316·REST 224 (`make check-help-counts`) |
+| 도움말 표시 | RPC 317·REST 225 (`make check-help-counts`) |
 | 지원 범위 | Single Edge·OVA·로컬 백업, AWS/S3 제거 |
 | 활성 DB | 9개·영구 테이블 28개; 과거 Cloud DB는 자동 삭제하지 않음 |
-| Web UI | `tests/ui/*.test.mjs` 66개 |
+| Web UI | `tests/ui/*.test.mjs` 69개 |
 | 주요 정적 게이트 | `make -j1 check-all` 47개 게이트 |
 | 운영 기능 아티팩트 | 공개 소스 검증과 별도이며 실제 설치본의 source commit으로 확인 |
 
 
-다음 수치는 2026-11-09 공개 `2.1.0` 소스 `cca325c`의 추적 파일과 `Makefile`,
+다음 수치는 2026-11-11 공개 `2.2.0` 소스의 추적 파일과 `Makefile`,
 `make check-rbac`를 대조한 스냅샷입니다. 시험 통과 수는 같은 소스의 게시 전 검증 기록이며,
 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
 
-| 항목 | 2026-11-09 기준 |
+| 항목 | 2026-11-11 기준 |
 |------|----------------|
 | C 표준 | `-std=gnu23` |
-| 에디션·버전 | Single Edge · `2.1.0` |
-| RPC 등록/정책 | RPC 317건, 정책 매핑 332건, 정책표 밖 조회성 VIEWER 기본 0건 — 모든 라우트가 정책표에 매핑됨 (`make check-rbac`) |
-| C/H 소스 | `src/` 아래 C 256개, 헤더 230개, 총 226,273행 (공백 포함) |
-| Web UI | `ui/modules/*.js` 29개, 추적 UI 파일 64개 |
-| 테스트 파일 | `tests/` C 176개, `tests/integration/` 116개, `tests/ui/*.test.mjs` 66개 |
+| 에디션·버전 | Single Edge · `2.2.0` |
+| RPC 등록/정책 | RPC 318건, 정책 매핑 333건, 정책표 밖 조회성 VIEWER 기본 0건 — 모든 라우트가 정책표에 매핑됨 (`make check-rbac`) |
+| C/H 소스 | `src/` 아래 C 265개, 헤더 239개, 총 229,701행 (공백 포함) |
+| Web UI | `ui/modules/*.js` 30개, 추적 UI 파일 65개 |
+| 테스트 파일 | `tests/` C 182개, `tests/integration/` 116개, `tests/ui/*.test.mjs` 69개 |
 | 공개 문서 사이트 | 21개 운영 가이드 장 + DB 아키텍처, 8개 분류·22개 문서 |
-| 공개 소스 검증 기록 | release·debug 빌드 각각 C 2,495 PASS·22 SKIP, audit startup 5 PASS, UI 573 PASS |
+| 공개 소스 검증 기록 | release·debug 빌드 각각 C 2,514 PASS·22 SKIP, audit startup 5 PASS, UI 613 PASS |
 | 계약 게이트 | `make check-all` 47개 — 정확한 목록은 Makefile 의존성과 22.4절 |
 | 운영 인증 경계 | 지정 시험 통과와 전체 감사·지원 환경 인증은 별도이며 22.8절 참조 |
 
@@ -7608,6 +7672,13 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
+**2026-11-11 현재 소스 (2.2.0):** 2.1.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다.
+변경 목록은 `CHANGELOG.md`의 2.2.0 항목을 따릅니다.
+게시 전 검증에서 공개판 `make check-all` 47개 게이트, release·debug 빌드 각각의 C 단위 시험
+2,514 PASS·22 SKIP과 audit startup 5 PASS, 브라우저 UI 시험 613 PASS, 패키지 검사, 격리된
+Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림을
+확인했습니다. 컨테이너 검증에는 systemd 부팅, 실제 KVM 작업과 커널 BPF 적재가 포함되지 않습니다.
+
 **2026-11-09 현재 소스 (2.1.0):** 2.0.4 이후의 Single Edge 기능을 담은 기능 릴리스입니다.
 변경 목록은 `CHANGELOG.md`의 2.1.0 항목을 따릅니다.
 게시 전 검증에서 공개판 `make check-all` 47개 게이트, release·debug 빌드 각각의 C 단위 시험
@@ -7636,8 +7707,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 
 #### 2026-09-15 검증 기록 (과거 회차, 2.0.0)
 
-아래 표는 2.0.0 공개 소스 `22d6912` 회차의 기록입니다. 현재 `2.1.0`의 검증 결과가 아니며,
-2.1.0 게시 전 검증은 위 2.1.0 항목을 따릅니다.
+아래 표는 2.0.0 공개 소스 `22d6912` 회차의 기록입니다. 현재 `2.2.0`의 검증 결과가 아니며,
+2.2.0 게시 전 검증은 위 2.2.0 항목을 따릅니다.
 
 | 항목 | 공개 근거와 확인 범위 |
 |---|---|
@@ -7652,8 +7723,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
 결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 전체 감사는
 `FAIL(미완료)`를 유지합니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
-않습니다. 공개 제품 버전은 `2.1.0`입니다.
+않습니다. 공개 제품 버전은 `2.2.0`입니다.
 
 ---
 
-> PureCVisor v2.1.0 Complete Guide — 22장 끝.
+> PureCVisor v2.2.0 Complete Guide — 22장 끝.

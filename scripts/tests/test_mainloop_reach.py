@@ -325,6 +325,14 @@ class OffloadRuleTests(Base):
         self.assertEqual(rc, 1, out)
         self.assertIn("LIBVIRT_READ", out)
 
+    def test_vm_device_mutate_spawn_fails(self):
+                                                                       
+        self.tree("void h(void)\n{\n    pcv_spawn_sync(a);\n}\n")
+        self.lane("a.get", "VM_DEVICE_MUTATE")
+        rc, out = self.run_gate("--report")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("VM_DEVICE_MUTATE", out)
+
 
 if __name__ == "__main__":
     unittest.main()

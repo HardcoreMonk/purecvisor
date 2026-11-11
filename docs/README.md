@@ -1,6 +1,6 @@
 # 공개 문서 인덱스
 
-> 현행화 기준: 2026-11-09 · PureCVisor Single Edge `2.1.0` · 2.1.0 기능 릴리스 반영
+> 현행화 기준: 2026-11-11 · PureCVisor Single Edge `2.2.0` · 2.2.0 기능 릴리스 반영
 
 공개 문서의 현행 기준과 날짜별 검증 기록을 찾는 진입점이다.
 공개 소스는 [HardcoreMonk/purecvisor](https://github.com/HardcoreMonk/purecvisor),

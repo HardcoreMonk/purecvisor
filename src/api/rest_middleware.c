@@ -147,6 +147,7 @@ constexpr int REST_RPC_TIMEOUT_SEC_MW = 8;
                                           
                                                       
                                                                           
+                                                                                            
                                                                    
                                        
                                              
@@ -189,6 +190,10 @@ pcv_get_rpc_timeout(const gchar *rpc_method)
                                                                             
     if (g_strcmp0(rpc_method, "container.exec") == 0)
         return 65;
+                                                                                                                
+                                                                                                         
+    if (g_strcmp0(rpc_method, "vm.guest.exec") == 0)
+        return 20;
                                                                                                 
                                                                 
                                                                  

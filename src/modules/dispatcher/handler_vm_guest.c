@@ -29,6 +29,7 @@
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/dispatcher/handler_vm_lifecycle.h"
 #include "modules/dispatcher/guest_agent_exec.h"
+#include "modules/dispatcher/guest_exec_request.h"
 #include "utils/pcv_spawn.h"
 #include "modules/virt/virt_conn_pool.h"
 #include "purecvisor/pcv_handler_util.h"
@@ -607,12 +608,15 @@ handle_vm_guest_ping_request(JsonObject *params, const gchar *rpc_id,
   
                                              
        
-                                                      
-                                                                 
-                                                                    
+                                                                                                 
+                                                                                                       
+                                                                
                                                               
+                                                                                                            
+                                                                                                      
   
-                      
+                                                                                          
+                                                     
                                                                        
 
    
@@ -650,19 +654,22 @@ _guest_exec_ctx_free(gpointer data)
                                           
   
                                                         
-                                                        
-                                                        
+                                                                   
+                                                              
+                                       
   
-                                                        
-                                                        
-                                                                            
-                                                                                
+                                                                                  
+                                                                          
+                                                                                                      
+                  
+                                                                                                                 
    
 static void
 _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
                    gpointer task_data, GCancellable *cancellable __attribute__((unused)))
 {
     GuestExecCtx *ctx = (GuestExecCtx *)task_data;
+    const gint64 start_us = g_get_monotonic_time();                                      
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
@@ -687,27 +694,39 @@ _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
         return;
     }
 
-                                                      
-      
-                                 
-                                             
-                                          
-                                                            
-    GString *safe_cmd = g_string_new(NULL);
-    for (const gchar *p = ctx->command; *p; p++) {
-        if (*p == '"' || *p == '\\')
-            g_string_append_c(safe_cmd, '\\');
-        g_string_append_c(safe_cmd, *p);
+                                                                                     
+                                                                                
+    PcvGuestShell shell = PCV_GUEST_SHELL_SH;
+    g_autofree gchar *os_id = NULL;
+    char *osinfo_result = virDomainQemuAgentCommand(dom, "{\"execute\":\"guest-get-osinfo\"}",
+                                                     PCV_GUEST_EXEC_OSINFO_TIMEOUT_SEC, 0);
+    if (osinfo_result) {
+        shell = pcv_guest_exec_shell_for_osinfo(osinfo_result, &os_id);
+        free(osinfo_result);
+    } else if (pcv_guest_exec_osinfo_error_is_fatal(virGetLastErrorCode())) {
+        g_autofree gchar *vir_err = g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1);
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                "guest agent on '%s' is not responding: %s", ctx->vm_id, vir_err);
+        return;
     }
 
-    gchar *exec_json = g_strdup_printf(
-        "{\"execute\":\"guest-exec\",\"arguments\":"
-        "{\"path\":\"/bin/sh\",\"arg\":[\"-c\",\"%s\"],\"capture-output\":true}}",
-        safe_cmd->str);
-    g_string_free(safe_cmd, TRUE);
+                                                                                             
+                                                                                       
+                                                                                       
+                                                                     
+    gchar *exec_json = pcv_guest_exec_request_json(shell, ctx->command);
+    if (!exec_json) {                                                                   
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                "Failed to build guest-exec request for '%s'.", ctx->vm_id);
+        return;
+    }
 
     char *exec_result = virDomainQemuAgentCommand(dom, exec_json,
-                                                   30, 0);
+                                                   pcv_guest_exec_call_timeout(start_us, g_get_monotonic_time()), 0);
     g_free(exec_json);
 
     if (!exec_result) {
@@ -745,22 +764,22 @@ _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
         return;
     }
 
-                                                                        
+                                                                              
                                                                      
                                              
-                                                          
+                                                                      
+                                                       
     gint64 exitcode = -1;
     gboolean exited = FALSE;
-    gchar *stdout_decoded = NULL;
-    gchar *stderr_decoded = NULL;
+    g_autofree guchar *stdout_raw = NULL;                                                    
+    g_autofree guchar *stderr_raw = NULL;
+    gsize stdout_len = 0, stderr_len = 0;
 
-    gchar *status_json = g_strdup_printf(
-        "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":%" G_GINT64_FORMAT "}}",
-        pid);
+    gchar *status_json = pcv_guest_exec_status_json(pid);
 
-    for (int attempt = 0; attempt < 50; attempt++) {
+    for (;;) {
         char *status_result = virDomainQemuAgentCommand(dom, status_json,
-                                                         30, 0);
+                                                         pcv_guest_exec_call_timeout(start_us, g_get_monotonic_time()), 0);
         if (!status_result) {
             g_free(status_json);
             virDomainFree(dom);
@@ -785,25 +804,11 @@ _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
                             if (json_object_has_member(sret, "exitcode"))
                                 exitcode = json_object_get_int_member(sret, "exitcode");
 
-                            if (json_object_has_member(sret, "out-data")) {
-                                const gchar *b64 = json_object_get_string_member(sret, "out-data");
-                                if (b64) {
-                                    gsize out_len = 0;
-                                    guchar *decoded = g_base64_decode(b64, &out_len);
-                                    stdout_decoded = g_strndup((const gchar *)decoded, out_len);
-                                    g_free(decoded);
-                                }
-                            }
-
-                            if (json_object_has_member(sret, "err-data")) {
-                                const gchar *b64 = json_object_get_string_member(sret, "err-data");
-                                if (b64) {
-                                    gsize out_len = 0;
-                                    guchar *decoded = g_base64_decode(b64, &out_len);
-                                    stderr_decoded = g_strndup((const gchar *)decoded, out_len);
-                                    g_free(decoded);
-                                }
-                            }
+                                                                                      
+                            const gchar *o64 = json_object_get_string_member_with_default(sret, "out-data", NULL);
+                            const gchar *e64 = json_object_get_string_member_with_default(sret, "err-data", NULL);
+                            if (o64) stdout_raw = g_base64_decode(o64, &stdout_len);
+                            if (e64) stderr_raw = g_base64_decode(e64, &stderr_len);
                         }
                     }
                 }
@@ -812,8 +817,9 @@ _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
         g_object_unref(sp);
         free(status_result);
 
-        if (exited) break;
-        g_usleep(200000);                   
+        if (exited || !pcv_guest_exec_may_poll(start_us, g_get_monotonic_time()))
+            break;                                                                        
+        g_usleep(PCV_GUEST_EXEC_POLL_INTERVAL_US);                       
     }
     g_free(status_json);
     virDomainFree(dom);
@@ -824,11 +830,12 @@ _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
     json_object_set_string_member(res_obj, "name", ctx->vm_id);
     json_object_set_int_member(res_obj, "exitcode", exitcode);
     json_object_set_boolean_member(res_obj, "exited", exited);
-    json_object_set_string_member(res_obj, "stdout", stdout_decoded ? stdout_decoded : "");
-    json_object_set_string_member(res_obj, "stderr", stderr_decoded ? stderr_decoded : "");
-
-    g_free(stdout_decoded);
-    g_free(stderr_decoded);
+    json_object_set_string_member(res_obj, "shell", shell == PCV_GUEST_SHELL_POWERSHELL ? "powershell" : "sh");
+    if (os_id)                                                                     
+        json_object_set_string_member(res_obj, "os_id", os_id);
+                                                                                    
+    pcv_guest_exec_set_output(res_obj, "stdout", "stdout_b64", stdout_raw, stdout_len);
+    pcv_guest_exec_set_output(res_obj, "stderr", "stderr_b64", stderr_raw, stderr_len);
 
     JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(res_node, res_obj);

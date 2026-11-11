@@ -10,14 +10,14 @@
           
                                                      
                                                      
-
-
+                                                              
+                                                   
   
           
                                                     
                                                       
                                                   
-
+                                                           
   
              
                                                                
@@ -32,20 +32,20 @@
                                        
   
           
-
+                                                            
                                                                            
                                                                                
                                                             
-
+                                                                     
   
                        
                                     
-
-
-
+                                                     
+                                                                     
+                                                    
   
            
-
+                                                           
   
            
                                                        
@@ -53,6 +53,7 @@
 #include "gpu_manager.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_log.h"
+#include "utils/pcv_pci_sysfs.h"
 #include "purecvisor/pcv_validate.h"
 #include "modules/virt/virt_conn_pool.h"
 #include <string.h>
@@ -67,8 +68,8 @@
 #define GPU_LOG_DOM "gpu_manager"
 #define GPU_PCI_SYSFS "/sys/bus/pci/devices"
 
-
-
+                                                         
+                                                            
 static GMutex gpu_passthrough_mu;
 
 static gchar *
@@ -113,23 +114,30 @@ _gpu_bdf_compare(gconstpointer a, gconstpointer b)
     return g_strcmp0(*(gchar * const *)a, *(gchar * const *)b);
 }
 
-
-
+                                                                
+                                                   
+                                                                                                      
+                                                                          
+                                                                 
+                                                                                      
+                                                                             
+                                                                                           
+                           
 static GPtrArray *
 _gpu_iommu_slot_group(const gchar *pci_addr, GError **error)
 {
-    gchar *device_path = _gpu_pci_attr_path(pci_addr, NULL);
-    gchar *group_link = g_build_filename(device_path, "iommu_group", NULL);
-    gchar *group_target = g_file_read_link(group_link, NULL);
-    if (!group_target) {
+    gchar *group_path = NULL;
+    if (!pcv_pci_iommu_group_dir("/", pci_addr, &group_path, NULL, NULL)) {
+        g_set_error(error, g_quark_from_static_string("gpu"), 2,
+                    "Cannot inspect IOMMU group for GPU %s", pci_addr);
+        return NULL;
+    }
+    if (!group_path) {
         g_set_error(error, g_quark_from_static_string("gpu"), 2,
                     "GPU %s has no IOMMU group", pci_addr);
-        g_free(group_link);
-        g_free(device_path);
         return NULL;
     }
 
-    gchar *group_path = g_canonicalize_filename(group_target, device_path);
     gchar *devices_path = g_build_filename(group_path, "devices", NULL);
     GDir *dir = g_dir_open(devices_path, 0, NULL);
     GPtrArray *members = NULL;
@@ -144,7 +152,7 @@ _gpu_iommu_slot_group(const gchar *pci_addr, GError **error)
     while ((name = g_dir_read_name(dir)) != NULL) {
         if (!pcv_validate_pci_addr(name))
             continue;
-
+                                                                
         if (strncmp(name, pci_addr, 10) != 0) {
             g_set_error(error, g_quark_from_static_string("gpu"), 3,
                         "IOMMU group for GPU %s also contains unsafe device %s",
@@ -169,9 +177,6 @@ _gpu_iommu_slot_group(const gchar *pci_addr, GError **error)
 out:
     g_free(devices_path);
     g_free(group_path);
-    g_free(group_target);
-    g_free(group_link);
-    g_free(device_path);
     return members;
 }
 
@@ -227,8 +232,8 @@ _gpu_xml_uint(xmlNodePtr node, const gchar *name, guint max, guint *value)
     return ok;
 }
 
-
-
+                                                                     
+                                                          
 static gboolean
 _gpu_find_hostdev(const gchar *domain_xml, const gchar *pci_addr,
                   gchar **node_xml_out, gboolean *managed_no_out,
@@ -383,17 +388,17 @@ void pcv_gpu_shutdown(void) {}
                 
   
                                         
-
+                                              
                                                      
   
                                                      
                                
   
-
-
+                                                             
+                                                           
                                                                 
   
-
+                                                                    
    
 JsonArray *pcv_gpu_list(void)
 {
@@ -614,16 +619,16 @@ JsonArray *pcv_gpu_vgpu_list(void)
                                                      
                        
   
-
+                                                           
                                                          
-
-                                                    
-
   
-
-
-
-
+                                                    
+                                           
+  
+                                                                 
+                                                            
+                                                            
+                                             
   
                      
    
@@ -643,6 +648,7 @@ gboolean pcv_gpu_attach(const gchar *vm_name, const gchar *pci_addr, GError **er
     GPtrArray *members = _gpu_iommu_slot_group(pci_addr, error);
     if (!members)
         return FALSE;
+                                                                                                      
     for (guint i = 0; i < members->len; i++) {
         const gchar *member = g_ptr_array_index(members, i);
         gchar *driver = _gpu_driver_name(member);
@@ -715,7 +721,7 @@ gboolean pcv_gpu_attach(const gchar *vm_name, const gchar *pci_addr, GError **er
         g_ptr_array_add(device_xmls, _gpu_hostdev_xml(member));
     }
     if (present == members->len) {
-        ok = TRUE;
+        ok = TRUE;                                              
         goto out;
     }
     if (present != 0) {
@@ -760,13 +766,13 @@ out:
                        
   
                                                                
-
+                                 
   
-
-
-
-
-
+                                                   
+                             
+  
+                                                                 
+                                                          
   
                      
    

@@ -40,6 +40,7 @@ static const struct { const gchar *method; PcvOffloadLane lane; } g_table[] = {
     { "get_vnc_info", PCV_OFFLOAD_LANE_LIBVIRT_READ },
     { "qos.vm.get", PCV_OFFLOAD_LANE_LIBVIRT_READ },
     { "resource.unregistered.list", PCV_OFFLOAD_LANE_LIBVIRT_READ },
+    { "host.device.list", PCV_OFFLOAD_LANE_LIBVIRT_READ },
                                                                 
     { "dpdk.list", PCV_OFFLOAD_LANE_HOST_READ },
     { "dpdk.status", PCV_OFFLOAD_LANE_HOST_READ },
@@ -75,6 +76,9 @@ static const struct { const gchar *method; PcvOffloadLane lane; } g_table[] = {
                                                                                                        
     { "container.volume.attach", PCV_OFFLOAD_LANE_CTR_MUTATE },
     { "container.volume.detach", PCV_OFFLOAD_LANE_CTR_MUTATE },
+
+    { "vm.usb.attach", PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE },
+    { "vm.usb.detach", PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE },
     { NULL, 0 },
 };
 
@@ -84,6 +88,7 @@ static const struct { gint threads; guint queue_cap; gboolean stale_reject; } g_
     [PCV_OFFLOAD_LANE_HOST_READ]      = { 2, 32, FALSE },
     [PCV_OFFLOAD_LANE_NET_MUTATE]     = { 1, 8, TRUE },
     [PCV_OFFLOAD_LANE_STORAGE_MUTATE] = { 1, 8, TRUE },
+    [PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE] = { 1, 8, TRUE },
     [PCV_OFFLOAD_LANE_CTR_MUTATE]     = { 1, 8, TRUE },
 };
 

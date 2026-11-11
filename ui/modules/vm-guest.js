@@ -697,6 +697,7 @@ async function gaShutdown() {
                                                     
                                          
    
+
 async function gaExec() {
   var body = PCV.modalCore.currentBody();
   var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
@@ -707,7 +708,7 @@ async function gaExec() {
   if (el) { el.style.display = 'block'; PCV.uxlib.setMsg(el, 'loading', null, 'Executing...'); }
   try {
     var params = { name: v.name, command: cmd };
-    var r = await fetchPost(EP.VM_GUEST_EXEC(v.name), params);
+    var r = await fetchPost(EP.VM_GUEST_EXEC(v.name), params, 25000);
     if (!_vmGuestModalCurrent(body) || body._pcvGaExecRequest !== ticket) return;
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Error: ' + (r.error.message || '')); return; }
     var d = unwrapData(r);

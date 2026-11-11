@@ -35,6 +35,40 @@ const networkExampleAssets = [
   ["local-vpc.svg", "Local VPC 활용 예제 구성도"]
 ];
 const networkingExampleAssets = networkExampleAssets.filter(([file]) => file !== "suricata.svg");
+
+const landingShotsByLanguage = {
+  ko: [
+    { theme: "light", asset: "assets/landing/dashboard-light.webp" },
+    { theme: "dark", asset: "assets/landing/dashboard-dark.webp" }
+  ],
+  en: [
+    { theme: "light", asset: "assets/landing/dashboard-light-en.webp" },
+    { theme: "dark", asset: "assets/landing/dashboard-dark-en.webp" }
+  ]
+};
+const landingShots = Object.values(landingShotsByLanguage).flat();
+const landingShotMaxBytes = 300 * 1024;
+
+function readWebpSize(buffer) {
+  if (buffer.length < 30 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WEBP") {
+    throw new Error("not a WebP file");
+  }
+  const chunk = buffer.toString("ascii", 12, 16);
+  if (chunk === "VP8X") {
+    return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) };
+  }
+  if (chunk === "VP8 ") {
+    if (buffer[23] !== 0x9d || buffer[24] !== 0x01 || buffer[25] !== 0x2a) throw new Error("bad VP8 start code");
+    return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff };
+  }
+  if (chunk === "VP8L") {
+    if (buffer[20] !== 0x2f) throw new Error("bad VP8L signature");
+    const bits = buffer.readUInt32LE(21);
+    return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >>> 14) & 0x3fff) };
+  }
+  throw new Error(`unknown WebP chunk: ${chunk}`);
+}
+
 const requiredFiles = [
   "index.html",
   "ko/index.html",
@@ -45,6 +79,7 @@ const requiredFiles = [
   "assets/diagrams/purecvisor-single-direct-https-architecture.svg",
   "assets/diagrams/purecvisor-single-database-architecture.svg",
   "assets/diagrams/purecvisor-single-network-services.svg",
+  ...landingShots.map((shot) => shot.asset),
   ...networkExampleAssets.map(([file]) => `assets/diagrams/network-examples/${file}`),
   ...readerDocuments.map((document) => `${document.contentSlug}/index.html`)
 ];
@@ -308,7 +343,7 @@ for (const marker of [
     throw new Error(`database architecture responsive style missing: ${marker}`);
   }
 }
-const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.1.0</code>입니다.<br>
+const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.2.0</code>입니다.<br>
 단일 노드 배포 뒤 <code dir="auto">purecvisorsd</code>는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 <code dir="auto">/api/v1/health</code>, <code dir="auto">/api/v1/version</code>과 BPF 상태 검사가 통과해야 합니다.`;
 if (!overview.includes(releaseSummaryLineBreakContract)) {
@@ -636,7 +671,7 @@ const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
 const databaseArchitectureSvgHash = createHash("sha256")
   .update(databaseArchitectureSvg)
   .digest("hex");
-if (databaseArchitectureSvgHash !== "4a8f377cbe82d0496a1d7c71ddee664d65503c7bc53a0f49d06b51841c5c8bde") {
+if (databaseArchitectureSvgHash !== "79e3fb307c2c64fb0da69a0d6c6141e0e178cb10c825f42e68f0e0f294c39fba") {
   throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
 }
 for (const marker of [
@@ -840,11 +875,20 @@ for (const marker of [
     throw new Error(`overview architecture rollover interaction missing: ${marker}`);
   }
 }
-const heroTitle = "PURECVISOR 2.1.0";
-const koreanHeroCopy = "한 대의 Linux/KVM 호스트에서 VM, 컨테이너, ZFS 스토리지와 네트워크를 설치하고 운영합니다.";
-const koreanHeroFollowup = "Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.";
-const englishHeroCopy = "Install and operate VMs, containers, ZFS storage, and networking on one Linux/KVM host.";
-const englishHeroFollowup = "The Web UI, REST API, and CLI share one local control plane.";
+
+const heroEyebrow = "PURECVISOR 2.2.0 · SINGLE EDGE";
+const koreanHeroTitle = "한 대의 Linux 서버를 가상화 플랫폼으로";
+
+const koreanHeroCopy = "VM·컨테이너·ZFS 스토리지·네트워크를 Web\u00a0UI·REST\u00a0API·CLI 하나의 제어면으로 관리합니다.";
+const englishHeroTitle = "Turn one Linux server into a virtualization platform";
+const englishHeroCopy = "Manage VMs, containers, ZFS storage and networking from one control plane: Web\u00a0UI, REST\u00a0API and CLI.";
+
+const retiredHeroCopy = [
+  "한 대의 Linux/KVM 호스트에서 VM, 컨테이너, ZFS 스토리지와 네트워크를 설치하고 운영합니다.",
+  "Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.",
+  "Install and operate VMs, containers, ZFS storage, and networking on one Linux/KVM host.",
+  "The Web UI, REST API, and CLI share one local control plane."
+];
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
   for (const marker of [
     "#capabilities",
@@ -896,7 +940,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "service-demos", "documentation"])) {
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
-  if (!source.includes('<a class="pcv-button pcv-button-primary" href="#service-demos">')) throw new Error(`${name} service demo CTA missing`);
+  if (!source.includes('<a class="pcv-button pcv-button-ghost" href="#service-demos">')) throw new Error(`${name} service demo CTA missing`);
   const heroCopyPosition = source.indexOf('<div class="pcv-hero-copy">');
   if (heroCopyPosition < 0) {
     throw new Error(`${name} hero copy missing`);
@@ -979,8 +1023,51 @@ for (const selector of [
 if (landingStyles.includes(".pcv-hero-copy h1")) {
   throw new Error("retired hero-scale heading selector found");
 }
+
 if (landingStyles.includes("grid-template-columns: minmax(0, 1.02fr)")) {
   throw new Error("retired two-column hero layout found");
+}
+if (landingStyles.includes(".pcv-hero-lead span")) {
+  throw new Error("retired two-line hero lead selector found");
+}
+
+for (const [selector, declarations] of [
+  [".pcv-hero-grid", ["grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);", "align-items: center;"]],
+  [".pcv-hero-media", ["min-width: 0;"]],
+  [".pcv-hero-shot", ["display: block;", "width: 100%;", "height: auto;", "margin: 0 !important;", "border: 1px solid var(--pcv-hero-line);"]],
+  [".pcv-hero-shot-dark", ["display: none;"]],
+  [':root[data-theme="dark"] .pcv-hero-shot-light', ["display: none;"]],
+  [':root[data-theme="dark"] .pcv-hero-shot-dark', ["display: block;"]],
+  [".pcv-hero-quickstart-link", ["min-height: 2.75rem;", "font-size: 0.9375rem;"]],
+
+  [".pcv-hero-title", ["text-wrap: balance;", "word-break: keep-all;"]],
+  [':root[lang="en"] .pcv-hero-title', ["max-width: 20ch;", "font-size: clamp(1.9rem, 2.9vw, 2.6rem);"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) throw new Error(`landing hero style missing: ${selector} ${declaration}`);
+  }
+
+  if (/animation|transform|transition/.test(block)) throw new Error(`landing hero motion found: ${selector}`);
+}
+
+for (const responsiveContract of [
+  "@media (max-width: 56rem) {\n  .pcv-hero-grid {\n    grid-template-columns: minmax(0, 1fr);",
+  ".pcv-hero-media {\n    width: min(100%, 36rem);"
+]) {
+  if (!landingStyles.includes(responsiveContract)) throw new Error(`landing hero responsive contract missing: ${responsiveContract}`);
+}
+if (/\.pcv-hero[^{]*\{[^}]*\border\s*:/.test(landingStyles)) {
+  throw new Error("landing hero must keep DOM order (copy before screenshot)");
+}
+for (const landingShot of landingShots) {
+  const bytes = await readFile(path.join(distRoot, landingShot.asset));
+  if (bytes.length > landingShotMaxBytes) {
+    throw new Error(`landing screenshot too large: ${landingShot.asset} ${bytes.length} bytes`);
+  }
+  landingShot.size = readWebpSize(bytes);
 }
 for (const [selector, declarations] of [
   [".pcv-documentation", ["margin-top: 0 !important;", "background: var(--pcv-soft);", "border-bottom: 1px solid var(--pcv-line);"]],
@@ -1011,7 +1098,6 @@ for (const layoutContract of [
   "grid-template-columns: minmax(0, 1fr);",
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
-  ".pcv-hero-lead span {\n  display: block;",
   ".pcv-architecture-source-canvas {\n  display: block;",
   ".pcv-architecture-source-image {\n  display: block;\n  width: 100%;",
   "max-width: 100%;"
@@ -1096,10 +1182,10 @@ for (const interactionContract of [
     throw new Error(`source architecture interaction contract missing: ${interactionContract}`);
   }
 }
-for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
-  ["root", index, "ko", koreanHeroCopy, koreanHeroFollowup, "https://purecvisor.site/"],
-  ["korean", korean, "ko", koreanHeroCopy, koreanHeroFollowup, "https://purecvisor.site/ko/"],
-  ["english", english, "en", englishHeroCopy, englishHeroFollowup, "https://purecvisor.site/en/"]
+for (const [name, source, language, heroTitle, heroCopy, canonical] of [
+  ["root", index, "ko", koreanHeroTitle, koreanHeroCopy, "https://purecvisor.site/"],
+  ["korean", korean, "ko", koreanHeroTitle, koreanHeroCopy, "https://purecvisor.site/ko/"],
+  ["english", english, "en", englishHeroTitle, englishHeroCopy, "https://purecvisor.site/en/"]
 ]) {
   if (!source.includes(`<html lang="${language}"`)) throw new Error(`${name} language mismatch`);
   if ((source.match(/<h1\b/g) || []).length !== 1) throw new Error(`${name} H1 count mismatch`);
@@ -1107,9 +1193,53 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   const heroEnd = source.indexOf("</section>", heroStart);
   if (heroStart === -1 || heroEnd === -1) throw new Error(`${name} hero markup missing`);
   const heroMarkup = source.slice(heroStart, heroEnd);
-  if (heroMarkup.includes('class="pcv-eyebrow"')) throw new Error(`${name} hero eyebrow remained`);
+
+  if ((heroMarkup.match(/class="pcv-eyebrow"/g) || []).length !== 1
+    || !heroMarkup.includes(`<p class="pcv-eyebrow">${heroEyebrow}</p>`)) {
+    throw new Error(`${name} hero product eyebrow mismatch`);
+  }
   if (source.includes("PURECVISOR 2.0.0 · SINGLE EDGE")) {
     throw new Error(`${name} legacy product eyebrow remained`);
+  }
+  if (heroMarkup.includes("<script")) throw new Error(`${name} hero must not add client scripts`);
+  const heroCopyIndex = heroMarkup.indexOf('<div class="pcv-hero-copy">');
+  const heroMediaIndex = heroMarkup.indexOf('<div class="pcv-hero-media">');
+  if (heroCopyIndex < 0 || heroMediaIndex < 0 || heroMediaIndex < heroCopyIndex) {
+    throw new Error(`${name} hero copy must come before the screenshot`);
+  }
+
+  const heroButtons = [...heroMarkup.matchAll(/<a class="(pcv-button [^"]+)" href="([^"]+)"/g)].map((match) => `${match[1]} ${match[2]}`);
+  if (JSON.stringify(heroButtons) !== JSON.stringify([
+    `pcv-button pcv-button-primary ${guideEntryPath}`,
+    "pcv-button pcv-button-ghost #service-demos"
+  ])) {
+    throw new Error(`${name} hero button order mismatch: ${heroButtons.join(" | ")}`);
+  }
+  if (!heroMarkup.includes(`<a class="pcv-hero-quickstart-link" href="${guidePath(1, "#14-5분-퀵스타트")}">`)) {
+    throw new Error(`${name} hero quickstart text link missing`);
+  }
+  const heroImages = [...heroMarkup.matchAll(/<img\b[^>]*>/g)].map((match) => match[0]);
+  const localeShots = landingShotsByLanguage[language];
+  if (heroImages.length !== localeShots.length) throw new Error(`${name} hero screenshot count mismatch`);
+  for (const [position, landingShot] of localeShots.entries()) {
+    const image = heroImages[position];
+    const attribute = (key) => (new RegExp(`\\s${key}="([^"]*)"`).exec(image) || [])[1];
+    if (attribute("src") !== `/${landingShot.asset}`) throw new Error(`${name} hero screenshot source mismatch: ${landingShot.theme}`);
+    if (attribute("class") !== `pcv-hero-shot pcv-hero-shot-${landingShot.theme}`) {
+      throw new Error(`${name} hero screenshot theme class mismatch: ${landingShot.theme}`);
+    }
+    if (attribute("width") !== String(landingShot.size.width) || attribute("height") !== String(landingShot.size.height)) {
+      throw new Error(`${name} hero screenshot width/height must match the image (${landingShot.size.width}x${landingShot.size.height})`);
+    }
+    const alt = attribute("alt") || "";
+    if (alt.length < 40 || !alt.includes("Web UI")) throw new Error(`${name} hero screenshot alt text missing: ${landingShot.theme}`);
+    if (/\sloading="lazy"/.test(image)) throw new Error(`${name} first-screen screenshot must not lazy-load`);
+  }
+  for (const retired of retiredHeroCopy) {
+    if (source.includes(retired)) throw new Error(`${name} retired hero copy remained`);
+  }
+  if (source.includes(`id="pcv-hero-title">PURECVISOR 2.2.0</h1>`)) {
+    throw new Error(`${name} retired product-name hero title remained`);
   }
   for (const legacyTitle of [
     "하나의 Linux/KVM 노드, 하나의 제어면.",
@@ -1123,9 +1253,6 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   if ((source.match(new RegExp(heroCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 1) {
     throw new Error(`${name} hero copy mismatch`);
   }
-  if (!source.includes(heroFollowup)) {
-    throw new Error(`${name} hero followup mismatch`);
-  }
   for (const sourceContract of name === "english"
     ? ["5-minute quickstart", "Installation guide", "Ubuntu Server 26.04.1 LTS · Single Edge · HTTPS :443 by default"]
     : ["5분 퀵스타트", "설치 가이드", "Ubuntu Server 26.04.1 LTS · Single Edge · 기본 HTTPS :443"]) {
@@ -1134,7 +1261,7 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);
   }
-  if (!source.includes('datetime="2026-10-08T00:00:00.000Z"')) {
+  if (!source.includes('datetime="2026-11-11T00:00:00.000Z"')) {
     throw new Error(`${name} landing lastUpdated mismatch`);
   }
   if ((source.match(/class="pcv-nav-group\b/g) || []).length !== 4) {
@@ -1159,18 +1286,18 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
     }
   }
 }
-if (!korean.includes(`href="${guideEntryPath}">설치 가이드</a>`)) {
+if (!korean.includes(`<a class="pcv-button pcv-button-primary" href="${guideEntryPath}">설치 가이드 <span aria-hidden="true">→</span></a>`)) {
   throw new Error("korean installation guide link missing");
 }
-if (!english.includes(`href="${guideEntryPath}">Installation guide</a>`)) {
+if (!english.includes(`<a class="pcv-button pcv-button-primary" href="${guideEntryPath}">Installation guide <span aria-hidden="true">→</span></a>`)) {
   throw new Error("english installation guide link missing");
 }
-if (!korean.includes(`<a class="pcv-button pcv-button-ghost" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
-  || !korean.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
+if (!korean.includes(`>서비스 영상 보기 <span aria-hidden="true">▷</span></a>`)
+  || !korean.includes(`>5분 퀵스타트 <span aria-hidden="true">→</span></a>`)) {
   throw new Error("korean hero guide actions missing");
 }
-if (!english.includes(`<a class="pcv-button pcv-button-ghost" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
-  || !english.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
+if (!english.includes(`>Watch service demos <span aria-hidden="true">▷</span></a>`)
+  || !english.includes(`>5-minute quickstart <span aria-hidden="true">→</span></a>`)) {
   throw new Error("english hero guide actions missing");
 }
 if (!new RegExp(`<a\\b[^>]*href="${guidePath(6)}"[^>]*>네트워크</a>`).test(korean)) {

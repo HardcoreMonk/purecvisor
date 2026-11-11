@@ -22,6 +22,7 @@
 #include "modules/dispatcher/hotplug_affect_policy.h"
 #include "modules/dispatcher/hotplug_nic_xml.h"
 #include "modules/dispatcher/hotplug_disk_xml.h"
+#include "modules/dispatcher/hotplug_usb_xml.h"
 #include "modules/dispatcher/guest_ip.h"
 #include "modules/dispatcher/guest_agent_exec.h"
 #include "modules/virt/virt_conn_pool.h"
@@ -979,9 +980,8 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
                                                                     
                                                                 
   
-                                             
-                                                              
-  
+                                                                    
+                                                                                 
                                                            
                                                         
                                                      
@@ -1005,65 +1005,107 @@ static gboolean pcv_validate_usb_id(const gchar *id) {
     return TRUE;
 }
 
+  
+                                                                              
+                                                                                   
+                                                                               
+                                                                           
+                                                                  
+                                                                     
+   
+static gboolean _usb_read_defs(virDomainPtr dom, gboolean is_active, gboolean *has_persistent,
+                               gchar **live_xml, gchar **config_xml, GError **error)
+{
+    int persistent = virDomainIsPersistent(dom);
+    gboolean ok = persistent >= 0;
+    *has_persistent = persistent == 1;
+    *live_xml = *config_xml = NULL;
+    if (ok && is_active)
+        ok = (*live_xml = virDomainGetXMLDesc(dom, 0)) != NULL;
+    if (ok && *has_persistent)
+        ok = (*config_xml = virDomainGetXMLDesc(dom, VIR_DOMAIN_XML_INACTIVE)) != NULL;
+    if (!ok) {
+        virErrorPtr e = virGetLastError();
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                            e && e->message ? e->message : "Failed to read domain XML");
+        g_clear_pointer(live_xml, g_free);
+    }
+    return ok;
+}
+
+  
+                                                                                                            
+                                                                                                          
+                
+                                                      
+   
+static void _usb_reply_gerror(const gchar *rpc_id, UdsServer *server, GSocketConnection *connection, GError *error)
+{
+    PureRpcErrorCode code = g_error_matches(error, PCV_USB_ERROR, PCV_USB_ERROR_CONFLICT)
+        ? PURE_RPC_ERR_CONFLICT : PURE_RPC_ERR_ZFS_OPERATION;
+    gchar *err = pure_rpc_build_error_response(rpc_id, code, error->message);
+    pure_uds_server_send_response(server, connection, err);
+    g_free(err);
+    g_error_free(error);
+}
+
    
                         
-                                                     
+                                                                                                 
   
+                                                                           
+                                                                                                                 
+                                                                                                           
+                                     
+                                                                                            
+                                                                                                       
+                                                                                                      
+                                                                                            
                                                                                          
+                                                         
   
-                                                                                                          
-  
-                                                             
-                                              
-                                                                                          
+                                                                               
+                                               
+                                                                                                                          
+                                                                                                                  
    
 void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
                            UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *vm_id = json_object_has_member(params, "vm_id")
-        ? json_object_get_string_member(params, "vm_id") : NULL;
-    const gchar *vendor_id = json_object_has_member(params, "vendor_id")
-        ? json_object_get_string_member(params, "vendor_id") : NULL;
-    const gchar *product_id = json_object_has_member(params, "product_id")
-        ? json_object_get_string_member(params, "product_id") : NULL;
+    const gchar *vm_id = pcv_rpc_params_get_string(params, "vm_id");
+    const gchar *vendor_id = pcv_rpc_params_get_string(params, "vendor_id");
+    const gchar *product_id = pcv_rpc_params_get_string(params, "product_id");
+    PcvUsbPolicy policy = PCV_USB_POLICY_OPTIONAL;
+    gboolean persist = TRUE;                                                                           
+    const gchar *bad = NULL;
 
-    if (!vm_id || !vendor_id || !product_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required parameters: vm_id, vendor_id, product_id");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err); return;
-    }
-
-    if (!pcv_validate_usb_id(vendor_id) || !pcv_validate_usb_id(product_id)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "vendor_id and product_id must be hex format: 0xNNNN");
+    if (!vm_id || !vendor_id || !product_id)
+        bad = "Missing required parameters: vm_id, vendor_id, product_id";
+    else if (!pcv_validate_usb_id(vendor_id) || !pcv_validate_usb_id(product_id))
+        bad = "vendor_id and product_id must be hex format: 0xNNNN";
+    else if (json_object_has_member(params, "startup_policy") &&                                
+             !pcv_usb_policy_parse(pcv_rpc_params_get_string(params, "startup_policy"), &policy))
+        bad = "startup_policy must be one of: mandatory, requisite, optional";
+    else if (!pcv_rpc_params_get_bool(params, "persistent", TRUE, &persist))                       
+        bad = "persistent must be a boolean";
+    else if (!persist && json_object_has_member(params, "startup_policy"))                        
+        bad = "startup_policy applies only when persistent is true";
+    if (bad) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, bad);
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
     }
     g_autofree gchar *usb_ref = g_strdup_printf("%s:%s", vendor_id, product_id);
     if (!pcv_res_gate(params, connection, "vm.usb.attach", "vendor_id/product_id", PCV_RES_USB, usb_ref, NULL, NULL, rpc_id, server)) return;
 
-    virConnectPtr conn;
-    PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
-    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
-
-    if (!dom) {
+                                                                                           
+    if (!*vm_id) {
         gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
         pure_uds_server_send_response(server, connection, err);
-        g_free(err); virt_conn_pool_release(conn); return;
+        g_free(err); return;
     }
 
-    gchar *xml = g_strdup_printf(
-        "<hostdev mode='subsystem' type='usb'>\n"
-        "  <source>\n"
-        "    <vendor id='%s'/>\n"
-        "    <product id='%s'/>\n"
-        "  </source>\n"
-        "</hostdev>", vendor_id, product_id);
-
-    unsigned int flags = VIR_DOMAIN_AFFECT_LIVE;
-
-                                                                           
+                                                                                 
     gchar *lock_err = NULL;
     PcvVmLock *op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_TUNING, &lock_err);
     if (!op_lock) {
@@ -1071,14 +1113,75 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
-        g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
         return;
     }
+    virConnectPtr conn = virt_conn_pool_acquire();
+    if (!conn) {
+        pcv_vm_lock_release(op_lock);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection pool exhausted");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+        return;
+    }
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+    if (!dom) {
+        pcv_vm_lock_release(op_lock);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+        virt_conn_pool_release(conn); return;
+    }
 
-    if (virDomainAttachDeviceFlags(dom, xml, flags) < 0) {
-        virErrorPtr e = virGetLastError();
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-            e ? e->message : "USB attach failed");
+    guint16 v = pcv_usb_id_value(vendor_id), p = pcv_usb_id_value(product_id);
+    gboolean is_active = virDomainGetID(dom) != (unsigned int)-1, has_persistent = FALSE;
+    g_autofree gchar *live_xml = NULL;
+    g_autofree gchar *config_xml = NULL;
+    g_autofree gchar *saved_policy = NULL;
+    PcvUsbAttachKind kind = PCV_USB_ATTACH_NOOP;
+    GError *error = NULL;
+    if (!_usb_read_defs(dom, is_active, &has_persistent, &live_xml, &config_xml, &error) ||
+        !pcv_usb_attach_plan(live_xml, config_xml, is_active, has_persistent, v, p, policy, persist, vm_id,
+                             &kind, &saved_policy, &error)) {
+        pcv_vm_lock_release(op_lock);
+        _usb_reply_gerror(rpc_id, server, connection, error);
+        virDomainFree(dom); virt_conn_pool_release(conn); return;
+    }
+
+                                                     
+    gboolean want_live = kind == PCV_USB_ATTACH_TWO_STEP || kind == PCV_USB_ATTACH_LIVE_ONLY;
+    gboolean want_config = kind == PCV_USB_ATTACH_TWO_STEP || kind == PCV_USB_ATTACH_CONFIG_LEGACY ||
+                           kind == PCV_USB_ATTACH_CONFIG_STOPPED;
+    g_autofree gchar *dev = g_strdup_printf("0x%04x:0x%04x", v, p);
+    g_autofree gchar *plain_xml = pcv_usb_hostdev_xml(v, p, NULL);
+    g_autofree gchar *policy_xml = pcv_usb_hostdev_xml(v, p, &policy);
+    g_autofree gchar *fail = NULL;
+    gboolean live_attached = FALSE;
+    if (want_live) {
+        if (virDomainAttachDeviceFlags(dom, plain_xml, VIR_DOMAIN_AFFECT_LIVE) < 0)
+            fail = g_strdup_printf("USB device %s could not be attached to the running VM '%s'; nothing was changed: %s",
+                                   dev, vm_id, virGetLastErrorMessage());
+        else
+            live_attached = TRUE;
+    }
+    if (!fail && want_config && virDomainAttachDeviceFlags(dom, policy_xml, VIR_DOMAIN_AFFECT_CONFIG) < 0) {
+        g_autofree gchar *cfg_err = g_strdup(virGetLastErrorMessage());
+        if (live_attached) {                                                             
+            if (virDomainDetachDeviceFlags(dom, plain_xml, VIR_DOMAIN_AFFECT_LIVE) == 0)
+                fail = g_strdup_printf("USB device %s could not be saved to the persistent definition of VM '%s'; "
+                                       "the live attachment was rolled back: %s", dev, vm_id, cfg_err);
+            else
+                fail = g_strdup_printf("USB device %s is attached to the running VM '%s' but not saved to its persistent "
+                                       "definition, and rolling back failed (detach it with 'pcvctl vm usb-detach'): "
+                                       "%s; rollback: %s", dev, vm_id, cfg_err, virGetLastErrorMessage());
+        } else if (kind == PCV_USB_ATTACH_CONFIG_LEGACY) {
+            fail = g_strdup_printf("USB device %s could not be saved to the persistent definition of VM '%s'; "
+                                   "the live attachment was left as it was: %s", dev, vm_id, cfg_err);
+        } else {
+            fail = g_strdup_printf("USB device %s could not be saved to the persistent definition of VM '%s': %s",
+                                   dev, vm_id, cfg_err);
+        }
+    }
+
+    if (fail) {
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, fail);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
     } else {
@@ -1086,6 +1189,12 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
         json_object_set_boolean_member(res_obj, "attached", TRUE);
         json_object_set_string_member(res_obj, "vendor_id", vendor_id);
         json_object_set_string_member(res_obj, "product_id", product_id);
+        json_object_set_boolean_member(res_obj, "live", want_live);
+        json_object_set_boolean_member(res_obj, "config", want_config);
+        if (saved_policy)
+            json_object_set_string_member(res_obj, "startup_policy", saved_policy);
+        else
+            json_object_set_null_member(res_obj, "startup_policy");
         JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
         json_node_take_object(res_node, res_obj);
         gchar *usb_resp = pure_rpc_build_success_response(rpc_id, res_node);
@@ -1094,64 +1203,47 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
     }
 
     pcv_vm_lock_release(op_lock);                               
-    g_free(xml);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 }
 
    
                         
-                                                 
+                                                                                
   
-                                                              
                                                                                          
-                                                                          
+                                                                                            
+                                                                                                          
+                                                                                         
+                                                                                              
+  
+                                                                                 
+                                                                                                                
+                                                                             
    
 void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
                            UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *vm_id = json_object_has_member(params, "vm_id")
-        ? json_object_get_string_member(params, "vm_id") : NULL;
-    const gchar *vendor_id = json_object_has_member(params, "vendor_id")
-        ? json_object_get_string_member(params, "vendor_id") : NULL;
-    const gchar *product_id = json_object_has_member(params, "product_id")
-        ? json_object_get_string_member(params, "product_id") : NULL;
+    const gchar *vm_id = pcv_rpc_params_get_string(params, "vm_id");
+    const gchar *vendor_id = pcv_rpc_params_get_string(params, "vendor_id");
+    const gchar *product_id = pcv_rpc_params_get_string(params, "product_id");
+    const gchar *bad = NULL;
 
-    if (!vm_id || !vendor_id || !product_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required parameters: vm_id, vendor_id, product_id");
+    if (!vm_id || !vendor_id || !product_id)
+        bad = "Missing required parameters: vm_id, vendor_id, product_id";
+    else if (!pcv_validate_usb_id(vendor_id) || !pcv_validate_usb_id(product_id))
+        bad = "vendor_id and product_id must be hex format: 0xNNNN";
+    if (bad) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, bad);
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
     }
-
-    if (!pcv_validate_usb_id(vendor_id) || !pcv_validate_usb_id(product_id)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "vendor_id and product_id must be hex format: 0xNNNN");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err); return;
-    }
-
-    virConnectPtr conn;
-    PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
-    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
-
-    if (!dom) {
+    if (!*vm_id) {                                                          
         gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
         pure_uds_server_send_response(server, connection, err);
-        g_free(err); virt_conn_pool_release(conn); return;
+        g_free(err); return;
     }
 
-    gchar *xml = g_strdup_printf(
-        "<hostdev mode='subsystem' type='usb'>\n"
-        "  <source>\n"
-        "    <vendor id='%s'/>\n"
-        "    <product id='%s'/>\n"
-        "  </source>\n"
-        "</hostdev>", vendor_id, product_id);
-
-    unsigned int flags = VIR_DOMAIN_AFFECT_LIVE;
-
-                                                                           
     gchar *lock_err = NULL;
     PcvVmLock *op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_TUNING, &lock_err);
     if (!op_lock) {
@@ -1159,14 +1251,41 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
-        g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
         return;
     }
+    virConnectPtr conn = virt_conn_pool_acquire();
+    if (!conn) {
+        pcv_vm_lock_release(op_lock);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection pool exhausted");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+        return;
+    }
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+    if (!dom) {
+        pcv_vm_lock_release(op_lock);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+        virt_conn_pool_release(conn); return;
+    }
 
+    guint16 v = pcv_usb_id_value(vendor_id), p = pcv_usb_id_value(product_id);
+    gboolean is_active = virDomainGetID(dom) != (unsigned int)-1, has_persistent = FALSE;
+    gboolean want_live = FALSE, want_config = FALSE;
+    g_autofree gchar *live_xml = NULL;
+    g_autofree gchar *config_xml = NULL;
+    GError *error = NULL;
+    if (!_usb_read_defs(dom, is_active, &has_persistent, &live_xml, &config_xml, &error) ||
+        !pcv_usb_detach_plan(live_xml, config_xml, is_active, has_persistent, v, p, vm_id,
+                             &want_live, &want_config, &error)) {
+        pcv_vm_lock_release(op_lock);
+        _usb_reply_gerror(rpc_id, server, connection, error);
+        virDomainFree(dom); virt_conn_pool_release(conn); return;
+    }
+
+    g_autofree gchar *xml = pcv_usb_hostdev_xml(v, p, NULL);
+    unsigned int flags = (want_live ? VIR_DOMAIN_AFFECT_LIVE : 0) | (want_config ? VIR_DOMAIN_AFFECT_CONFIG : 0);
     if (virDomainDetachDeviceFlags(dom, xml, flags) < 0) {
-        virErrorPtr e = virGetLastError();
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-            e ? e->message : "USB detach failed");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, virGetLastErrorMessage());
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
     } else {
@@ -1174,6 +1293,8 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
         json_object_set_boolean_member(res_obj, "detached", TRUE);
         json_object_set_string_member(res_obj, "vendor_id", vendor_id);
         json_object_set_string_member(res_obj, "product_id", product_id);
+        json_object_set_boolean_member(res_obj, "live", want_live);
+        json_object_set_boolean_member(res_obj, "config", want_config);
         JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
         json_node_take_object(res_node, res_obj);
         gchar *usb_resp = pure_rpc_build_success_response(rpc_id, res_node);
@@ -1182,24 +1303,23 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
     }
 
     pcv_vm_lock_release(op_lock);                               
-    g_free(xml);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 }
 
    
                       
-                                                    
+                                                                             
   
-                                          
-                                                                  
+                                                                                                           
+                                                                             
+                                                                                                
+                                                                                          
+                                                                          
   
-              
-                                                 
+                                                               
                                                         
-  
-                                                      
-                                                                      
+                                                                                     
    
 void handle_vm_usb_list(JsonObject *params, const gchar *rpc_id,
                          UdsServer *server, GSocketConnection *connection)
@@ -1223,53 +1343,32 @@ void handle_vm_usb_list(JsonObject *params, const gchar *rpc_id,
         g_free(err); virt_conn_pool_release(conn); return;
     }
 
-    char *dom_xml = virDomainGetXMLDesc(dom, 0);
-    JsonArray *arr = json_array_new();
-
-    if (dom_xml) {
-                                                   
-                                
-                                                       
-                                                                 
-                                                            
-                                                                         
-                                                            
-        gchar **lines = g_strsplit(dom_xml, "\n", -1);
-        gboolean in_usb_hostdev = FALSE;
-        gchar *cur_vendor = NULL;
-        gchar *cur_product = NULL;
-
-        for (int i = 0; lines[i]; i++) {
-            gchar *l = g_strstrip(lines[i]);
-
-            if (strstr(l, "<hostdev") && strstr(l, "type='usb'")) {
-                in_usb_hostdev = TRUE;
-                g_free(cur_vendor);  cur_vendor = NULL;
-                g_free(cur_product); cur_product = NULL;
-            } else if (in_usb_hostdev && strstr(l, "<vendor id=")) {
-                gchar *v = strstr(l, "id='");
-                                                                     
-                if (v) cur_vendor = g_strndup(v + 4, strcspn(v + 4, "'"));
-            } else if (in_usb_hostdev && strstr(l, "<product id=")) {
-                gchar *p = strstr(l, "id='");
-                if (p) cur_product = g_strndup(p + 4, strcspn(p + 4, "'"));
-            } else if (in_usb_hostdev && strstr(l, "</hostdev>")) {
-                if (cur_vendor && cur_product && pcv_res_request_can_see_usb(params, connection, cur_vendor, cur_product)) {
-                    JsonObject *usb = json_object_new();
-                    json_object_set_string_member(usb, "vendor_id", cur_vendor);
-                    json_object_set_string_member(usb, "product_id", cur_product);
-                    json_array_add_object_element(arr, usb);
-                }
-                g_free(cur_vendor);  cur_vendor = NULL;
-                g_free(cur_product); cur_product = NULL;
-                in_usb_hostdev = FALSE;
-            }
-        }
-        g_free(cur_vendor);
-        g_free(cur_product);
-        g_strfreev(lines);
-        free(dom_xml);                                
+    gboolean is_active = virDomainGetID(dom) != (unsigned int)-1, has_persistent = FALSE;
+    g_autofree gchar *live_xml = NULL;
+    g_autofree gchar *config_xml = NULL;
+    GPtrArray *entries = NULL;
+    GError *error = NULL;
+    if (!_usb_read_defs(dom, is_active, &has_persistent, &live_xml, &config_xml, &error) ||
+        !pcv_usb_hostdev_list(live_xml, config_xml, &entries, &error)) {
+        _usb_reply_gerror(rpc_id, server, connection, error);
+        virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
+
+    JsonArray *arr = json_array_new();
+    for (guint i = 0; i < entries->len; i++) {
+        const PcvUsbHostdevEntry *u = g_ptr_array_index(entries, i);
+        if (!pcv_res_request_can_see_usb(params, connection, u->vendor_id, u->product_id))
+            continue;                                                                  
+        JsonObject *usb = json_object_new();
+        json_object_set_string_member(usb, "vendor_id", u->vendor_id);
+        json_object_set_string_member(usb, "product_id", u->product_id);
+        json_object_set_boolean_member(usb, "live", u->live);
+        json_object_set_boolean_member(usb, "persistent", u->persistent);
+        json_object_set_string_member(usb, "startup_policy", u->startup_policy);
+        json_object_set_boolean_member(usb, "missing", u->missing);
+        json_array_add_object_element(arr, usb);
+    }
+    g_ptr_array_unref(entries);
 
     JsonNode *res = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(res, arr);

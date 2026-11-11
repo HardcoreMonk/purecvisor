@@ -128,6 +128,8 @@ HAS_ZPOOL_RECOVER_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/storage/zfs_driver\.(c|h)|src/modules/daemons/ebpf_telemetry\.c|scripts/check_zpool_suspend_recover\.py|scripts/tests/test_zpool_suspend_recover\.py)$' && HAS_ZPOOL_RECOVER_CHANGES=true
 HAS_DEB_APPARMOR_CHANGES=false
 echo "$STAGED" | grep -qE '^(packaging/deb/build-deb\.sh|packaging/apparmor/(pcv-apparmor|usr\.local\.bin\.purecvisorsd)|docs/adr/0028-2\.0-host-hardening-hidepid-over-apparmor-confinement\.md|scripts/check_deb_apparmor\.py|scripts/tests/test_deb_apparmor\.py)$' && HAS_DEB_APPARMOR_CHANGES=true
+HAS_DEB_SUPPLY_CHAIN_CHANGES=false
+echo "$STAGED" | grep -qE '^(packaging/.*|systemd/.*|scripts/(deploy\.sh|install-[^/]*\.sh|check_deb_supply_chain\.py|tests/test_deb_supply_chain\.py)|src/modules/lxc/lxc_unit\.h|THIRD_PARTY_NOTICES\.md|LICENSE)$' && HAS_DEB_SUPPLY_CHAIN_CHANGES=true
 HAS_SPAWN_CAPABILITY_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/.*\.[ch]|packaging/deb/(purecvisorsd\.service|purecvisor-lio\.conf)|scripts/check_spawn_capability_contract\.py|Makefile)$' && HAS_SPAWN_CAPABILITY_CHANGES=true
 HAS_PUBLIC_COMMENT_CHANGES=true
@@ -994,6 +996,21 @@ else
 fi
 
                                                                 
+if $HAS_DEB_SUPPLY_CHAIN_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] deb 공급망 계약 (A03)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    DS_OUT=$(python3 "$SCRIPT_DIR/check_deb_supply_chain.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_deb_supply_chain.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "deb 공급망 계약 위반 (build-deb.sh·deploy.sh·유닛·드롭인·고지)"
+        echo "$DS_OUT" | tail -15
+    else
+        pass "$(echo "$DS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] packaging·deploy·설치 helper 변경 없음 — deb 공급망 게이트 생략"
+fi
+
 if $HAS_SPAWN_CAPABILITY_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] spawn child capability 경계 (ADR-0042)${NC}"

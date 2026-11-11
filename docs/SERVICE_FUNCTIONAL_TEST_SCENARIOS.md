@@ -93,6 +93,12 @@
   최신 결과는 `vm.delete.status`로 다시 조회할 수 있어야 한다.
 - 정지·대기·차단 장애(응답 없는 게스트 에이전트·libvirtd·외부 명령) 중에도 다른 RPC가 응답하고 SIGTERM 정지가
   기한 안에 끝나는지 본다. `vm.list`는 연결이 끊기면 부분 목록 대신 −32000이어야 한다.
+- USB hostdev(`vm.usb.list·attach·detach`)는 실행 중 VM(live+영구)·꺼진 VM(영구)·`persistent:false`(지금만)를 각각 붙여 보고, `vm.usb.list`의 live·영구·`startup_policy`
+  열과 detach가 장치가 있는 쪽에서만 떼는지 대조한다. 순수 판정은 `tests/test_hotplug_usb_xml.c`, 배선은 `tests/test_usb_hostdev_contract.py`가 소유한다.
+- `vm.guest.exec`는 Linux(`sh`)·Windows(PowerShell)에서 줄바꿈·따옴표가 섞인 명령, 비UTF-8 출력(`*_b64`), 무응답·예산 15초 초과(`exited:false`)를 본다.
+  가짜 agent 워커 시험(`tests/test_guest_exec_worker_fixture.py`)이 기준이고, 실 Windows 게스트 인수는 별도다.
+- `host.device.list`(웹 `인프라 > 호스트 장치`·`pcvctl host devices`)는 ADMIN과 비ADMIN의 가시성 차이(남의 VM 이름 가림), VM 정의 하나라도 못 읽을 때의 −32000,
+  장치 깊이가 다른 GPU의 IOMMU 그룹 표시를 본다. 단위는 `tests/test_host_device_scan.c`·`test_host_device_view.c`, 화면은 `tests/ui/host-devices.test.mjs`다.
 
 ### 5.2 VM clone
 

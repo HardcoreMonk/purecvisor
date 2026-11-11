@@ -109,8 +109,8 @@ empty, error 상태를 구분해야 한다.
 | Error | `--red`와 plain text message를 사용하고 retry action을 분리 |
 
 상태 구현은 Vanilla JS와 `PCV.*` namespace 규칙을 유지한다. API 경로는
-`ui/modules/endpoints.js`의 `EP` 레지스트리를 사용하고, `innerHTML`은 sanitizer
-helper를 거친다.
+`ui/modules/endpoints.js`의 `EP` 레지스트리를 사용하고, DOM은 `innerHTML` 없이
+`PCV.uxlib.el`·`HN` 노드 빌더와 `textContent`로 조립한다.
 
 ## 5. Dashboard Density
 

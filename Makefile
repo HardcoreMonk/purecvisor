@@ -196,6 +196,7 @@ COMMON_CORE_SRCS = \
     src/modules/dispatcher/guest_ip.c \
     src/modules/dispatcher/rpc_singleflight.c \
     src/modules/dispatcher/guest_agent_exec.c \
+    src/modules/dispatcher/guest_exec_request.c \
     src/modules/dispatcher/poll_async.c \
     src/modules/dispatcher/rpc_offload.c \
     src/modules/dispatcher/snapshot_fallback_lock.c \
@@ -232,6 +233,7 @@ COMMON_CORE_SRCS = \
     src/modules/resource/resource_domain_refs.c \
     src/utils/logger.c \
     src/utils/pcv_validate.c \
+    src/utils/pcv_pci_sysfs.c \
     src/utils/pcv_ssrf.c \
     src/utils/pcv_error.c \
     src/utils/pcv_log.c \
@@ -352,9 +354,13 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/vm_limit_policy.c \
     src/modules/dispatcher/hotplug_nic_xml.c \
     src/modules/dispatcher/hotplug_disk_xml.c \
+    src/modules/dispatcher/hotplug_usb_xml.c \
     src/modules/dispatcher/vnc_port_xml.c \
     $(COMMON_SINGLE_ALLOWED_NET_SRCS) \
     src/modules/dispatcher/handler_storage.c \
+    src/modules/dispatcher/hw_ids.c \
+    src/modules/dispatcher/host_device_scan.c \
+    src/modules/dispatcher/host_device_view.c \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/lxc/lxc_driver.c \
@@ -386,6 +392,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/auth/pcv_rbac_attempts.c \
     src/modules/resource/resource_gate.c \
     src/modules/dispatcher/handler_resource.c \
+    src/modules/dispatcher/handler_host_device.c \
     src/modules/daemons/ebpf_telemetry.c \
     src/modules/daemons/cgroup_psi.c \
     src/modules/daemons/alert_engine.c \
@@ -551,12 +558,16 @@ TEST_COMMON_SRCS = \
     tests/test_rest_auth.c \
     tests/test_rpc_utils.c \
     tests/test_rpc_completion.c \
+    tests/test_hw_ids.c \
+    tests/test_host_device_scan.c \
+    tests/test_host_device_view.c \
     tests/test_host_hardware_inventory.c \
     tests/test_monitor_arp.c \
     tests/test_guest_ip.c \
     tests/test_rpc_singleflight.c \
     tests/test_proc_state.c \
     tests/test_guest_agent_exec.c \
+    tests/test_guest_exec_request.c \
     tests/test_poll_async.c \
     tests/test_rpc_offload.c \
     tests/test_rpc_parse_guarded.c \
@@ -642,6 +653,7 @@ TEST_COMMON_SRCS = \
     tests/test_hotplug_flags.c \
     tests/test_hotplug_nic_xml.c \
     tests/test_hotplug_disk_xml.c \
+    tests/test_hotplug_usb_xml.c \
     tests/test_vnc_port_xml.c \
     tests/test_ws_send.c \
     src/modules/security/security_event.c \
@@ -675,6 +687,9 @@ TEST_COMMON_SRCS = \
     src/modules/dispatcher/snapshot_restart_policy.c \
     src/api/hot_reload.c \
     src/modules/dispatcher/rpc_utils.c \
+    src/modules/dispatcher/hw_ids.c \
+    src/modules/dispatcher/host_device_scan.c \
+    src/modules/dispatcher/host_device_view.c \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/daemons/process_monitor.c \
     src/modules/dispatcher/handler_monitor.c \
@@ -682,6 +697,7 @@ TEST_COMMON_SRCS = \
     src/modules/dispatcher/vm_limit_policy.c \
     src/modules/dispatcher/hotplug_nic_xml.c \
     src/modules/dispatcher/hotplug_disk_xml.c \
+    src/modules/dispatcher/hotplug_usb_xml.c \
     src/modules/dispatcher/vnc_port_xml.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
@@ -726,7 +742,7 @@ TEST_SRCS = \
 
 CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c src/cli/cli_backup_hostkey.c src/cli/cli_vpc_mgmt.c \
            src/cli/cli_container_guard.c src/cli/cli_container_ns.c src/cli/cli_resource.c src/cli/cli_security_close.c src/cli/cli_agent_set.c \
-           src/cli/cli_secret_echo.c \
+           src/cli/cli_secret_echo.c src/cli/cli_vm_usb.c src/cli/cli_host_device.c \
            src/modules/lxc/lxc_volume_guard.c src/modules/lxc/lxc_mountinfo.c
 
                                
@@ -979,7 +995,7 @@ test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-d
 
 
 
-check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control
+check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $(CLI_BIN)
 	@python3 scripts/tests/test_vm_delete_nvram.py
 	@bash tests/integration/test_vpc_startup_order.sh
 	@bash tests/integration/test_tenant_overlay_startup_order.sh
@@ -994,6 +1010,12 @@ check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control
 	@python3 -m pytest -q tests/test_vm_delete_job_contract.py
 	@python3 -m pytest -q tests/test_vpc_mgmt_wiring_contract.py
 	@python3 -m pytest -q tests/test_resource_wiring_contract.py
+	@python3 tests/test_usb_hostdev_contract.py
+	@python3 tests/test_host_device_contract.py
+	@python3 tests/test_cli_vm_usb.py
+	@python3 tests/test_cli_host_device.py
+	@python3 tests/test_guest_exec_worker_fixture.py
+	@python3 tests/test_guest_exec_bounds_contract.py
 
 
 
@@ -1146,6 +1168,7 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
     $(UI_DIR)/modules/vm-guest.js \
     $(UI_DIR)/modules/container.js $(UI_DIR)/modules/network.js $(UI_DIR)/modules/vpc.js \
     $(UI_DIR)/modules/storage.js \
+    $(UI_DIR)/modules/host-devices.js \
     $(UI_DIR)/modules/help.js \
     $(UI_DIR)/modules/nav.js $(UI_DIR)/modules/theme.js \
     $(UI_DIR)/modules/accounts.js $(UI_DIR)/modules/advanced.js \

@@ -496,6 +496,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "dpdk.status",               0 },
     { "gpu.list",                  0 },
     { "gpu.metrics",               0 },
+    { "host.device.list",          0 },
     { "iscsi.target.list",         0 },
     { "iso.list",                  0 },
     { "jobs.get",                  0 },

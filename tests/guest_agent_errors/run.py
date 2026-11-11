@@ -67,6 +67,7 @@ FIXTURE = r'''
 #include <string.h>
 #include <stdlib.h>
 #include "modules/dispatcher/rpc_utils.h"
+#include "modules/dispatcher/guest_exec_request.h"
 typedef struct { gchar *vm_id,*action; } VmLifecycleCtx;
 typedef struct { gchar *vm_id,*command; } GuestExecCtx;
 static gchar *last_error;
@@ -84,6 +85,8 @@ int virDomainFree(virDomainPtr dom) {
     g_assert_true(dom==(virDomainPtr)2); frees++; g_clear_pointer(&last_error,g_free); return 0;
 }
 const char *virGetLastErrorMessage(void) { return last_error; }
+/* exec 워커의 osinfo 실패 분류(S3)용 — 비치명 코드라 /bin/sh guest-exec까지 가서 같은 원래 오류로 끝난다. */
+int virGetLastErrorCode(void) { return last_error ? VIR_ERR_INTERNAL_ERROR : VIR_ERR_OK; }
 void virResetLastError(void) { g_clear_pointer(&last_error,g_free); }
 static void agent_error(void) {
     g_clear_pointer(&last_error,g_free);
@@ -92,7 +95,8 @@ static void agent_error(void) {
 }
 char *virDomainQemuAgentCommand(virDomainPtr dom,const char *command,int timeout,unsigned int flags) {
     g_assert_true(dom==(virDomainPtr)2); g_assert_cmpuint(flags,==,0);
-    g_assert_true(timeout==5 || timeout==10 || timeout==30);
+    if (strstr(command,"guest-get-osinfo")) g_assert_cmpint(timeout,==,5);   /* PCV_GUEST_EXEC_OSINFO_TIMEOUT_SEC */
+    else g_assert_true(timeout>=1 && timeout<=30);                            /* ping 5·fsinfo 10·exec/status 예산 1..30 */
     if (!g_str_equal(scenario,"success")) { agent_error(); return NULL; }
     if (strstr(command,"guest-exec-status")) return g_strdup("{\"return\":{\"exited\":true,\"exitcode\":0,\"out-data\":\"T0s=\"}}");
     if (strstr(command,"guest-exec")) return g_strdup("{\"return\":{\"pid\":3}}");
@@ -181,7 +185,8 @@ def main():
                        '-I' + str(source / 'include/purecvisor'), '-I' + str(stage)]
             if label != 'normal':
                 command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
-            command += [str(fixture), str(source / 'src/modules/dispatcher/rpc_utils.c'), *flags, '-Wl,--gc-sections', '-o', str(binary)]
+            command += [str(fixture), str(source / 'src/modules/dispatcher/rpc_utils.c'),
+                        str(source / 'src/modules/dispatcher/guest_exec_request.c'), *flags, '-Wl,--gc-sections', '-o', str(binary)]
             built = subprocess.run(command, capture_output=True, text=True, timeout=60)
             (output / (label + '-build.log')).write_text(built.stdout + built.stderr)
             assert built.returncode == 0 and not built.stderr, label + ' build failed'

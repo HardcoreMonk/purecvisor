@@ -10,7 +10,7 @@
 
 ## 목적
 
-PureCVisor 2.1.0 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
+PureCVisor 2.2.0 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
 Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web UI runtime과 분리하면서
 `docs/GUIDE.md`의 숫자형 21개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
 `docs/DATABASE_STRUCTURE.md`는 별도 작성 정본을 유지하면서 같은 reader의 독립 데이터베이스
@@ -134,9 +134,13 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   Workload·Network·Storage·Security 도메인에서 연결한다. 직접 HTTPS SVG도 같은 노드와 연결을 가진다.
   공개 DB 개수의 정본은 공개 소스에 실제 존재하는 9개(`docs/DATABASE_STRUCTURE.md`와 데이터베이스
   아키텍처 SVG)이며 다른 내부 배포판의 저장소 수와 혼용하지 않는다.
-- Hero는 별도 version eyebrow 없이 `PURECVISOR 2.1.0`를 실제 H1으로 두고 범위 문장, action과
-  배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
-  줄바꿈한다.
+- Hero는 왼쪽에 version 표식 `PURECVISOR 2.2.0 · SINGLE EDGE`, H1 "한 대의 Linux 서버를 가상화 플랫폼으로"
+  (영어 "Turn one Linux server into a virtualization platform")와 소개 한 줄, 주 action "설치 가이드"·보조
+  "서비스 영상 보기", 글자 링크 "5분 퀵스타트"와 배포 note를 두고, 오른쪽에 실제 Web UI 대시보드 화면을 둔다.
+  화면은 견본 데이터로 찍은 WebP이며 사이트 테마(밝은/어두운)마다 한 장이 보인다(한국어판은 한국어 UI, 영어판은
+  영어 UI 화면). 56rem 이하에서는 한 단으로 쌓여 글·버튼이 먼저, 화면은 아래 `min(100%, 36rem)`으로 보인다.
+  첫 화면이라 화면 이미지를 지연 로딩하지 않고, 각 300KB 이하이며 `width`·`height`는 실제 크기와 같다. 제목은
+  균형 줄바꿈이고 영어판은 크기·폭을 줄여 두 줄로 맞춘다. `site/scripts/check-site.mjs`가 이 계약을 확인한다.
 - NGINX 모드 SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-full-architecture.mmd`가 소유한다. SVG 파일은
   `2009.1953125×2653` viewBox와 node·edge·label·좌표를 유지한다.

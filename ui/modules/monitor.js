@@ -296,9 +296,9 @@ function _buildMetricsUrl(ip) {
 }
 window._buildMetricsUrl = _buildMetricsUrl;
 
-                                                                      
-                                                     
-                                               
+                                                                     
+                                                             
+                                                           
                                                                       
 function _metricsAuthHeaders() {
   var token = window.authToken || (typeof authToken !== 'undefined' ? authToken : '');
@@ -586,7 +586,7 @@ window.renderMonitoring = renderMonitoring;
 
                                            
 
-
+                                                         
 function _opsPct(n) {
   if (n === null || n === undefined || n === '') return null;
   var v = Number(n);
@@ -631,7 +631,7 @@ function _opsVmStatus(v) {
 
                                                        
                                                                   
-
+                                                
 function _opsVmRows(sourceVms, emptyText) {
   var el = PCV.uxlib.el;
   var rows = (sourceVms || []).slice(0, 5).map(function(v) {
@@ -671,7 +671,7 @@ function _opsVmRows(sourceVms, emptyText) {
                                                                 
                                                   
                                                        
-
+                                                               
 function _opsAuditRows() {
   var raw;
   try { raw = (window.eventLog || eventLog || []).slice(-3).reverse(); } catch (e) { raw = []; }
@@ -706,9 +706,9 @@ function _opsAuditRows() {
           
   
                
-
-
-
+                                                   
+                                                
+                                                     
    
 async function renderOpsTriage(b) {
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
@@ -761,8 +761,8 @@ async function renderOpsTriage(b) {
       el('span', { class: 'ops-triage-card-meta' }, meta));
   }
 
-
-
+                                                 
+                                                  
   var header = HN.pagehead({
     title: '운영 이벤트 센터',
     desc: '현재 호스트·VM 상태를 요약하고 경보, 서버 감사와 브라우저 활동을 출처별로 확인합니다.'
@@ -2241,8 +2241,8 @@ function _renderAlertConfigRegion() {
       });
   }
   _syncAlertDirtyState();
-                                                      
-                                                            
+                                                                                           
+                                                         
                                                  
   var alertRole = String((window.currentUser && window.currentUser.role) || '').toUpperCase();
   var canEditAlerts = typeof pcvRoleAllows === 'function'
@@ -2893,8 +2893,8 @@ function _renderAlertHistoryRegion() {
       if (ackFallback) ackFallback.focus();
     }
   }
-
-
+                                                           
+                                                                    
                                                            
   if (window.currentUser && typeof applyRoleVisibility === 'function') {
     applyRoleVisibility(window.currentUser.role);
@@ -3177,9 +3177,9 @@ async function renderAudit(b) {
 window.renderAudit = renderAudit;
 
                             
-                                                                      
-                                                  
-                                                         
+                                                                                            
+                                                                            
+                                                            
 async function renderGpu(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var devicesCard = el('div', { class: 'hc' },
@@ -3191,24 +3191,20 @@ async function renderGpu(b) {
     el('h4', null, '⚙ GPU 작업'),
     el('div', { class: 'mb-8' },
       el('div', { class: 'fr' }, el('label', { for: 'gpu-pci' }, 'PCI Address'), el('input', { id: 'gpu-pci', placeholder: '0000:01:00.0', class: 'w-160' })),
-      el('div', { class: 'fr' }, el('label', { for: 'gpu-vm' }, 'VM Name'), el('input', { id: 'gpu-vm', placeholder: 'gpu-vm-01', class: 'w-140' })),
       el('div', { class: 'flex gap-6 flex-wrap' },
-        el('button', { class: 'btn', onclick: 'gpuPassthrough()' }, 'VFIO Passthrough'),
+        el('button', { class: 'btn', type: 'button', onClick: function () { gpuPassthrough(); } }, _L('호스트 장치에서 할당', 'Assign in Host Devices')),
         el('button', { class: 'btn', onclick: 'gpuMdevCreate()' }, 'vGPU 생성'))),
     el('div', { id: 'gpu-action-result', class: 'mt-8' }));
   var grid2 = el('div', { class: 'sg grid-2 mb-16' }, devicesCard, actionsCard);
-                                                                
-                                                           
-                                                                       
-                                                              
-                                                             
-                           
-                                                             
-                                                      
+                                                                                                        
+                                                                                      
+                                                                                            
   var cliCard = HN.card('📖 CLI 명령어 참조',
     el('div', { style: 'font-size:12px;line-height:1.8;color:var(--fg2)' },
       el('code', { class: 'color-accent' }, 'pcvctl gpu list'), ' — GPU 디바이스 목록', el('br'),
-      el('code', { class: 'color-accent' }, 'pcvctl gpu metrics'), ' — GPU 메트릭 조회'));
+      el('code', { class: 'color-accent' }, 'pcvctl gpu metrics'), ' — GPU 메트릭 조회', el('br'),
+      el('code', { class: 'color-accent' }, 'pcvctl gpu attach <vm> <pci>'), ' — 정지 VM에 GPU 그룹 할당(ADMIN)', el('br'),
+      el('code', { class: 'color-accent' }, 'pcvctl gpu detach <vm> <pci>'), ' — 정지 VM에서 GPU 그룹 해제(ADMIN)'));
   var chartDiv = el('div', { class: 'hc mb-14' },
     el('h4', null, _L('GPU 활용률', 'GPU Utilization')),
     el('canvas', { id: 'gpu-chart', width: '600', height: '200', style: 'max-width:100%' }),
@@ -4046,11 +4042,11 @@ window.renderHost = renderHost;
 
                               
    
-
+                                 
   
                
-
-
+                                                     
+                                                   
   
                   
                                                         
@@ -4310,7 +4306,7 @@ window.renderPoolInfo = renderPoolInfo;
 
                                                   
 async function loadHealingPending() {
-                                                                           
+                                                                                               
   try {
     var r = await fetchPost(EP.RPC(), { jsonrpc:'2.0', method:'healing.pending', params:{}, id:'hp1' });
     var actions = unwrapData(r);

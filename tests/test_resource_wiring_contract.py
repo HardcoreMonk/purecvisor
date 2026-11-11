@@ -233,6 +233,27 @@ def test_each_operator_ref_param_is_gated():
     check_overlay_tenant(text)
 
 
+                                                                                                   
+USB_READ = r"\b(?:_usb_read_defs|virDomainGetXMLDesc|virDomainIsPersistent)\("
+
+
+def check_usb_gate_before_read(text: str) -> None:
+    b = body(text, "handle_vm_usb_attach(JsonObject")
+    assert gate_call(b, "vendor_id/product_id") < first(b, USB_READ)
+
+
+def test_usb_gate_before_definition_read():
+    check_usb_gate_before_read(code(HOTPLUG))
+
+
+def test_counterfactual_usb_read_before_gate_fails():
+    text = code(HOTPLUG)
+    anchor = "g_autofree gchar *usb_ref"
+    assert text.count(anchor) == 1
+    with pytest.raises(AssertionError):
+        check_usb_gate_before_read(text.replace(anchor, "_usb_read_defs(dom, 0, 0, 0, 0, 0);\n    " + anchor))
+
+
 def test_mount_iso_uses_gate_result_in_xml():
     check_mount_iso_xml(code(HOTPLUG))
 

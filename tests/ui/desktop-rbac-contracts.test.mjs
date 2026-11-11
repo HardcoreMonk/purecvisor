@@ -188,7 +188,13 @@ test('representative UI mutations remain anchored to explicit backend policy', (
     'vm.disk.live_resize': 1,
     'vm.clone': 1,
     'vm.delete': 1,
-    'vm.export.ova': 2
+    'vm.export.ova': 2,
+
+    'host.device.list': 0,
+    'vm.usb.attach': 1,
+    'vm.usb.detach': 1,
+    'device.gpu.attach': 2,
+    'device.gpu.detach': 2
   };
   for (const [method, minRole] of Object.entries(expected)) {
     assert.equal(dispatcherMinRole(method), minRole, method);
@@ -250,6 +256,63 @@ for (const surface of SURFACE_CASES) {
     }, { routes: surface.routes });
   });
 }
+
+test('host-devices USB/GPU actions follow backend minimum role as disabled controls with visible reasons', async () => {
+  const usbMin = dispatcherMinRole('vm.usb.attach');
+  assert.equal(dispatcherMinRole('vm.usb.detach'), usbMin);
+  const gpuMin = dispatcherMinRole('device.gpu.attach');
+  assert.equal(dispatcherMinRole('device.gpu.detach'), gpuMin);
+  const list = {
+    devices: [
+      { kind: 'pci', group: 'gpu', id: '0000:01:00.0', present: true, name: 'GPU RBAC', vendor_name: null,
+        pci_addr: '0000:01:00.0', vendor_id: '10de', device_id: '2482', driver: 'vfio-pci', iommu_group: '17',
+        boot_vga: false, display_connected: false, host_display: false, group_safe: true, group_vfio_ready: true,
+        partial_assignment: false, hidden_by_default: false, assignable: true, blocked_reason: null, companions: [],
+        assignments: [{ vm: 'vm-rbac', vm_visible: true, vm_active: false, live: false, persistent: true, managed: 'no' }] },
+      { kind: 'usb', group: 'usb', id: '1c7a:0577', present: true, name: 'USB RBAC', vendor_name: null,
+        vendor_id: '0x1c7a', product_id: '0x0577', bus: 3, device: 10, port: '3-3.4', device_class: 'ff',
+        interfaces: [], traits: [], host_driver_bound: false, duplicate_on_host: false, hidden_by_default: false,
+        assignable: true, blocked_reason: null, assignments: [] }
+    ],
+    vms: [{ name: 'vm-rbac', active: false, persistent: true }],
+    sources: { usb: 'available', pci: 'available', names: 'available' },
+    truncated: false
+  };
+
+  await withPage([...BASE_MODULES, 'ui/modules/filter-state.js', 'ui/modules/modal-core.js', 'ui/modules/host-devices.js'],
+    async page => {
+      await seedProductGlobals(page, 'host-devices');
+      await page.addScriptTag({ content: ROLE_GUARD_SOURCE });
+      for (const role of [null, 'VIEWER', 'OPERATOR', 'ADMIN']) {
+        const result = await page.evaluate(async effectiveRole => {
+          window.currentUser = effectiveRole ? { role: effectiveRole } : null;
+          const target = document.getElementById('cb');
+          await window.renderHostDevices(target);
+          const button = (id, kind) => {
+            const row = [...target.querySelectorAll('tr[data-hd-row]')].find(tr => tr.getAttribute('data-hd-row') === id);
+            const node = row && row.querySelector('button[data-hd-kind="' + kind + '"]');
+            return node && {
+              disabled: node.disabled,
+              display: getComputedStyle(node).display,
+              hiddenByRole: !!node.closest('[data-role]'),
+              reason: node.getAttribute('aria-describedby')
+                ? (document.getElementById(node.getAttribute('aria-describedby')) || {}).textContent : null
+            };
+          };
+          return { usb: button('1c7a:0577', 'assign'), gpu: button('0000:01:00.0', 'release') };
+        }, role);
+        const rank = role === null ? -1 : ROLE_RANK[role];
+        for (const [name, min] of [['usb', usbMin], ['gpu', gpuMin]]) {
+          const node = result[name];
+          assert.ok(node, `${role || 'unknown'} ${name} control exists`);
+          assert.equal(node.disabled, rank < min, `${role || 'unknown'} ${name} disabled follows dispatcher role ${min}`);
+          assert.notEqual(node.display, 'none', `${role || 'unknown'} ${name} stays visible`);
+          assert.equal(node.hiddenByRole, false, `${name} is not a data-role hidden control`);
+          if (rank < min) assert.ok(node.reason, `${role || 'unknown'} ${name} disabled reason is linked`);
+        }
+      }
+    }, { routes: { '/api/v1/rpc': { body: { data: list } } } });
+});
 
 test('VM context menu keeps reads visible and gates OPERATOR versus ADMIN actions', async () => {
   await withPage(VM_MODULES, async page => {

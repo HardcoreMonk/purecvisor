@@ -126,14 +126,14 @@ Object.defineProperty(window.PCV, 'state', {
 });
 window.PCV.config = {
   API_BASE: API_BASE,
-  VERSION: '2.1.0',
+  VERSION: '2.2.0',
                                                            
                                                                           
                                                                      
                                                           
                                            
-  RPC_COUNT: 316,
-  REST_COUNT: 224,
+  RPC_COUNT: 317,
+  REST_COUNT: 225,
   METRICS_COUNT: 155
 };
 Object.defineProperty(window.PCV, 'auth', {
@@ -891,23 +891,6 @@ window.sgListRules = async function() {
                                                                         
                                                                   
                                                               
-                                                
-                                                                           
-  
-                                                             
-                                                       
-                                                                       
-                              
-  
-               
-                                                           
-                                                         
-                                            
-  
-                                                              
-                                                       
-                                                      
-
 window.testGpuList = async function() {
   const el = document.getElementById('gpu-list-result');
   if (!el) return;
@@ -935,19 +918,8 @@ window.testGpuList = async function() {
 
                                                              
                                                     
-                                                      
-                 
-window.gpuPassthrough = async function() {
-  const el = document.getElementById('gpu-action-result');
-  const pci = document.getElementById('gpu-pci')?.value;
-  const vm = document.getElementById('gpu-vm')?.value;
-  if (!pci || !vm) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'PCI 주소와 VM 이름을 입력하세요'); return; }
-                                                      
-                                                             
-                                                        
-  if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' },
-    'VFIO 패스스루는 이 빌드에서 지원하지 않습니다 (REST·RPC·CLI 모두 없음). 조회만 가능: ',
-    PCV.uxlib.el('code', null, 'pcvctl gpu list'));
+window.gpuPassthrough = function() {
+  if (typeof navigateTo === 'function') navigateTo('host-devices');
 };
 
 window.gpuMdevCreate = async function() {
@@ -1998,6 +1970,7 @@ if (!window._navTabsWrapped) {
         'mon-storage': _L('스토리지 모니터', 'Storage Monitor'),
         'mon-audit': _L('감사 로그', 'Audit Log'),
         'security-groups': _L('보안 그룹', 'Security Groups'),
+        'host-devices': _L('호스트 장치', 'Host Devices'),
         'gpu': _L('GPU 장치', 'GPU'),
         'apihelp': _L('Swagger API', 'Swagger API'),
         'helppage': _L('도움말', 'Help'),

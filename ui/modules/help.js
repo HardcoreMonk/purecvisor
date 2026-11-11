@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 316, REST = cfg.REST_COUNT || 224, METRICS = cfg.METRICS_COUNT || 155;
+  var RPC = cfg.RPC_COUNT || 317, REST = cfg.REST_COUNT || 225, METRICS = cfg.METRICS_COUNT || 155;
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -75,7 +75,7 @@ function renderHelp(b) {
       HN.row(_L('노출 엔드포인트', 'Exposed at'), el('code', null, '/metrics'))]),
     HN.card('💻 ' + _L('인프라', 'Infrastructure'), [
       HN.row(_L('에디션', 'Edition'), window.pcvClusterEnabled ? '3-Node Cluster HA' : _L('Single Edge (단일 노드)', 'Single Edge (single-node)')),
-      HN.row(_L('Web UI 페이지', 'Web UI Pages'), '39'),
+      HN.row(_L('Web UI 페이지', 'Web UI Pages'), '40'),
       HN.row(_L('i18n 키', 'i18n Keys'), '340+')]));
 
                                        
@@ -96,7 +96,7 @@ function renderHelp(b) {
       ['vm.guest.agent.status', 0, 'vm guest-agent-status', 'summary', '게스트 에이전트 채널/패키지 상태 조회', 'Inspect guest-agent channel/package status'],
       ['vm.guest.agent.ensure_channel', 1, 'vm guest-agent-ensure-channel', 'summary', 'qemu-guest-agent libvirt 채널 장치 추가', 'Add qemu-guest-agent libvirt channel device'],
       ['vm.guest.fsinfo', 0, '-', 'summary', '에이전트로 게스트 파일시스템/디스크 사용량 조회', 'Query guest filesystem/disk usage via agent'],
-      ['vm.guest.exec', 2, 'vm guest-exec', '-', '에이전트로 게스트 내부 명령 실행 (관리자 전용)', 'Execute command inside guest via agent (admin-only)'],
+      ['vm.guest.exec', 2, 'vm guest-exec', '-', '에이전트로 게스트 내부 명령 실행 (관리자 전용, Windows는 PowerShell)', 'Execute command inside guest via agent (admin-only; PowerShell on Windows)'],
       ['vm.guest.shutdown', 1, 'vm guest-shutdown', 'summary', '게스트 에이전트 통한 우아한 ACPI 종료', 'Graceful ACPI shutdown via guest agent'],
       ['vm.delete', 1, 'vm delete', 'summary', 'VM 삭제 (비동기 Job; VM 이름과 맞는 첫 디스크만 함께 삭제, operator는 소유 범위)', 'Delete VM (async job; only the first disk named after the VM is deleted with it; owner-scoped for operator)'],
       ['vm.delete.status', 0, 'vm delete-status', 'summary', '최근 VM 삭제 Job 상태 조회', 'Latest VM-delete job status'],
@@ -123,9 +123,9 @@ function renderHelp(b) {
       ['vm.memory.stats', 1, 'vm memory-stats', 'performance', '메모리 balloon/RSS/swap 통계', 'Memory balloon/RSS/swap stats'],
       ['vm.cpu.stats', 1, 'vm cpu-stats', 'performance', 'CPU 시간 + vCPU별 통계', 'CPU time + per-vCPU stats'],
       ['vm.disk.live_resize', 1, '-', 'summary', '실행 도메인 디스크 라이브 리사이즈', 'Live-resize VM disk (running domain)'],
-      ['vm.usb.attach', 1, 'vm usb-attach', 'summary', 'USB 호스트 장치 연결 (vendor/product)', 'Attach USB host device (vendor/product)'],
-      ['vm.usb.detach', 1, 'vm usb-detach', 'summary', 'USB 호스트 장치 분리', 'Detach USB host device'],
-      ['vm.usb.list', 0, 'vm usb-list', 'summary', 'VM에 연결된 USB hostdev 목록', 'List USB hostdevs attached to VM'],
+      ['vm.usb.attach', 1, 'vm usb-attach', 'summary', 'USB 호스트 장치 연결 (실행 중 live+영구, 꺼짐 영구 정의, persistent:false면 실행 중 live만)', 'Attach USB host device (running: live + persistent; stopped: persistent; persistent:false: running VM live only)'],
+      ['vm.usb.detach', 1, 'vm usb-detach', 'summary', 'USB 호스트 장치 분리 (있는 쪽 live·영구에서)', 'Detach USB host device (from live and/or persistent, wherever present)'],
+      ['vm.usb.list', 0, 'vm usb-list', 'summary', 'VM의 USB hostdev 목록 (live·영구·startup_policy)', 'List VM USB hostdevs (live/persistent/startup policy)'],
       ['vm.blkio.set', 1, 'vm blkio-set / vm disk-throttle', 'summary', '블록 I/O 제한 설정 (bps/iops)', 'Set block I/O limits (bps/iops)'],
       ['vm.blkio.get', 0, 'vm blkio-get', 'summary', '블록 I/O 제한 조회', 'Get block I/O limits'],
       ['vm.snapshot.schedule.set', 1, '-', 'snapshots', 'VM 자동 스냅샷 스케줄 설정', 'Set VM auto-snapshot schedule'],
@@ -359,6 +359,7 @@ function renderHelp(b) {
     { id: 'gpu', ko: 'GPU', en: 'GPU', rows: [
       ['gpu.metrics', 0, 'gpu metrics', 'gpu', 'GPU 사용률 메트릭', 'GPU utilization metrics'],
       ['gpu.list', 0, 'gpu list', 'gpu', 'GPU 목록 (lspci)', 'List GPUs (lspci)'],
+      ['host.device.list', 0, 'host devices', '-', '호스트 장치(GPU·USB·블루투스)와 VM 할당 상태', 'List host devices (GPU/USB/Bluetooth) and VM assignments'],
     ]},
     { id: 'healing', ko: '자가치유', en: 'Self-Healing', rows: [
       ['healing.history', 0, 'healing history', 'selfhealing', '자가치유 액션 이력', 'Self-healing action history'],
@@ -649,8 +650,8 @@ function renderSwaggerApi(b) {
       { m: 'POST', p: '/vms/{name}/nics', d: _L('NIC 추가', 'Attach NIC'), body: '{"bridge":"pcvexbr0","model":"virtio"}' },
       { m: 'DELETE', p: '/vms/{name}/nics/{mac}', d: _L('NIC 제거', 'Detach NIC') },
       { m: 'GET', p: '/vms/{name}/usb', d: _L('USB 목록', 'USB list') },
-      { m: 'POST', p: '/vms/{name}/usb', d: _L('USB 연결', 'Attach USB'), body: '{"vendor_id":"1234","product_id":"5678"}' },
-      { m: 'DELETE', p: '/vms/{name}/usb', d: _L('USB 분리', 'Detach USB'), body: '{"vendor_id":"1234","product_id":"5678"}' },
+      { m: 'POST', p: '/vms/{name}/usb', d: _L('USB 연결', 'Attach USB'), body: '{"vendor_id":"0x1234","product_id":"0x5678","startup_policy":"optional"}' },
+      { m: 'DELETE', p: '/vms/{name}/usb', d: _L('USB 분리', 'Detach USB'), body: '{"vendor_id":"0x1234","product_id":"0x5678"}' },
       { m: 'PUT', p: '/vms/{name}/vcpu', d: _L('vCPU 설정', 'Set vCPU'), body: '{"vcpu_count":4}' },
       { m: 'PUT', p: '/vms/{name}/memory', d: _L('메모리 설정', 'Set memory'), body: '{"memory_mb":4096}' },
       { m: 'GET', p: '/vms/{name}/delete-status', d: _L('최근 삭제 Job 상태', 'Latest delete job status') },
@@ -841,6 +842,7 @@ function renderSwaggerApi(b) {
     { id: 'gpu', name: _L('GPU', 'GPU'), endpoints: [
       { m: 'GET', p: '/gpu/list', d: _L('GPU 장치 목록', 'GPU device list') },
       { m: 'GET', p: '/gpu/metrics', d: _L('GPU 메트릭', 'GPU metrics') },
+      { m: 'GET', p: '/host/devices', d: _L('호스트 장치와 VM 할당', 'Host devices and VM assignments') },
     ]},
                                         
     { id: 'backup', name: _L('백업', 'Backup'), endpoints: [

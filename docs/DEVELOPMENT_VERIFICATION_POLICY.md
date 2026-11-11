@@ -10,6 +10,8 @@
 > **현행화 기준:** 2026-09-15
 > **관련 문서:** [GUIDE.md](GUIDE.md), [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
 
+> **2026-11-11 현황:** 공개 `2.2.0`은 `2.1.0` 위에 호스트 장치 화면과 조회·USB 장치 영구 할당·Windows 게스트 명령 실행을 더한 기능 릴리스다. 게시 전 공개 계약 게이트 47개, release·debug C 단위 시험, 브라우저 UI 시험, 패키지·격리 Ubuntu lifecycle과 개발 호스트 실제 업그레이드를 확인했다. 전체 감사·지원 환경 인증은 여전히 미완료다.
+>
 > **2026-11-09 현황:** 공개 `2.1.0`(`cca325c`)은 `2.0.4` 위에 Single Edge 기능을 반영한 기능 릴리스다. 게시 전 공개 계약 게이트 47개, release·debug C 단위 시험, 브라우저 UI 시험, 패키지·격리 Ubuntu lifecycle과 개발 호스트 실제 업그레이드를 확인했다. 전체 감사·지원 환경 인증은 여전히 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
 
 ---
@@ -746,6 +748,18 @@ namespace는 호스트와 공유한다. 운영 데몬이 도는 호스트에서 
 같은 호스트·커널에서는 체크아웃 경로와 무관하게 같은 오브젝트 바이트가 나온다. 공유 브리지 BPF는
 오브젝트 sha256으로 세대 이름을 만들므로, 이 성질이 깨지면 반영마다 미부착 세대가 쌓인다. 다른
 커널·도구체인 사이의 재현성이나 `.deb` 전체 재현성은 이 규칙이 보장하지 않는다.
+
+### 4.26 순수 판정 TU·가짜 agent 워커·가짜 sysfs 시험
+
+USB 영구 할당·Windows `vm.guest.exec`와 호스트 장치 목록은 libvirt·sysfs·guest agent 없이 돌 수 있는 경계를 먼저 잘라 `test_runner`와 계약 시험에 넣었다. 새 의무 규칙이 아니라 수단 기록이다.
+
+- **순수 TU 단위 시험.** `tests/test_hotplug_usb_xml.c`(USB live·영구 짝짓기·계획), `tests/test_guest_exec_request.c`(agent 요청 JSON), `tests/test_host_device_scan.c`(가짜 sysfs 루트로 USB·GPU·IOMMU 그룹 열거),
+  `tests/test_host_device_view.c`(VM 정의 대조·가시성·읽기 결과 분류), `tests/test_hw_ids.c`(pci.ids·usb.ids 사전)가 같은 소스를 링크한다.
+- **가짜 agent 워커.** `tests/test_guest_exec_worker_fixture.py`는 실제 `vm.guest.exec` 워커를 가짜 guest agent에 붙여 Windows·Linux·무응답·예산 초과를 고정하고,
+  `tests/test_guest_exec_bounds_contract.py`가 REST·CLI·UI 응답 상한이 서버 예산(15초)보다 길다는 것을 잠근다.
+- **계약 시험.** `tests/test_usb_hostdev_contract.py`·`tests/test_host_device_contract.py`(레인·정책·라우트 배선)는 `make check-server-defect-contracts`가 돌린다.
+- **실브라우저.** `tests/ui/host-devices.test.mjs`(호스트 장치 화면)·`tests/ui/gpu-assignment-guidance.test.mjs`(GPU 화면 안내)가 `tests/ui/*.test.mjs`에 포함된다.
+- **시험 부산물.** `test_rootfs_walk_dir`(`tests/test_lxc_userns.c`)는 만든 임시 트리를 끝에 `nftw`로 지워 `./test_runner`를 돌릴 때마다 `/tmp`에 디렉터리가 남지 않는다.
 
 ---
 
