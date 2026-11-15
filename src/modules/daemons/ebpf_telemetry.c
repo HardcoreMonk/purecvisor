@@ -119,7 +119,6 @@
 #define EBPF_LOG_DOM       "ebpf_telem"
 #define EBPF_INTERVAL_SEC  5
 #define EBPF_MAX_VMS       64
-#define EBPF_HOST_HISTORY_MAX 720
 
                                                              
 
@@ -283,10 +282,6 @@ static struct {
     VmExtMetrics  vms[EBPF_MAX_VMS];                                     
     gint          vm_count;                                   
     HostMetrics   host;                                                
-    HostMetrics   host_history[EBPF_HOST_HISTORY_MAX];                             
-    gint64        host_history_observed_at[EBPF_HOST_HISTORY_MAX];
-    guint         host_history_count;
-    guint         host_history_index;
     gint64        host_observed_at;                                           
     GMutex        mu;                                                      
     gboolean      initialized;                                                 
@@ -1548,10 +1543,6 @@ _ebpf_thread(gpointer data)
         g_mutex_lock(&G.mu);
         G.host = h;
         G.host_observed_at = observed_at;
-        G.host_history[G.host_history_index] = h;
-        G.host_history_observed_at[G.host_history_index] = observed_at;
-        G.host_history_index = (G.host_history_index + 1) % EBPF_HOST_HISTORY_MAX;
-        if (G.host_history_count < EBPF_HOST_HISTORY_MAX) G.host_history_count++;
         g_mutex_unlock(&G.mu);
 
                                                               
@@ -1868,8 +1859,6 @@ void
 pcv_ebpf_telemetry_init(void)
 {
     g_mutex_init(&G.mu);
-    G.host_history_count = 0;
-    G.host_history_index = 0;
     G.host_observed_at = 0;
     g_atomic_int_set(&G.running, TRUE);
     G.initialized = TRUE;
@@ -2056,44 +2045,6 @@ pcv_ebpf_telemetry_get_host(void)
     g_mutex_unlock(&g_host_cache_mu);
 
     return obj;
-}
-
-  
-                                       
-                                                           
-                                                                    
-                                        
-                                              
-   
-JsonArray *
-pcv_ebpf_telemetry_get_host_history(void)
-{
-    JsonArray *history = json_array_new();
-    g_mutex_lock(&G.mu);
-    const guint start = G.host_history_count < EBPF_HOST_HISTORY_MAX
-        ? 0 : G.host_history_index;
-    for (guint i = 0; i < G.host_history_count; i++) {
-        const guint index = (start + i) % EBPF_HOST_HISTORY_MAX;
-        const HostMetrics *host = &G.host_history[index];
-        JsonObject *sample = json_object_new();
-        json_object_set_int_member(sample, "observed_at",
-                                   G.host_history_observed_at[index]);
-        json_object_set_double_member(sample, "cpu_percent", host->cpu_percent);
-        const gdouble memory = host->mem_total_kb > 0
-            ? 100.0 * (1.0 - (gdouble)host->mem_avail_kb
-                       / (gdouble)host->mem_total_kb) : 0.0;
-        json_object_set_double_member(sample, "mem_percent", memory);
-        json_object_set_double_member(sample, "load_1m", host->load_1m);
-        json_object_set_double_member(sample, "load_5m", host->load_5m);
-        json_object_set_double_member(sample, "load_15m", host->load_15m);
-        json_object_set_int_member(sample, "net_rx_bytes", host->net_rx_bytes);
-        json_object_set_int_member(sample, "net_tx_bytes", host->net_tx_bytes);
-        json_object_set_int_member(sample, "disk_rd_bytes", host->disk_rd_bytes);
-        json_object_set_int_member(sample, "disk_wr_bytes", host->disk_wr_bytes);
-        json_array_add_object_element(history, sample);
-    }
-    g_mutex_unlock(&G.mu);
-    return history;
 }
 
    

@@ -7072,7 +7072,7 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | 지원 범위 | Single Edge·OVA·로컬 백업, AWS/S3 제거 |
 | 활성 DB | 9개·영구 테이블 28개; 과거 Cloud DB는 자동 삭제하지 않음 |
 | Web UI | `tests/ui/*.test.mjs` 77개 |
-| 주요 정적 게이트 | `make -j1 check-all` 47개 게이트 |
+| 주요 정적 게이트 | `make -j1 check-all` 48개 게이트 |
 | 운영 기능 아티팩트 | 공개 소스 검증과 별도이며 실제 설치본의 source commit으로 확인 |
 
 
@@ -7589,7 +7589,7 @@ chmod +x .git/hooks/commit-msg
   perf: json_generator → json_to_string 전환
 ```
 
-### 22.4 계약 게이트 일괄 — `make check-all` (47게이트)
+### 22.4 계약 게이트 일괄 — `make check-all` (48게이트)
 
 ```bash
 make -j1 check-all
@@ -7644,6 +7644,7 @@ make -j1 check-all
 | `check-vm-start-single-entry` | VM 시작 단일 진입점: start/stop async 직접 참조·virDomainCreate* 허용 목록 밖 호출 차단(래칫). 새 VM 이름 UUID 거부·`vm.rename` 잠금 계약 시험 포함 |
 | `check-file-size-ratchet` | 파일 크기 래칫: 추적 소스 파일 상한 1,500줄, 기준선 파일은 줄이는 방향만 허용 |
 | `check-mainloop-reach` | 메인 루프에서 도달 가능한 차단 호출의 래칫: 기준선 밖의 새 도달을 막고, 비어 있어야 하는 범주(`g_mutation_mu`·동기 DNS)는 0을 지킨다 |
+| `check-internal-monitoring-absent` | 알림 엔진·프로세스 모니터·호스트 지표 모듈에 공개판에서 뺀 내부 관측 버퍼(활성 경보 전이 기록·서비스 프로세스 목록·호스트 지표 이력)가 다시 들어오지 않는지 추적 파일 전체에서 확인한다. 알림 이력·설정·ACK, 프로세스 상위 목록, 호스트 지표 조회와 그 호출부는 남아 있어야 한다 |
 
 ### 22.5 품질 게이트 건너뛰기
 

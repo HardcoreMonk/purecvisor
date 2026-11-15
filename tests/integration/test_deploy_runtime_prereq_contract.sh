@@ -2036,6 +2036,7 @@ expected_deps = {
     "check-file-size-ratchet",
                                                    
     "check-mainloop-reach",
+    "check-internal-monitoring-absent",
 }
 require(
     len(deps) == len(set(deps)),
@@ -2043,13 +2044,13 @@ require(
 )
 require(
     set(deps) == expected_deps,
-    "check-all dependencies must match the complete expected 47-gate set",
+    "check-all dependencies must match the complete expected 48-gate set",
 )
 require(
-    "전체 통과 (47게이트:" in recipe and "AWS 수동 이관 제거" in recipe and "DPDK ownership lifecycle" in recipe and
+    "전체 통과 (48게이트:" in recipe and "AWS 수동 이관 제거" in recipe and "DPDK ownership lifecycle" in recipe and
     "network mode enum" in recipe and "iSCSI CHAP argv 제거" in recipe and
     "runtime prerequisites" in recipe and "VNC proxy lifetime" in recipe,
-    "check-all success message must describe all 47 gates",
+    "check-all success message must describe all 48 gates",
 )
 
 policy_section = re.search(

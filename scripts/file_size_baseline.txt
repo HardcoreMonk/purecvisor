@@ -4,13 +4,13 @@
 7718	src/modules/network/ovs_overlay.c
 5206	src/modules/network/network_manager.c
 4421	ui/modules/monitor.js
-3489	src/modules/daemons/alert_engine.c
 3290	src/modules/auth/pcv_rbac.c
+3274	src/modules/daemons/alert_engine.c
 2948	src/modules/lxc/lxc_driver.c
 2451	src/main.c
 2241	src/modules/network/pcv_qos.c
 2232	ui/app.js
-2188	src/modules/daemons/ebpf_telemetry.c
+2139	src/modules/daemons/ebpf_telemetry.c
 2081	src/modules/backup/backup_scheduler.c
 1989	src/modules/network/security_group.c
 1963	src/modules/dispatcher/handler_container.c

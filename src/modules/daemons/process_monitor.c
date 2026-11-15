@@ -129,8 +129,6 @@
 
                                               
 #define PROC_MAX          512
-#define PROC_SERVICE_SCAN_LIMIT   16384
-#define PROC_SERVICE_RESULT_LIMIT  8192
 
    
                  
@@ -257,13 +255,6 @@ typedef struct {
     ProcType type;
 } ProcInfo;
 
-                                            
-typedef struct {
-    gint  pid;
-    gchar state;
-    gchar cgroup[256];
-} ServiceProcInfo;
-
    
                                  
   
@@ -312,18 +303,6 @@ static struct {
 
                                                         
     gboolean    snapshot_truncated;
-
-                                                                            
-    GArray     *service_procs;
-
-                                                  
-    gint        service_source_count;
-
-                                                
-    gint64      service_observed_at;
-
-                                           
-    gboolean    service_snapshot_truncated;
 
        
                         
@@ -681,70 +660,6 @@ _sort_by_cpu(gconstpointer a, gconstpointer b)
 }
 
    
-                                                                        
-  
-                                                                    
-                                                             
-                                                       
-   
-static GArray *
-_collect_service_processes(gint64 *observed_at,
-                           gint *source_count,
-                           gboolean *truncated)
-{
-    GArray *items = g_array_sized_new(FALSE, FALSE, sizeof(ServiceProcInfo), 64);
-    DIR *dir = opendir("/proc");
-    if (!dir) {
-        if (observed_at) *observed_at = 0;
-        if (source_count) *source_count = 0;
-        if (truncated) *truncated = TRUE;
-        return items;
-    }
-
-    guint scanned = 0;
-    guint readable = 0;
-    gboolean bounded = FALSE;
-    struct dirent *entry = NULL;
-    while ((entry = readdir(dir)) != NULL) {
-        if (!isdigit((unsigned char)entry->d_name[0])) continue;
-        if (scanned >= PROC_SERVICE_SCAN_LIMIT) {
-            bounded = TRUE;
-            break;
-        }
-        scanned++;
-
-        const gint pid = atoi(entry->d_name);
-        if (pid <= 0) continue;
-        gchar cgroup[256] = {0};
-        if (!_get_process_cgroup(pid, cgroup, sizeof(cgroup))) continue;
-        readable++;
-        if (!strstr(cgroup, ".service")) continue;
-
-        ProcInfo process = {0};
-        _parse_proc_stat(pid, &process);
-        if (process.pid == 0) continue;
-        process.type = _classify_process(cgroup, process.comm);
-        if (process.type != PROC_SYSTEM) continue;
-        if (items->len >= PROC_SERVICE_RESULT_LIMIT) {
-            bounded = TRUE;
-            continue;
-        }
-
-        ServiceProcInfo item = {0};
-        item.pid = process.pid;
-        item.state = process.state;
-        g_strlcpy(item.cgroup, cgroup, sizeof(item.cgroup));
-        g_array_append_val(items, item);
-    }
-    closedir(dir);
-
-    if (observed_at) *observed_at = readable > 0 ? (gint64)time(NULL) : 0;
-    if (source_count) *source_count = (gint)scanned;
-    if (truncated) *truncated = bounded;
-    return items;
-}
-
-   
                                             
   
                                                                               
@@ -820,12 +735,6 @@ _collect_processes(void)
 
                                                              
     gint64 now_us = g_get_monotonic_time();
-
-    gint64 service_observed_at = 0;
-    gint service_source_count = 0;
-    gboolean service_truncated = FALSE;
-    GArray *service_tmp = _collect_service_processes(
-        &service_observed_at, &service_source_count, &service_truncated);
 
       
                                
@@ -923,14 +832,7 @@ _collect_processes(void)
     G.count = count;
     G.observed_at = (gint64)time(NULL);
     G.snapshot_truncated = count >= PROC_MAX;
-    g_array_set_size(G.service_procs, 0);
-    if (service_tmp->len > 0)
-        g_array_append_vals(G.service_procs, service_tmp->data, service_tmp->len);
-    G.service_source_count = service_source_count;
-    G.service_observed_at = service_observed_at;
-    G.service_snapshot_truncated = service_truncated;
     g_mutex_unlock(&G.mu);
-    g_array_unref(service_tmp);
 
                                        
     G.prev_time_us = now_us;
@@ -1070,10 +972,6 @@ pcv_process_monitor_init(void)
     G.count = 0;
     G.observed_at = 0;
     G.snapshot_truncated = FALSE;
-    G.service_procs = g_array_sized_new(FALSE, FALSE, sizeof(ServiceProcInfo), 64);
-    G.service_source_count = 0;
-    G.service_observed_at = 0;
-    G.service_snapshot_truncated = FALSE;
     G.prev_ticks = g_hash_table_new(g_direct_hash, g_direct_equal);
     g_mutex_lock(&G.wait_mu);
     G.running = TRUE;
@@ -1113,10 +1011,6 @@ pcv_process_monitor_shutdown(void)
     if (G.prev_ticks) {
         g_hash_table_destroy(G.prev_ticks);
         G.prev_ticks = NULL;
-    }
-    if (G.service_procs) {
-        g_array_unref(G.service_procs);
-        G.service_procs = NULL;
     }
     g_mutex_clear(&G.mu);
     g_cond_clear(&G.wait_cond);
@@ -1222,38 +1116,6 @@ pcv_process_monitor_get_filtered_snapshot(gint n,
         json_array_add_object_element(arr, _proc_to_json(&G.procs[i]));
         added++;
         if (n > 0 && added >= n) break;
-    }
-    g_mutex_unlock(&G.mu);
-    return arr;
-}
-
-   
-                                                                       
-  
-                                                                      
-                                                                
-                                                                    
-                                                         
-   
-JsonArray *
-pcv_process_monitor_get_service_snapshot(gint64 *observed_at,
-                                         gint *source_count,
-                                         gboolean *truncated)
-{
-    JsonArray *arr = json_array_new();
-    g_mutex_lock(&G.mu);
-    if (observed_at) *observed_at = G.service_observed_at;
-    if (source_count) *source_count = G.service_source_count;
-    if (truncated) *truncated = G.service_snapshot_truncated;
-    for (guint i = 0; i < G.service_procs->len; i++) {
-        const ServiceProcInfo *process = &g_array_index(
-            G.service_procs, ServiceProcInfo, i);
-        JsonObject *item = json_object_new();
-        json_object_set_int_member(item, "pid", process->pid);
-        json_object_set_string_member(item, "cgroup", process->cgroup);
-        gchar state[2] = {process->state, '\0'};
-        json_object_set_string_member(item, "state", state);
-        json_array_add_object_element(arr, item);
     }
     g_mutex_unlock(&G.mu);
     return arr;

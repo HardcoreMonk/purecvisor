@@ -46,7 +46,7 @@ DEV_JOB_FLAGS = $(if $(filter -j% --jobserver-auth=%,$(MAKEFLAGS)),,-j$(DEV_JOBS
 
 
 DEV_MUTATING_CHECKS = check-rpc-consumers check-rpc-param-contract check-safety-controls check-fe-rpc-params check-rerror-guard
-DEV_PARALLEL_CHECKS = check-aws-manual-removed check-help-contract check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface check-vnc-proxy-lifetime check-vnc-flow-control check-vm-start-single-entry check-file-size-ratchet check-mainloop-reach
+DEV_PARALLEL_CHECKS = check-aws-manual-removed check-help-contract check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface check-vnc-proxy-lifetime check-vnc-flow-control check-vm-start-single-entry check-file-size-ratchet check-mainloop-reach check-internal-monitoring-absent
 
 ifeq ($(filter 0 1 auto,$(DEV_USE_MOLD)),)
     $(error DEV_USE_MOLD must be one of: auto, 1, 0)
@@ -1849,6 +1849,12 @@ check-aws-manual-removed:
 	python3 scripts/check_aws_manual_removed.py
 	node --test tests/ui/aws-manual-removal.test.mjs
 
+.PHONY: check-internal-monitoring-absent
+check-internal-monitoring-absent:
+	@echo "🔎 Running 공통 데몬 모듈 내부 관측 버퍼 부재 게이트..."
+	@python3 scripts/check_internal_monitoring_absent.py
+	@python3 scripts/tests/test_internal_monitoring_absent.py
+
 
 
 
@@ -1867,8 +1873,8 @@ $(foreach gate,$(DEV_MUTATING_CHECKS),$(eval $(call CHECK_ALL_SERIALIZE,$(gate))
 endif
 
 
-check-all: check-aws-manual-removed check-help-contract check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs check-vnc-proxy-lifetime check-vnc-flow-control check-vm-start-single-entry check-file-size-ratchet check-mainloop-reach
-	@echo "✅ 계약 게이트 전체 통과 (47게이트: AWS 수동 이관 제거 + help 역할 표/REST 예시 + RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites + VNC proxy lifetime + VNC flow control + VM start single entry + file size ratchet + mainloop reach ratchet)"
+check-all: check-aws-manual-removed check-help-contract check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs check-vnc-proxy-lifetime check-vnc-flow-control check-vm-start-single-entry check-file-size-ratchet check-mainloop-reach check-internal-monitoring-absent
+	@echo "✅ 계약 게이트 전체 통과 (48게이트: AWS 수동 이관 제거 + help 역할 표/REST 예시 + RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites + VNC proxy lifetime + VNC flow control + VM start single entry + file size ratchet + mainloop reach ratchet + 내부 관측 버퍼 부재)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
