@@ -115,6 +115,23 @@ gboolean pcv_job_queue_retention_tick(gint64 *last_run, gint64 now, gint retenti
                                                            
 
    
+                                                                                                   
+                                                                                                   
+                                                                                                                        
+                                                                           
+                                                       
+                                           
+   
+typedef struct {
+    gboolean     all;
+    gint         role;
+    const gchar *subject;
+    const gchar *tenant;
+    gboolean   (*decide)(gint role, const gchar *subject, const gchar *tenant, const gchar *actor,
+                         const gchar *actor_tenant);
+} PcvJobScope;
+
+   
                 
                          
                                                      
@@ -122,7 +139,7 @@ gboolean pcv_job_queue_retention_tick(gint64 *last_run, gint64 now, gint retenti
                                        
                                                   
    
-JsonArray *pcv_job_list(gint limit);
+JsonArray *pcv_job_list(gint limit, const PcvJobScope *scope);
 
    
                
@@ -132,7 +149,7 @@ JsonArray *pcv_job_list(gint limit);
                       
                                                                 
    
-JsonObject *pcv_job_get(const gchar *job_id);
+JsonObject *pcv_job_get(const gchar *job_id, const PcvJobScope *scope);
 
    
                        
@@ -142,7 +159,7 @@ JsonObject *pcv_job_get(const gchar *job_id);
                                                                                     
                                                                           
    
-gboolean pcv_job_find_latest(const gchar *method, const gchar *target, JsonObject **out);
+gboolean pcv_job_find_latest(const gchar *method, const gchar *target, const PcvJobScope *scope, JsonObject **out);
 
    
                   

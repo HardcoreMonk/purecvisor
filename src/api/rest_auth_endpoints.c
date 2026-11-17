@@ -29,6 +29,7 @@
 #include "utils/pcv_bpf.h"
 #include "utils/pcv_secure.h"
 #include "modules/dispatcher/rpc_utils.h"
+#include "modules/auth/pcv_principal_names.h"
 #if PCV_CLUSTER_ENABLED
 #include "../modules/cluster/cluster_manager.h"
 #endif
@@ -547,8 +548,12 @@ pcv_rest_auth_register(PcvRestRequest *rq)
             pcv_audit_log(username, "auth.register", "self register",
                           "fail", 409, 0, rip);
             if (body) json_object_unref(body);
-            pcv_rest_send_error(msg, 409, "CONFLICT",
-                   err ? err->message : "Failed to create user (already exists?)");
+            if (pcv_principal_signup_name_conflict(err)) {
+                pcv_rest_send_error(msg, 409, "CONFLICT", "username is reserved");
+            } else {
+                PCV_LOG_WARN(REST_LOG_DOM, "self register failed: %s", err ? err->message : "unknown");
+                pcv_rest_send_error(msg, 500, "SERVER_ERROR", "registration failed");
+            }
             if (err) g_error_free(err);
             return PCV_REST_STEP_CLEANUP;
         }

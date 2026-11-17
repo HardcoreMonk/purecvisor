@@ -46,6 +46,9 @@ _injected_tenant(JsonObject *params, const gchar **out)
     return TRUE;
 }
 
+                                                                                       
+static gint g_rbac_tenant_lookups;
+
                                                                       
 void
 pcv_res_caller_init(PcvResCaller *c, JsonObject *params, GSocketConnection *connection)
@@ -60,10 +63,61 @@ pcv_res_caller_init(PcvResCaller *c, JsonObject *params, GSocketConnection *conn
         return;                                                
 
     const gchar *t = NULL;
-    if (!_injected_tenant(params, &t))
-        t = pcv_rbac_get_tenant(c->subject);                                                  
+    if (!_injected_tenant(params, &t)) {
+        g_atomic_int_inc(&g_rbac_tenant_lookups);
+        t = pcv_rbac_get_tenant(c->subject);                                                       
+    }
     if (t && *t && pcv_res_name_is_valid(t))
         c->tenant = g_strdup(t);
+}
+
+                                                                                           
+void
+pcv_res_inject_caller_tenant(JsonObject *params, gint role, const gchar *tenant)
+{
+    if (!params)
+        return;
+    json_object_remove_member(params, "_pcv_caller_tenant");
+    if (role >= PCV_ROLE_ADMIN)
+        return;                                                
+    if (tenant && *tenant)
+        json_object_set_string_member(params, "_pcv_caller_tenant", tenant);
+    else
+        json_object_set_null_member(params, "_pcv_caller_tenant");                                     
+}
+
+                                                                                                 
+                                                         
+const gchar *
+pcv_res_rest_tenant_subject(gint role, gboolean api_key, const gchar *subject)
+{
+    if (role >= PCV_ROLE_ADMIN)
+        return NULL;                                   
+    if (api_key)
+        return NULL;                                                                  
+    return (subject && *subject) ? subject : NULL;
+}
+
+                                                                    
+                                                                            
+const gchar *
+pcv_res_actor_tenant(JsonObject *params, gint role)
+{
+    if (role >= PCV_ROLE_ADMIN)
+        return NULL;                                                         
+    const gchar *t = NULL;
+    if (!_injected_tenant(params, &t))
+        return NULL;                                       
+    return (t && *t && pcv_res_name_is_valid(t)) ? t : NULL;
+}
+
+                                                                                                       
+                                                                                
+guint pcv_res_rbac_tenant_lookups_for_test(void);
+guint
+pcv_res_rbac_tenant_lookups_for_test(void)
+{
+    return (guint)g_atomic_int_get(&g_rbac_tenant_lookups);
 }
 
                                                                                             

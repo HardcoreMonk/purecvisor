@@ -1145,9 +1145,9 @@ pcv_bpf_metrics_tick(void)
         close(cfd);
     }
 #endif
-    pcv_prom_gauge_set_labels("pcv_bpf_lsm_events_total", "", (gdouble)emitted);
-    pcv_prom_gauge_set_labels("pcv_bpf_ringbuf_dropped_total", "", (gdouble)dropped);
+    pcv_prom_source_counter_set_labels("pcv_bpf_lsm_events_total", "", (gdouble)emitted);
+    pcv_prom_source_counter_set_labels("pcv_bpf_ringbuf_dropped_total", "", (gdouble)dropped);
                                                                      
-    pcv_prom_gauge_set_labels("pcv_bpf_lsm_foreign_fs_total", "",
+    pcv_prom_source_counter_set_labels("pcv_bpf_lsm_foreign_fs_total", "",
                               (gdouble)pcv_bpf_lsm_foreign_fs_total());
 }

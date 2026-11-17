@@ -12,7 +12,7 @@
                                                      
                                                       
                                                            
-                                                 
+                                                                                
                               
   
                                                                                
@@ -124,9 +124,27 @@ typedef struct {
                                                                           
                                                                                        
     gdouble value;                                                
-    gboolean is_counter;                                                   
+                                                                                           
+                                                                                                      
+                                                                      
+    PcvPromKind kind;                                   
+    gboolean kind_warned;                                           
     gint64  last_update;                                                         
 } PromMetric;
+
+                                                                        
+static const gchar *
+_kind_type(PcvPromKind k)
+{
+    return k == PCV_PROM_KIND_GAUGE ? "gauge" : "counter";
+}
+
+                 
+static const gchar *
+_kind_name(PcvPromKind k)
+{
+    return k == PCV_PROM_KIND_GAUGE ? "gauge" : k == PCV_PROM_KIND_COUNTER ? "counter" : "source-counter";
+}
 
    
                                         
@@ -209,13 +227,13 @@ _labels_over_budget(const gchar *name, const gchar *labels)
   
                                                                  
                                                        
-                                                                      
+                                                                                 
                                                                
   
                                             
    
 static gint
-_find_or_create(const gchar *name, const gchar *labels, gboolean is_counter)
+_find_or_create(const gchar *name, const gchar *labels, PcvPromKind kind)
 {
                                                     
                                                 
@@ -234,6 +252,13 @@ _find_or_create(const gchar *name, const gchar *labels, gboolean is_counter)
         if (found) {
             gint idx = GPOINTER_TO_INT(stored);
             G.metrics[idx].last_update = now;                     
+                                                                                
+                                                                    
+            if (G.metrics[idx].kind != kind && !G.metrics[idx].kind_warned) {
+                G.metrics[idx].kind_warned = TRUE;
+                PCV_LOG_WARN(PROM_LOG_DOM, "Metric kind mismatch: %s{%s} registered as %s, now %s — keeping first",
+                             name, labels ? labels : "", _kind_name(G.metrics[idx].kind), _kind_name(kind));
+            }
             g_free(key);
             return idx;
         }
@@ -255,7 +280,8 @@ _find_or_create(const gchar *name, const gchar *labels, gboolean is_counter)
         g_strlcpy(G.metrics[idx].name,   name,             sizeof(G.metrics[idx].name));
         g_strlcpy(G.metrics[idx].labels, labels ? labels : "", sizeof(G.metrics[idx].labels));
         G.metrics[idx].value      = 0;
-        G.metrics[idx].is_counter = is_counter;
+        G.metrics[idx].kind       = kind;
+        G.metrics[idx].kind_warned = FALSE;
         G.metrics[idx].last_update = now;
                                                                        
         g_hash_table_insert(G.index, key, GINT_TO_POINTER(idx));
@@ -270,7 +296,7 @@ _find_or_create(const gchar *name, const gchar *labels, gboolean is_counter)
         if (g_strcmp0(G.metrics[i].name, name) == 0 &&
             g_strcmp0(G.metrics[i].labels, labels) == 0) {
             G.metrics[i].last_update = now;                     
-            return i;
+            return i;                                                  
         }
     }
     if (G.count >= PCV_PROM_MAX_METRICS) {
@@ -288,7 +314,8 @@ _find_or_create(const gchar *name, const gchar *labels, gboolean is_counter)
     g_strlcpy(G.metrics[idx].name,   name,             sizeof(G.metrics[idx].name));
     g_strlcpy(G.metrics[idx].labels, labels ? labels : "", sizeof(G.metrics[idx].labels));
     G.metrics[idx].value      = 0;
-    G.metrics[idx].is_counter = is_counter;
+    G.metrics[idx].kind       = kind;
+    G.metrics[idx].kind_warned = FALSE;
     G.metrics[idx].last_update = now;
     return idx;
 }
@@ -303,7 +330,6 @@ _find_or_create(const gchar *name, const gchar *labels, gboolean is_counter)
                                       
 #define PCV_PROM_CHECKPOINT_PATH "/var/lib/purecvisor/prom_counters.json"
 #define PCV_PROM_CHECKPOINT_INTERVAL_SEC 60
-static guint g_checkpoint_timer = 0;
 
    
                            
@@ -324,7 +350,8 @@ _counters_save_unlocked(void)
     json_builder_set_member_name(b, "counters");
     json_builder_begin_array(b);
     for (gint i = 0; i < G.count; i++) {
-        if (!G.metrics[i].is_counter) continue;
+                                                                                                 
+        if (G.metrics[i].kind != PCV_PROM_KIND_COUNTER) continue;
         if (G.metrics[i].value <= 0.0) continue;
         json_builder_begin_object(b);
         json_builder_set_member_name(b, "name");
@@ -423,7 +450,7 @@ _counters_load(void)
         const gchar *labels = json_object_get_string_member(o, "labels");
         gdouble value = json_object_get_double_member(o, "value");
         if (!name || !labels) continue;
-        gint idx = _find_or_create(name, labels, TRUE);
+        gint idx = _find_or_create(name, labels, PCV_PROM_KIND_COUNTER);                          
         if (idx >= 0) {
             G.metrics[idx].value = value;
             restored++;
@@ -474,7 +501,9 @@ _sweep_stale_gauges(void)
     gint removed = 0;
                               
     for (gint i = G.count - 1; i >= 0; i--) {
-        if (G.metrics[i].is_counter) continue;                  
+                                                                                              
+                                                                   
+        if (G.metrics[i].kind == PCV_PROM_KIND_COUNTER) continue;
         if (now - G.metrics[i].last_update < PCV_PROM_STALE_TTL_US) continue;
                                                               
                                                                     
@@ -539,9 +568,9 @@ void pcv_prom_init(void)
 
                        
     g_mutex_lock(&G.mu);
-    gchar *info_labels = g_strdup_printf("version=\"%s\"", PCV_PRODUCT_VERSION);
-    gint idx = _find_or_create("purecvisor_info", info_labels, FALSE);
-    g_free(info_labels);
+    gchar info_labels[PCV_PROM_LABELS_MAX];
+    gint idx = pcv_prom_labels_build(info_labels, sizeof(info_labels), "version", PCV_PRODUCT_VERSION, NULL)
+        ? _find_or_create("purecvisor_info", info_labels, PCV_PROM_KIND_GAUGE) : -1;
     if (idx >= 0) G.metrics[idx].value = 1;
 
                                                             
@@ -549,9 +578,8 @@ void pcv_prom_init(void)
     _counters_load();
     g_mutex_unlock(&G.mu);
 
-                         
-    g_checkpoint_timer = g_timeout_add_seconds(
-        PCV_PROM_CHECKPOINT_INTERVAL_SEC, _checkpoint_timer_cb, NULL);
+                                                                       
+    (void)g_timeout_add_seconds(PCV_PROM_CHECKPOINT_INTERVAL_SEC, _checkpoint_timer_cb, NULL);
 
     PCV_LOG_INFO(PROM_LOG_DOM,
                  "Prometheus exporter initialized (counter checkpoint=%ds)",
@@ -559,37 +587,21 @@ void pcv_prom_init(void)
 }
 
    
-                                 
+                                                                    
   
-                                                     
-                                                 
+                                                             
+                                                           
   
-                                                      
-                                   
+                                                                                            
+                                                                                    
+                                               
    
-void pcv_prom_shutdown(void)
+void pcv_prom_flush(void)
 {
-                                                                          
-                                                                         
-                                                                           
-    if (g_checkpoint_timer > 0) {
-        g_source_remove(g_checkpoint_timer);
-        g_checkpoint_timer = 0;
-    }
-    if (g_atomic_int_get(&G.initialized)) {
-        g_mutex_lock(&G.mu);
-        _counters_save_unlocked();
-        g_mutex_unlock(&G.mu);
-    }
-                                                                              
-    g_atomic_int_set(&G.initialized, FALSE);
-                                                                           
-                                                                       
-    if (G.index) {
-        g_hash_table_destroy(G.index);
-        G.index = NULL;
-    }
-    g_mutex_clear(&G.mu);
+    if (!g_atomic_int_get(&G.initialized)) return;
+    g_mutex_lock(&G.mu);
+    _counters_save_unlocked();
+    g_mutex_unlock(&G.mu);
 }
 
    
@@ -613,12 +625,11 @@ void pcv_prom_shutdown(void)
 void pcv_prom_inc(const gchar *name, const gchar *label_key, const gchar *label_val)
 {
     if (!G.initialized) return;
-    gchar labels[128];
-    g_snprintf(labels, sizeof(labels), "%s=\"%s\"",
-               label_key ? label_key : "", label_val ? label_val : "");
+    gchar labels[PCV_PROM_LABELS_MAX];                                                   
+    if (!pcv_prom_labels_build(labels, sizeof(labels), (label_key && *label_key) ? label_key : NULL, label_val, NULL)) return;
 
     g_mutex_lock(&G.mu);
-    gint idx = _find_or_create(name, labels, TRUE);
+    gint idx = _find_or_create(name, labels, PCV_PROM_KIND_COUNTER);
     if (idx >= 0) G.metrics[idx].value += 1.0;
     g_mutex_unlock(&G.mu);
 }
@@ -641,12 +652,11 @@ void pcv_prom_gauge_set(const gchar *name, const gchar *label_key,
                          const gchar *label_val, gdouble value)
 {
     if (!G.initialized) return;
-    gchar labels[128];
-    g_snprintf(labels, sizeof(labels), "%s=\"%s\"",
-               label_key ? label_key : "", label_val ? label_val : "");
+    gchar labels[PCV_PROM_LABELS_MAX];                                                   
+    if (!pcv_prom_labels_build(labels, sizeof(labels), (label_key && *label_key) ? label_key : NULL, label_val, NULL)) return;
 
     g_mutex_lock(&G.mu);
-    gint idx = _find_or_create(name, labels, FALSE);
+    gint idx = _find_or_create(name, labels, PCV_PROM_KIND_GAUGE);
     if (idx >= 0) G.metrics[idx].value = value;
     g_mutex_unlock(&G.mu);
 }
@@ -677,7 +687,29 @@ void pcv_prom_gauge_set_labels(const gchar *name, const gchar *labels,
 {
     if (!G.initialized) return;
     g_mutex_lock(&G.mu);
-    gint idx = _find_or_create(name, labels ? labels : "", FALSE);
+    gint idx = _find_or_create(name, labels ? labels : "", PCV_PROM_KIND_GAUGE);
+    if (idx >= 0) G.metrics[idx].value = value;
+    g_mutex_unlock(&G.mu);
+}
+
+                                                  
+                                     
+void pcv_prom_inc_labels(const gchar *name, const gchar *labels)
+{
+    if (!G.initialized) return;
+    g_mutex_lock(&G.mu);
+    gint idx = _find_or_create(name, labels ? labels : "", PCV_PROM_KIND_COUNTER);
+    if (idx >= 0) G.metrics[idx].value += 1.0;
+    g_mutex_unlock(&G.mu);
+}
+
+                                                          
+                                                                               
+void pcv_prom_source_counter_set_labels(const gchar *name, const gchar *labels, gdouble value)
+{
+    if (!G.initialized) return;
+    g_mutex_lock(&G.mu);
+    gint idx = _find_or_create(name, labels ? labels : "", PCV_PROM_KIND_SOURCE_COUNTER);
     if (idx >= 0) G.metrics[idx].value = value;
     g_mutex_unlock(&G.mu);
 }
@@ -720,19 +752,17 @@ void pcv_prom_rpc_end(const gchar *method, gboolean success, gdouble duration_ms
 {
     if (!G.initialized || !method) return;
 
-                                           
-    gchar labels[128];
-    g_snprintf(labels, sizeof(labels), "method=\"%s\",status=\"%s\"",
-               method, success ? "ok" : "error");
+                                                                                              
+    gchar labels[PCV_PROM_LABELS_MAX], dur_labels[PCV_PROM_LABELS_MAX];
+    if (!pcv_prom_labels_build(labels, sizeof(labels), "method", method, "status", success ? "ok" : "error", NULL) ||
+        !pcv_prom_labels_build(dur_labels, sizeof(dur_labels), "method", method, NULL)) return;
 
     g_mutex_lock(&G.mu);
-    gint idx = _find_or_create("purecvisor_rpc_requests_total", labels, TRUE);
+    gint idx = _find_or_create("purecvisor_rpc_requests_total", labels, PCV_PROM_KIND_COUNTER);
     if (idx >= 0) G.metrics[idx].value += 1.0;
 
                                         
-    gchar dur_labels[128];
-    g_snprintf(dur_labels, sizeof(dur_labels), "method=\"%s\"", method);
-    gint didx = _find_or_create("purecvisor_rpc_duration_ms", dur_labels, FALSE);
+    gint didx = _find_or_create("purecvisor_rpc_duration_ms", dur_labels, PCV_PROM_KIND_GAUGE);
     if (didx >= 0) G.metrics[didx].value = duration_ms;
     g_mutex_unlock(&G.mu);
 }
@@ -758,13 +788,12 @@ void pcv_prom_zfs_inflight_lock_observe(const gchar *pool_name,
     const gchar *safe_result = *result ? result : "unknown";
     if (wait_ms < 0.0) wait_ms = 0.0;
 
-    gchar labels[128];
-    g_snprintf(labels, sizeof(labels), "op=\"%s\",result=\"%s\"",
-               safe_op, safe_result);
+    gchar labels[PCV_PROM_LABELS_MAX];                                       
+    if (!pcv_prom_labels_build(labels, sizeof(labels), "op", safe_op, "result", safe_result, NULL)) return;
 
     g_mutex_lock(&G.mu);
     gint idx = _find_or_create(
-        "purecvisor_zfs_inflight_lock_acquired_total", labels, TRUE);
+        "purecvisor_zfs_inflight_lock_acquired_total", labels, PCV_PROM_KIND_COUNTER);
     if (idx >= 0) G.metrics[idx].value += 1.0;
 
                                                            
@@ -774,30 +803,27 @@ void pcv_prom_zfs_inflight_lock_observe(const gchar *pool_name,
                                                       
     static const gdouble buckets[] = {10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0};
     for (guint i = 0; i < G_N_ELEMENTS(buckets); i++) {
-        gchar bucket_labels[160];
-        g_snprintf(bucket_labels, sizeof(bucket_labels),
-                   "op=\"%s\",result=\"%s\",le=\"%.0f\"",
-                   safe_op, safe_result, buckets[i]);
-        gint bidx = _find_or_create(
-            "purecvisor_zfs_inflight_lock_wait_ms_bucket", bucket_labels, TRUE);
+        gchar bucket_labels[PCV_PROM_LABELS_MAX], le[16];
+        g_snprintf(le, sizeof(le), "%.0f", buckets[i]);
+        gint bidx = pcv_prom_labels_build(bucket_labels, sizeof(bucket_labels), "op", safe_op, "result", safe_result,
+                                          "le", le, NULL)
+            ? _find_or_create("purecvisor_zfs_inflight_lock_wait_ms_bucket", bucket_labels, PCV_PROM_KIND_COUNTER) : -1;
         if (bidx >= 0 && wait_ms <= buckets[i]) G.metrics[bidx].value += 1.0;
     }
 
                                                                 
                                                              
-    gchar inf_labels[160];
-    g_snprintf(inf_labels, sizeof(inf_labels),
-               "op=\"%s\",result=\"%s\",le=\"+Inf\"",
-               safe_op, safe_result);
-    gint inf_idx = _find_or_create(
-        "purecvisor_zfs_inflight_lock_wait_ms_bucket", inf_labels, TRUE);
+    gchar inf_labels[PCV_PROM_LABELS_MAX];
+    gint inf_idx = pcv_prom_labels_build(inf_labels, sizeof(inf_labels), "op", safe_op, "result", safe_result,
+                                         "le", "+Inf", NULL)
+        ? _find_or_create("purecvisor_zfs_inflight_lock_wait_ms_bucket", inf_labels, PCV_PROM_KIND_COUNTER) : -1;
     if (inf_idx >= 0) G.metrics[inf_idx].value += 1.0;
 
     gint sum_idx = _find_or_create(
-        "purecvisor_zfs_inflight_lock_wait_ms_sum", labels, TRUE);
+        "purecvisor_zfs_inflight_lock_wait_ms_sum", labels, PCV_PROM_KIND_COUNTER);
     if (sum_idx >= 0) G.metrics[sum_idx].value += wait_ms;
     gint count_idx = _find_or_create(
-        "purecvisor_zfs_inflight_lock_wait_ms_count", labels, TRUE);
+        "purecvisor_zfs_inflight_lock_wait_ms_count", labels, PCV_PROM_KIND_COUNTER);
     if (count_idx >= 0) G.metrics[count_idx].value += 1.0;
     g_mutex_unlock(&G.mu);
 }
@@ -839,50 +865,46 @@ gchar *pcv_prom_render(void)
             "Swept %d stale gauge metrics (VM labels, TTL=5min)", sweeped);
     }
 
-                                                              
-                                                           
-                                                           
-                                                         
-                
-      
-                                               
-                                                                  
-                                                             
-               
-                                                                              
-                                                                        
-                                                                          
-                                                                 
-    GHashTable *first_seen = g_hash_table_new_full(
-        g_str_hash, g_str_equal, g_free, NULL);
+                                                                                       
+                                                                             
+                                                                         
+                                                                                
+                                                                                    
+                                                                                  
+    GHashTable *by_name = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_array_unref);
+    GPtrArray *order = g_ptr_array_new();                                
     for (gint i = 0; i < G.count; i++) {
-        PromMetric *m = &G.metrics[i];
-        gpointer val;
-        gboolean exists = g_hash_table_lookup_extended(
-            first_seen, m->name, NULL, &val);
-        if (!exists) {
-            g_hash_table_insert(first_seen, g_strdup(m->name), GINT_TO_POINTER(i));
-            g_string_append_printf(buf, "# TYPE %s %s\n", m->name,
-                m->is_counter ? "counter" : "gauge");
-        } else {
-            gint j = GPOINTER_TO_INT(val);
-            if (G.metrics[j].is_counter != m->is_counter) {
-                PCV_LOG_WARN(PROM_LOG_DOM,
-                    "Metric type mismatch: %s (slot %d=%s, slot %d=%s) — "
-                    "using first",
-                    m->name, j,
-                    G.metrics[j].is_counter ? "counter" : "gauge",
-                    i, m->is_counter ? "counter" : "gauge");
-            }
+        GArray *slots = g_hash_table_lookup(by_name, G.metrics[i].name);
+        if (!slots) {
+            gchar *key = g_strdup(G.metrics[i].name);
+            slots = g_array_new(FALSE, FALSE, sizeof(gint));
+            g_hash_table_insert(by_name, key, slots);
+            g_ptr_array_add(order, key);
         }
-                                                            
-                                                                  
-        if (m->labels[0] && m->labels[0] != '=')
-            g_string_append_printf(buf, "%s{%s} %.17g\n", m->name, m->labels, m->value);
-        else
-            g_string_append_printf(buf, "%s %.17g\n", m->name, m->value);
+        g_array_append_val(slots, i);
     }
-    g_hash_table_destroy(first_seen);
+    for (guint n = 0; n < order->len; n++) {
+        GArray *slots = g_hash_table_lookup(by_name, g_ptr_array_index(order, n));
+        const PromMetric *first = &G.metrics[g_array_index(slots, gint, 0)];
+        g_string_append_printf(buf, "# TYPE %s %s\n", first->name, _kind_type(first->kind));
+        for (guint k = 0; k < slots->len; k++) {
+            gint i = g_array_index(slots, gint, k);
+            PromMetric *m = &G.metrics[i];
+            if (m->kind != first->kind) {
+                PCV_LOG_WARN(PROM_LOG_DOM,
+                    "Metric type mismatch: %s (slot %d=%s, slot %d=%s) — using first",
+                    m->name, g_array_index(slots, gint, 0), _kind_name(first->kind), i, _kind_name(m->kind));
+            }
+                                                                
+                                                                      
+            if (m->labels[0] && m->labels[0] != '=')
+                g_string_append_printf(buf, "%s{%s} %.17g\n", m->name, m->labels, m->value);
+            else
+                g_string_append_printf(buf, "%s %.17g\n", m->name, m->value);
+        }
+    }
+    g_ptr_array_unref(order);
+    g_hash_table_destroy(by_name);
     g_mutex_unlock(&G.mu);
 
     return g_string_free(buf, FALSE);

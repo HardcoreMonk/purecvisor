@@ -133,6 +133,7 @@
 #include "modules/network/security_group.h"
 #include "modules/network/tenant_overlay.h"
 #include "modules/virt/virt_conn_pool.h"
+#include "modules/virt/vm_owner.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_config.h"
 #include "utils/pcv_validate.h"
@@ -345,30 +346,12 @@ _listener_port_is_free(const gchar *protocol,
     return free_port;
 }
 
+                                                                                               
+                                                                
 static gchar *
 _xml_owner(const gchar *xml)
 {
-    xmlDocPtr doc = xmlReadMemory(xml, (gint)strlen(xml), "vpc-owner.xml", NULL,
-                                  XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
-    if (!doc) return NULL;
-    gchar *owner = NULL;
-    GQueue queue = G_QUEUE_INIT;
-    g_queue_push_tail(&queue, xmlDocGetRootElement(doc));
-    while (!g_queue_is_empty(&queue) && !owner) {
-        xmlNodePtr node = g_queue_pop_head(&queue);
-        for (xmlNodePtr cur = node; cur; cur = cur->next) {
-            if (cur->type == XML_ELEMENT_NODE && xmlStrcmp(cur->name, BAD_CAST "owner") == 0) {
-                xmlChar *content = xmlNodeGetContent(cur);
-                owner = content ? g_strdup((const gchar *)content) : NULL;
-                if (content) xmlFree(content);
-                break;
-            }
-            if (cur->children) g_queue_push_tail(&queue, cur->children);
-        }
-    }
-    xmlFreeDoc(doc);
-    if (owner) g_strstrip(owner);
-    return owner;
+    return pcv_vm_owner_from_domain_xml(xml);
 }
 
 static gboolean
@@ -1223,7 +1206,7 @@ pcv_vpc_attachment_create(const gchar *subnet_id, const gchar *tenant, const gch
         PCV_VPC_ERROR_CONFLICT, "tenant-overlay VM은 Local VPC에 연결할 수 없습니다"); ok = FALSE; }
     g_autoptr(JsonObject) attachment = NULL;
     if (ok) ok = pcv_vpc_store_allocate_attachment(s, subnet_id, tenant, uuid, domain_name,
-                                                     actor ? actor : "admin", requested_ip,
+                                                     actor ? actor : "local-admin", requested_ip,                                              
                                                      &attachment, error);
     const gchar *aid = attachment ? json_object_get_string_member(attachment, "id") : NULL;
     g_autoptr(JsonObject) subnet = ok ? pcv_vpc_store_get_subnet(s, subnet_id, tenant, error) : NULL;

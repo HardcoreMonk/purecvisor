@@ -20,6 +20,22 @@ void _pcv_log(GLogLevelFlags level, const gchar *domain, const gchar *fmt, ...)
 const gchar *pcv_config_get_string(const gchar *section, const gchar *key, const gchar *fallback)
 { (void)section; (void)key; return fallback; }
 
+PcvWsScopeKind pcv_ws_scope_kind(const gchar *type)
+{ return g_strcmp0(type, "job.complete") == 0 ? PCV_WS_SCOPE_JOB : PCV_WS_SCOPE_ALL; }
+gboolean pcv_ws_scope_should_send(PcvWsScopeKind kind, gint conn_role, const gchar *conn_subject, const gchar *conn_tenant,
+                                  const gchar *actor, const gchar *actor_tenant)
+{ (void)kind; (void)conn_subject; (void)conn_tenant; (void)actor; (void)actor_tenant; return conn_role >= PCV_ROLE_ADMIN; }
+PcvWsSubjectCache *pcv_ws_subject_cache_new(void) { return (PcvWsSubjectCache *)g_malloc0(8); }
+gboolean pcv_ws_subject_cache_lookup(PcvWsSubjectCache *c, const gchar *subject, gint *role_out, const gchar **tenant_out)
+{ (void)c; if (role_out) *role_out = PCV_ROLE_ADMIN; if (tenant_out) *tenant_out = NULL; return subject != NULL; }
+void pcv_ws_subject_cache_free(PcvWsSubjectCache *c) { g_free(c); }
+PcvVmReadScope *pcv_vm_read_scope_new_parts(gint role, const gchar *subject, gboolean tenant_known, const gchar *tenant)
+{ (void)role; (void)subject; (void)tenant_known; (void)tenant; return NULL; }
+void pcv_vm_read_scope_free(PcvVmReadScope *s) { (void)s; }
+PcvVmOwnerMap *pcv_vm_owner_map_current(gint64 now_mono_us) { (void)now_mono_us; return NULL; }
+void pcv_vm_owner_map_free(PcvVmOwnerMap *m) { (void)m; }
+JsonNode *pcv_vm_read_filter_agent_comparison(PcvVmReadScope *s, const PcvVmOwnerMap *m, JsonNode *take)
+{ (void)s; (void)m; return take; }
 
 void __wrap_soup_websocket_connection_send_text(SoupWebsocketConnection *connection, const char *text)
 {
@@ -96,6 +112,8 @@ static void setup_ws(void)
     g_uri_unref(uri); g_object_unref(stream); g_object_unref(first); g_object_unref(second);
 
     g_object_set_data(G_OBJECT(connection), "pcv-ws-authed", GINT_TO_POINTER(1));
+
+    g_object_set_data_full(G_OBJECT(connection), "pcv-ws-subject", g_strdup("fixture-admin"), g_free);
     g_mutex_init(&G.mu);
     G.clients = g_ptr_array_new_with_free_func(g_object_unref);
     g_ptr_array_add(G.clients, connection);

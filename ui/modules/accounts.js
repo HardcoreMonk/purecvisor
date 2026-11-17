@@ -980,7 +980,7 @@ async function showApiKeyCreate() {
     mk('h2', null, _L('API 키 생성', 'Create API Key')),
     mk('div', { class: 'fr' },
       mk('label', { for: 'apikey-name' }, _L('이름', 'Name')),
-      mk('input', { id: 'apikey-name', placeholder: _L('예: ci-파이프라인', 'e.g. ci-pipeline') })),
+      mk('input', { id: 'apikey-name', placeholder: _L('예: ci-pipeline', 'e.g. ci-pipeline') })),
     mk('div', { class: 'fr' },
       mk('label', { for: 'apikey-desc' }, _L('설명', 'Description')),
       mk('input', { id: 'apikey-desc', placeholder: _L('예: CI 배포 자동화', 'e.g. CI deploy automation') })),

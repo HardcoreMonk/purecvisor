@@ -171,10 +171,19 @@ PcvRestStep
 pcv_rest_map_platform(PcvRestRequest *rq);
 
                                           
-                                                                                     
-                                                                      
+                                                                                        
+                                                              
+typedef struct {
+    gboolean all;
+    gchar   *subject;
+    gint     role;
+    gboolean is_key;
+} PcvCollectorCaller;
+
+                                                                                   
+                                                                                                     
 gboolean
-pcv_rest_collector_gate(SoupServerMessage *msg);
+pcv_rest_collector_gate(SoupServerMessage *msg, PcvCollectorCaller *out);
                                                                            
 void
 pcv_rest_collector_auth_log_config(void);

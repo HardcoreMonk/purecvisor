@@ -31,7 +31,8 @@ pcv_rest_build_rpc_name(const gchar *method, const gchar *name);
 gchar *
 pcv_rest_rpc_attach_auth_context(const gchar *rpc_json,
                          const gchar *subject,
-                         PcvRole      role);
+                         PcvRole      role,
+                         const gchar *tenant);
 JsonObject *
 pcv_rest_vpc_params(JsonObject *body,
                  GHashTable *query,

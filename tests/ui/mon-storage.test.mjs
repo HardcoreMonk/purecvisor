@@ -29,10 +29,34 @@ const MODS = [
   'ui/modules/uxlib.js',
   'ui/modules/filter-state.js',
   'ui/modules/endpoints.js',
-  'ui/modules/monitor.js'
+  'ui/modules/monitor.js',
+  'ui/modules/monitor-vmdiag.js'
 ];
 
                                                                   
+function diagVm(name, state, vcpus, maxMb) {
+  const on = state === 'running';
+  return { name, uuid: 'u-' + name, state, quality: on ? 'ok' : 'stopped', reason: null, missing: [], vcpus, mem_max_mb: maxMb,
+    mem_alloc_mb: on ? maxMb : null, mem_guest_used_mb: on ? maxMb / 2 : null, mem_rss_mb: on ? maxMb / 2 : null,
+    cpu_pct: on ? 10 : null, cpu_host_pct: on ? 1 : null, last_ok_at_ms: 0,
+    disk: { rd_bps: on ? 0 : null, wr_bps: on ? 0 : null, rd_iops: on ? 0 : null, wr_iops: on ? 0 : null, rd_lat_ms: null, wr_lat_ms: null, fl_lat_ms: null },
+    net: { rx_bps: on ? 0 : null, tx_bps: on ? 0 : null, rx_pps: on ? 0 : null, tx_pps: on ? 0 : null, drop_ps: null, err_ps: null },
+    contention: null, hints: [] };
+}
+function diagOf(vms, memTotalMb) {
+  const run = vms.filter(v => v.state === 'running');
+  const sum = (a, k) => a.reduce((s, v) => s + v[k], 0);
+  return { ok: true, err: null, data: { schema: 1, scope: 'all',
+    sampler: { state: 'ok', observed_at_ms: 0, age_ms: 2000, interval_ms: 5000, tracked: vms.length, truncated: 0, error: null },
+    host: { logical_cpus: 16, physical_cores: null, mem_total_mb: memTotalMb,
+      allocation: { vms_running: run.length, vms_defined: vms.length, vcpu_running: sum(run, 'vcpus'), vcpu_defined: sum(vms, 'vcpus'),
+        vcpu_running_per_logical: sum(run, 'vcpus') / 16, vcpu_defined_per_logical: sum(vms, 'vcpus') / 16,
+        mem_running_max_mb: sum(run, 'mem_max_mb'), mem_defined_max_mb: sum(vms, 'mem_max_mb'), mem_running_alloc_mb: sum(run, 'mem_max_mb'),
+        mem_running_max_ratio: sum(run, 'mem_max_mb') / memTotalMb, mem_defined_max_ratio: sum(vms, 'mem_max_mb') / memTotalMb },
+      psi: null },
+    vms } };
+}
+
 const NODE_OK = { node: 'edge-ok', ip: '192.0.2.21', disk: 50, ram_total: 34359738368, filesystems: [] };
 const NODE_WARN = { node: 'edge-warn', ip: '192.0.2.22', disk: 85, ram_total: 34359738368, filesystems: [] };
 const NODE_CRIT = {
@@ -48,22 +72,19 @@ const NODE_CRIT = {
   ]
 };
 const ALL = [NODE_OK, NODE_WARN, NODE_CRIT];
-const ALL_VMS = [
-  { name: 'vm-a', memory_max_mb: 16384 },
-  { name: 'vm-b', memory_max_mb: 16384 }
-];
 const TOTAL_RAM = ALL.reduce((s, n) => s + n.ram_total, 0);
+const DIAG = diagOf([diagVm('vm-a', 'running', 4, 16384), diagVm('vm-b', 'shutoff', 4, 16384)], 98304);
 
 async function boot(page) {
   await page.setViewport({ width: 1280, height: 800 });
-  await page.evaluate(({ all, allVms, totalRam }) => {
+  await page.evaluate(({ all, totalRam, diag }) => {
     window._DEBUG = true;
     window.authToken = 'test-token';
     window.currentTab = 'mon-storage';
     window._L = (ko, en) => en;
     window.t = key => key;
-    return window.renderMonStorage(document.getElementById('cb'), all, allVms, totalRam);
-  }, { all: ALL, allVms: ALL_VMS, totalRam: TOTAL_RAM });
+    return window.renderMonStorage(document.getElementById('cb'), all, PCV.vmdiag.legacyVms(diag), totalRam, diag);
+  }, { all: ALL, totalRam: TOTAL_RAM, diag: DIAG });
 }
 
 test('smoke: Datastore Usage card renders one row per node, ZFS lock panel shows empty-state', async () => {
@@ -89,21 +110,22 @@ test('smoke: Datastore Usage card renders one row per node, ZFS lock panel shows
   }, {});
 });
 
-test('Datastore Usage and Overcommit gauges map warn/crit thresholds (monitor.js:1199-1212)', async () => {
+test('Datastore Usage gauges map warn/crit thresholds and VM memory card uses the allocation definition', async () => {
   await withPage(MODS, async page => {
     await boot(page);
     const datastoreLevels = await page.$$eval('#cb .gauge.gauge-inline', els =>
       els.map(el => [...el.classList].find(c => c.startsWith('g-')).replace('g-', '')));
     assert.deepEqual(datastoreLevels, ['ok', 'warn', 'crit']);
 
-    const vmMem = ALL_VMS.reduce((s, v) => s + v.memory_max_mb, 0);
-    const overcommitPct = +(TOTAL_RAM > 0 ? vmMem * 1048576 / TOTAL_RAM * 100 : 0).toFixed(1);
-    const overcommit = await page.$eval('#cb .gauge:not(.gauge-inline)', el => ({
-      level: [...el.classList].find(c => c.startsWith('g-')).replace('g-', ''),
-      metric: el.querySelector('.gauge-metric').textContent.replace(el.querySelector('.gauge-unit')?.textContent || '', '')
-    }));
-    assert.equal(overcommit.level, overcommitPct >= 100 ? 'crit' : overcommitPct >= 80 ? 'warn' : 'ok');
-    assert.equal(overcommit.metric, String(overcommitPct));
+    const card = await page.evaluate(() => {
+      const h = [...document.querySelectorAll('#cb h4')].map(el => el.textContent);
+      return { titles: h, text: document.getElementById('cb').textContent };
+    });
+    assert.ok(card.titles.includes('등록 VM 최대 메모리 합'));
+    assert.ok(!card.titles.includes('VM Provisioned') && !card.titles.includes('Overcommit'));
+    assert.match(card.text, /32\.0 GiB/);
+    assert.match(card.text, /0\.33/);
+    assert.match(card.text, /메모리는 96\.0 GiB 대비입니다/);
   }, {});
 });
 

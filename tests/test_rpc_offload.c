@@ -36,6 +36,8 @@ const gchar *pcv_test_audit_last_result(void);
 gint pcv_test_audit_last_error_code(void);
 const gchar *pcv_test_audit_username_at(gint row);
 
+const gchar *pcv_rpc_completion_actor_tenant(void);
+
 #define WAIT_DEADLINE_US ((gint64)10 * G_TIME_SPAN_SECOND)
 #define FAKE_BASE_US     ((gint64)1000 * G_TIME_SPAN_SECOND)
 
@@ -1171,6 +1173,235 @@ test_host_device_list_lane(Fx *fx, gconstpointer unused)
     g_assert_cmpint(pcv_rpc_offload_lane_of("host.devices.list"), ==, -1);
 }
 
+
+static void
+test_scope_read_routes(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    static const gchar * const scope_routes[] = { "monitor.vm.diag", "monitor.processes", "vm.numa.info",
+                                                  "backup.policy.list", "vm.snapshot.schedule.list", "security_group.list",
+                                                  "healing.history", "security.event.list", "security.event.get",
+                                                  "security.action.pending", "alert.history", "agent.history",
+                                                  "jobs.list", "jobs.get", "vm.delete.status" };
+    g_assert_cmpint(pcv_rpc_offload_lane_of("jobs.status"), ==, -1);
+    for (guint i = 0; i < G_N_ELEMENTS(scope_routes); i++)
+        g_assert_cmpint(pcv_rpc_offload_lane_of(scope_routes[i]), ==, PCV_OFFLOAD_LANE_SCOPE_READ);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("vm.snapshot.list"), ==, PCV_OFFLOAD_LANE_HOST_READ);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("monitor.fleet"), ==, PCV_OFFLOAD_LANE_LIBVIRT_READ);
+
+    g_assert_cmpint(PCV_OFFLOAD_LANE_SCOPE_READ, ==, PCV_OFFLOAD_LANE_HOST_READ + 1);
+    g_assert_cmpint(PCV_OFFLOAD_LANE_COUNT, ==, PCV_OFFLOAD_LANE_CTR_MUTATE + 1);
+}
+
+static void
+test_libvirt_read_new_routes(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    g_assert_cmpint(pcv_rpc_offload_lane_of("vm.sla.report"), ==, PCV_OFFLOAD_LANE_LIBVIRT_READ);
+    g_assert_cmpint(pcv_rpc_offload_lane_of("monitor.metrics"), ==, -1);
+}
+
+static void
+test_scope_read_lane_runs(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    pcv_rpc_offload_add_for_test("t.scope", PCV_OFFLOAD_LANE_SCOPE_READ);
+    g_assert_true(_submit("t.scope", "1", _h_ok));
+    gint64 deadline = g_get_monotonic_time() + WAIT_DEADLINE_US;
+    while (!_handlers_at_least(GUINT_TO_POINTER(1))) {
+        g_assert_cmpint(g_get_monotonic_time(), <, deadline);
+        g_usleep(1000);
+    }
+    g_usleep(20000);
+    g_assert_cmpuint(pcv_test_uds_response_count(), ==, 0);
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(1));
+    g_assert_cmpuint(pcv_test_uds_response_count(), ==, 1);
+    g_assert_true(g_fx.last_handler_thread != g_thread_self());
+
+    pcv_rpc_offload_set_now_fn_for_test(_fake_now);
+    _hold_set(FALSE);
+    for (guint i = 0; i < 4; i++)
+        g_assert_true(_submit("t.scope", "p", _h_hold));
+    _wait_until(_running_at_least, GUINT_TO_POINTER(2));
+    g_usleep(50000);
+    g_assert_cmpuint(g_fx.running, ==, 2);
+    g_mutex_lock(&g_fx.mu);
+    g_fx.now_us += (gint64)60 * G_USEC_PER_SEC;
+    g_mutex_unlock(&g_fx.mu);
+    _hold_set(TRUE);
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(5));
+    g_assert_cmpuint(g_fx.handler_calls, ==, 5);
+    g_assert_cmpuint(g_fx.max_running, ==, 2);
+    pcv_rpc_offload_set_now_fn_for_test(NULL);
+
+    _sp_setup();
+    g_assert_true(_submit("t.scope", "s", _h_spawn));
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(6));
+    g_assert_cmpuint(g_sp.calls, ==, 0);
+    _sp_teardown();
+}
+
+static struct {
+    guint    calls;
+    GThread *thread;
+    gchar   *param;
+    gchar   *actor_tenant;
+    gchar   *scope_tenant;
+} g_cont;
+
+static void
+_cont_record(const PcvRpcOffloadRequest *req)
+{
+    g_cont.calls++;
+    g_cont.thread = g_thread_self();
+    g_free(g_cont.param);
+    g_cont.param = req->params && json_object_has_member(req->params, "p")
+        ? g_strdup(json_object_get_string_member(req->params, "p")) : NULL;
+    g_free(g_cont.actor_tenant);
+    g_cont.actor_tenant = g_strdup(req->actor_tenant);
+    pcv_rpc_completion_begin(req->method);
+    _send_ok(req->rpc_id, req->server, req->connection);
+    req->finish(req->method, req->rpc_id, req->actor, req->target, req->start_us, pcv_rpc_completion_finish());
+}
+
+static gboolean
+_owner_allow_tenant(const gchar *method, JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                    GSocketConnection *connection, const gchar *actor)
+{
+    g_free(g_cont.scope_tenant);
+    g_cont.scope_tenant = g_strdup(pcv_rpc_completion_actor_tenant());
+    return _owner_allow(method, params, rpc_id, server, connection, actor);
+}
+
+static void
+_cont_reset(void)
+{
+    g_cont.calls = 0;
+    g_cont.thread = NULL;
+    g_clear_pointer(&g_cont.param, g_free);
+    g_clear_pointer(&g_cont.actor_tenant, g_free);
+    g_clear_pointer(&g_cont.scope_tenant, g_free);
+}
+
+static gboolean
+_submit_pre(const gchar *rpc_id, PcvRpcOffloadOwnerCheck owner, JsonParser *parser, JsonObject *params,
+            const gchar *actor_tenant)
+{
+    GObject *server = _new_obj(), *conn = _new_obj();
+    const PcvRpcOffloadRequest req = {
+        .method = "t.pre", .rpc_id = rpc_id, .req_id = "req-p", .actor = "op1", .actor_tenant = actor_tenant,
+        .target = "vm-x", .start_us = g_get_monotonic_time(), .handler = _h_ok, .owner_check = owner, .finish = _finish,
+        .parser = parser, .params = params, .server = (UdsServer *)server, .connection = (GSocketConnection *)conn };
+    gboolean ok = pcv_rpc_offload_submit_precheck(&req, PCV_OFFLOAD_LANE_LIBVIRT_READ, _cont_record);
+    g_object_unref(server);
+    g_object_unref(conn);
+    return ok;
+}
+
+static gboolean
+_cont_at_least(gpointer data)
+{
+    return g_cont.calls >= GPOINTER_TO_UINT(data);
+}
+
+static void
+test_precheck_pass_continues_on_main(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    _cont_reset();
+    JsonParser *parser = json_parser_new();
+    g_assert_true(json_parser_load_from_data(parser, "{\"p\":\"alive\"}", -1, NULL));
+    JsonObject *params = json_node_get_object(json_parser_get_root(parser));
+    g_assert_true(_submit_pre("p1", _owner_allow_tenant, parser, params, "ta"));
+    g_object_unref(parser);
+    _wait_until(_cont_at_least, GUINT_TO_POINTER(1));
+    while (g_main_context_iteration(NULL, FALSE)) {}
+    g_assert_cmpuint(g_cont.calls, ==, 1);
+    g_assert_true(g_cont.thread == g_thread_self());
+    g_assert_cmpstr(g_cont.param, ==, "alive");
+    g_assert_cmpstr(g_cont.actor_tenant, ==, "ta");
+    g_assert_cmpstr(g_cont.scope_tenant, ==, "ta");
+    g_assert_cmpuint(g_fx.handler_calls, ==, 0);
+    g_assert_cmpuint(g_fx.owner_calls, ==, 1);
+    g_assert_cmpuint(g_fx.finish_calls, ==, 1);
+    g_assert_cmpuint(pcv_test_uds_response_count(), ==, 1);
+    _cont_reset();
+}
+
+static void
+test_precheck_deny_same_path(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    _cont_reset();
+    g_assert_true(_submit_pre("d1", _owner_deny, NULL, NULL, NULL));
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(1));
+    while (g_main_context_iteration(NULL, FALSE)) {}
+    g_assert_cmpuint(g_cont.calls, ==, 0);
+    g_assert_cmpuint(g_fx.finish_calls, ==, 1);
+    g_assert_cmpuint(pcv_test_uds_response_count(), ==, 1);
+    g_assert_cmpint(_last_error_code(NULL), ==, PURE_RPC_ERR_FORBIDDEN);
+    g_assert_cmpint(pcv_test_audit_call_count(), ==, 1);
+    g_assert_cmpstr(pcv_test_audit_last_result(), ==, "denied");
+}
+
+static void
+test_precheck_busy_and_shutdown(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    _cont_reset();
+    _hold_set(FALSE);
+    for (guint i = 0; i < 2; i++)
+        g_assert_true(_submit("t.libvirt", "h", _h_hold));
+    _wait_until(_running_at_least, GUINT_TO_POINTER(2));
+    guint queued = 0;
+    while (_submit_pre("q", _owner_allow, NULL, NULL, NULL))
+        queued++;
+    g_assert_cmpuint(queued, ==, 32);
+    _hold_set(TRUE);
+    _wait_until(_cont_at_least, GUINT_TO_POINTER(32));
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(34));
+    _cont_reset();
+    pcv_test_uds_responses_reset();
+    guint before = g_fx.finish_calls;
+    pcv_rpc_offload_set_terminating_fn_for_test(_always_terminating);
+    g_assert_true(_submit_pre("s", _owner_allow, NULL, NULL, NULL));
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(before + 1));
+    g_assert_cmpuint(g_cont.calls, ==, 0);
+    gchar *msg = NULL;
+    g_assert_cmpint(_last_error_code(&msg), ==, PURE_RPC_ERR_ZFS_OPERATION);
+    g_assert_cmpstr(msg, ==, "server is shutting down");
+    g_free(msg);
+    pcv_rpc_offload_set_terminating_fn_for_test(NULL);
+}
+
+static void
+test_precheck_not_in_table(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    static const gchar *const m[] = { "vm.metrics", "vm.guest.agent.status", "vm.guest.fsinfo", "vm.guest.ping",
+                                      "monitor.metrics" };
+    for (guint i = 0; i < G_N_ELEMENTS(m); i++)
+        g_assert_cmpint(pcv_rpc_offload_lane_of(m[i]), ==, -1);
+}
+
+static void
+test_lane_scope_actor_tenant(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    _cont_reset();
+    GObject *server = _new_obj(), *conn = _new_obj();
+    const PcvRpcOffloadRequest req = {
+        .method = "t.libvirt", .rpc_id = "t", .req_id = "req-t", .actor = "op1", .actor_tenant = "tb", .target = "vm-x",
+        .start_us = g_get_monotonic_time(), .handler = _h_ok, .owner_check = _owner_allow_tenant, .finish = _finish,
+        .server = (UdsServer *)server, .connection = (GSocketConnection *)conn };
+    g_assert_true(pcv_rpc_offload_submit(&req));
+    g_object_unref(server);
+    g_object_unref(conn);
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(1));
+    g_assert_cmpstr(g_cont.scope_tenant, ==, "tb");
+    _cont_reset();
+}
+
 static void
 _h_self_audit(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection)
 {
@@ -1264,6 +1495,14 @@ test_rpc_offload_register(void)
     ADD("ctr_mutate_lane", test_ctr_mutate_lane);
     ADD("vm_device_mutate_lane", test_vm_device_mutate_lane);
     ADD("host_device_list_lane", test_host_device_list_lane);
+    ADD("scope_read_routes", test_scope_read_routes);
+    ADD("libvirt_read_new_routes", test_libvirt_read_new_routes);
+    ADD("precheck_pass_continues_on_main", test_precheck_pass_continues_on_main);
+    ADD("precheck_deny_same_path", test_precheck_deny_same_path);
+    ADD("precheck_busy_and_shutdown", test_precheck_busy_and_shutdown);
+    ADD("precheck_not_in_table", test_precheck_not_in_table);
+    ADD("lane_scope_actor_tenant", test_lane_scope_actor_tenant);
+    ADD("scope_read_lane_runs", test_scope_read_lane_runs);
     ADD("registered_async_method_audits_once", test_registered_async_method_audits_once);
 #undef ADD
 }

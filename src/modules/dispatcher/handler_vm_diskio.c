@@ -85,13 +85,13 @@ static void free_disk_live_resize_ctx(gpointer data) {
                                                             
                                                                  
 static void
-audit_disk_live_resize_success(DiskLiveResizeCtx *ctx, const gchar *actor)
+audit_disk_live_resize_success(DiskLiveResizeCtx *ctx, const gchar *actor, const gchar *actor_tenant)
 {
     gchar *target = g_strdup_printf("%s:%s", ctx->vm_name, ctx->target);
     gchar *job_id = g_strdup_printf("vm.disk.live_resize:%s", target);
     pcv_audit_log(actor, "vm.disk.live_resize", target, "ok", 0, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(job_id, "vm.disk.live_resize",
-                                     "completed", NULL);
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.disk.live_resize",
+                                     "completed", NULL, actor, actor_tenant);
     g_free(job_id);
     g_free(target);
 }
@@ -99,13 +99,13 @@ audit_disk_live_resize_success(DiskLiveResizeCtx *ctx, const gchar *actor)
                                                                          
                                                               
 static void
-audit_disk_live_resize_failure(DiskLiveResizeCtx *ctx, const gchar *error_msg, const gchar *actor)
+audit_disk_live_resize_failure(DiskLiveResizeCtx *ctx, const gchar *error_msg, const gchar *actor, const gchar *actor_tenant)
 {
     gchar *target = g_strdup_printf("%s:%s", ctx->vm_name, ctx->target);
     gchar *job_id = g_strdup_printf("vm.disk.live_resize:%s", target);
     pcv_audit_log(actor, "vm.disk.live_resize", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(job_id, "vm.disk.live_resize",
-                                     "failed", error_msg ? error_msg : "unknown");
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.disk.live_resize",
+                                     "failed", error_msg ? error_msg : "unknown", actor, actor_tenant);
     g_free(job_id);
     g_free(target);
 }
@@ -135,7 +135,7 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
                                                      
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        audit_disk_live_resize_failure(ctx, "Failed to connect to libvirt", pcv_drain_task_actor(task));
+        audit_disk_live_resize_failure(ctx, "Failed to connect to libvirt", pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
             "Failed to connect to libvirt");
         return;
@@ -144,7 +144,7 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
     virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_name);
     if (!dom) {
         gchar *msg = g_strdup_printf("VM '%s' not found", ctx->vm_name);
-        audit_disk_live_resize_failure(ctx, msg, pcv_drain_task_actor(task));
+        audit_disk_live_resize_failure(ctx, msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         virt_conn_pool_release(conn);
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
             "VM '%s' not found", ctx->vm_name);
@@ -198,7 +198,7 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
     g_free(disk_source);
 
     if (fail_msg) {
-        audit_disk_live_resize_failure(ctx, fail_msg, pcv_drain_task_actor(task));
+        audit_disk_live_resize_failure(ctx, fail_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", fail_msg);
         g_free(fail_msg);
         virDomainFree(dom);
@@ -217,11 +217,11 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
                              VIR_DOMAIN_BLOCK_RESIZE_BYTES) < 0) {
         virErrorPtr e = virGetLastError();
         const gchar *err_msg = e ? e->message : "Unknown";
-        audit_disk_live_resize_failure(ctx, err_msg, pcv_drain_task_actor(task));
+        audit_disk_live_resize_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
             "Block resize failed: %s", err_msg);
     } else {
-        audit_disk_live_resize_success(ctx, pcv_drain_task_actor(task));
+        audit_disk_live_resize_success(ctx, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_boolean(task, TRUE);
     }
 

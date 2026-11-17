@@ -33,8 +33,32 @@ const MODS = [
   'ui/modules/uxlib.js',
   'ui/modules/filter-state.js',
   'ui/modules/endpoints.js',
-  'ui/modules/monitor.js'
+  'ui/modules/monitor.js',
+  'ui/modules/monitor-vmdiag.js'
 ];
+
+function diagVm(name, state, vcpus, maxMb) {
+  const on = state === 'running';
+  return { name, uuid: 'u-' + name, state, quality: on ? 'ok' : 'stopped', reason: null, missing: [], vcpus, mem_max_mb: maxMb,
+    mem_alloc_mb: on ? maxMb : null, mem_guest_used_mb: on ? maxMb / 2 : null, mem_rss_mb: on ? maxMb / 2 : null,
+    cpu_pct: on ? 10 : null, cpu_host_pct: on ? 1 : null, last_ok_at_ms: 0,
+    disk: { rd_bps: on ? 0 : null, wr_bps: on ? 0 : null, rd_iops: on ? 0 : null, wr_iops: on ? 0 : null, rd_lat_ms: null, wr_lat_ms: null, fl_lat_ms: null },
+    net: { rx_bps: on ? 0 : null, tx_bps: on ? 0 : null, rx_pps: on ? 0 : null, tx_pps: on ? 0 : null, drop_ps: null, err_ps: null },
+    contention: null, hints: [] };
+}
+function diagOf(vms, memTotalMb) {
+  const run = vms.filter(v => v.state === 'running');
+  const sum = (a, k) => a.reduce((s, v) => s + v[k], 0);
+  return { ok: true, err: null, data: { schema: 1, scope: 'all',
+    sampler: { state: 'ok', observed_at_ms: 0, age_ms: 2000, interval_ms: 5000, tracked: vms.length, truncated: 0, error: null },
+    host: { logical_cpus: 16, physical_cores: null, mem_total_mb: memTotalMb,
+      allocation: { vms_running: run.length, vms_defined: vms.length, vcpu_running: sum(run, 'vcpus'), vcpu_defined: sum(vms, 'vcpus'),
+        vcpu_running_per_logical: sum(run, 'vcpus') / 16, vcpu_defined_per_logical: sum(vms, 'vcpus') / 16,
+        mem_running_max_mb: sum(run, 'mem_max_mb'), mem_defined_max_mb: sum(vms, 'mem_max_mb'), mem_running_alloc_mb: sum(run, 'mem_max_mb'),
+        mem_running_max_ratio: sum(run, 'mem_max_mb') / memTotalMb, mem_defined_max_ratio: sum(vms, 'mem_max_mb') / memTotalMb },
+      psi: null },
+    vms } };
+}
 
                                                                    
                                                                                  
@@ -65,6 +89,7 @@ const ALL_VMS = [
   { name: 'vm-idle01', node: 'edge-b', nodeIP: '192.0.2.12', running: 0, vcpu: 2, memory_max_mb: 2048, memory_used_mb: 0, disk_rd_bytes: 0, net_rx_bytes: 0, net_tx_bytes: 0 }
 ];
 const RUNNING = ALL_VMS.filter(v => v.running === 1).length;
+const DIAG = diagOf([diagVm('vm-db01', 'running', 8, 8192), diagVm('vm-idle01', 'shutoff', 2, 2048), diagVm('vm-web01', 'running', 4, 4096)], 65536);
 const AVG_CPU = ALL.reduce((s, n) => s + n.cpu, 0) / ALL.length;
 const AVG_MEM = ALL.reduce((s, n) => s + n.mem, 0) / ALL.length;
 const AVG_DISK = ALL.reduce((s, n) => s + n.disk, 0) / ALL.length;
@@ -73,14 +98,15 @@ const TOTAL_RAM = ALL.reduce((s, n) => s + n.ram_total, 0);
                                                                    
 async function boot(page) {
   await page.setViewport({ width: 1280, height: 800 });
-  await page.evaluate(({ all, allVms, running, avgCpu, avgMem, avgDisk, totalRam }) => {
+  await page.evaluate(({ all, running, avgCpu, avgMem, avgDisk, totalRam, diag }) => {
     window._DEBUG = true;
     window.authToken = 'test-token';
     window.currentTab = 'mon-overview';
     window._L = (ko, en) => en;
     window.t = key => key;
-    return window.renderMonOverview(document.getElementById('cb'), all, allVms, running, avgCpu, avgMem, avgDisk, totalRam);
-  }, { all: ALL, allVms: ALL_VMS, running: RUNNING, avgCpu: AVG_CPU, avgMem: AVG_MEM, avgDisk: AVG_DISK, totalRam: TOTAL_RAM });
+
+    return window.renderMonOverview(document.getElementById('cb'), all, PCV.vmdiag.legacyVms(diag), running, avgCpu, avgMem, avgDisk, totalRam, diag);
+  }, { all: ALL, running: RUNNING, avgCpu: AVG_CPU, avgMem: AVG_MEM, avgDisk: AVG_DISK, totalRam: TOTAL_RAM, diag: DIAG });
 }
 
 function gaugeLevel(value, warn, crit) {
@@ -105,7 +131,8 @@ test('smoke: rollup bar reflects host/vm/anomaly/healing counts, All VMs table r
       { status: 'ok', count: '2', label: '호스트 UP', sub: '/ 2' },
       { status: 'warn', count: '2', label: 'VM 실행', sub: '/ 3' },
       { status: 'crit', count: '1', label: '이상 징후', sub: '활성' },
-      { status: 'warn', count: '2', label: '복구 대기', sub: '대기' }
+      { status: 'warn', count: '2', label: '복구 대기', sub: '대기' },
+      { status: 'ok', count: '0', label: 'VM 신호', sub: '실행 VM' }
     ]);
 
     const vmRows = await page.$$eval('#cb table.table-sticky tbody tr', trs => trs.length);

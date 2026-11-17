@@ -159,6 +159,19 @@ login_token() {
         -d "{\"username\":\"$1\",\"password\":\"$2\"}" 2>/dev/null \
       | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
 }
+apikey_create_error() {
+    curl -s --max-time 6 -X POST "$BASE/auth/apikeys" \
+        -H "Authorization: Bearer $1" -H 'Content-Type: application/json' \
+        -d "{\"name\":\"$2\",\"role\":$3}" 2>/dev/null \
+      | python3 -c "import sys,json;e=json.load(sys.stdin).get('error');print('ok' if e is None else '%s %s' % (e.get('code'), e.get('message')))" 2>/dev/null || true
+}
+seed_apikey() {
+    local key hash
+    key="pcv_$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
+    hash="$(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
+    sqlite3 "$RBAC_DB" "INSERT INTO api_keys (key_hash, client_name, role) VALUES ('$hash', '$1', $2);" || return 1
+    printf '%s' "$key"
+}
 create_apikey() {                                                           
     curl -s --max-time 6 -X POST "$BASE/auth/apikeys" \
         -H "Authorization: Bearer $1" -H 'Content-Type: application/json' \
@@ -212,14 +225,27 @@ fi
                                                                  
                                                                           
                                                                  
-KEY="$(create_apikey "$TOK" "admin" 0)"
+dup="$(apikey_create_error "$TOK" "admin" 0)"
+if [ "$dup" = "-32002 name is already used by a user account" ]; then
+    pass "R2a: 사용자와 같은 이름 키 발급 거절(−32002)"
+else
+    fail "R2a: 같은 이름 키 발급 응답='$dup' (기대 -32002 name is already used by a user account)"
+fi
+kill_daemon
+rm -f "$STATE/bwrap.pid"
+KEY="$(seed_apikey admin 0)" || KEY=""
+if ! boot; then
+    fail "R2: 옛 겹침 키를 심은 뒤 격리 데몬 재기동 실패"
+    echo "---- daemon.log (마지막 30줄) ----"; tail -30 "$STATE/daemon.log" 2>/dev/null
+    exit 1
+fi
                                                                    
 db_role="$(sqlite3 "$RBAC_DB" "SELECT role FROM api_keys WHERE client_name='admin' ORDER BY created_at DESC LIMIT 1;" 2>/dev/null || true)"
-info "R2: 발급 key=${KEY:0:12}… (len=${#KEY}) 저장 role(db)=${db_role:-<none>}"
+info "R2: 심은 key=${KEY:0:4}… (len=${#KEY}) 저장 role(db)=${db_role:-<none>}"
 if [ -n "$KEY" ] && [ "${KEY:0:4}" = "pcv_" ] && [ "$db_role" = "0" ]; then
-    pass "R2: apikey 발급(name=admin, role=0=VIEWER) + DB 저장 role=0 확인"
+    pass "R2: 옛 겹침 키(name=admin, role=0=VIEWER) 심기 + 재기동 뒤 DB 저장 role=0 확인"
 else
-    fail "R2: key='${KEY:0:12}…'(len=${#KEY}) db_role='$db_role' (기대 pcv_ 키 + db role=0)"
+    fail "R2: key='${KEY:0:4}…'(len=${#KEY}) db_role='$db_role' (기대 pcv_ 키 + db role=0)"
     echo "---- daemon.log (마지막 20줄) ----"; tail -20 "$STATE/daemon.log" 2>/dev/null
 fi
 

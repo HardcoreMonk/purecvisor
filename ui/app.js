@@ -126,15 +126,15 @@ Object.defineProperty(window.PCV, 'state', {
 });
 window.PCV.config = {
   API_BASE: API_BASE,
-  VERSION: '2.2.0',
+  VERSION: '2.2.1',
                                                            
                                                                           
                                                                      
                                                           
                                            
-  RPC_COUNT: 317,
-  REST_COUNT: 225,
-  METRICS_COUNT: 155
+  RPC_COUNT: 320,
+  REST_COUNT: 227,
+  METRICS_COUNT: '164+'
 };
 Object.defineProperty(window.PCV, 'auth', {
   get: function() {
@@ -1360,8 +1360,8 @@ function _renderDashWorkloads(host) {
       mk('td', null, HN.spark(series, { tone: tone })),
       mk('td', { style: 'text-align:right' }, qa));
   });
-  if (shown.length > 10) {
-    rows.push(mk('tr', null, mk('td', { colspan: '6', class: 'color-muted text-center' },
+  if (shown.length > 10 || (!items.length && !window.vmListError && PCV.vmScope && PCV.vmScope.dashEmptyText())) {
+    rows.push(mk('tr', null, mk('td', { colspan: '6', class: 'color-muted text-center' }, !items.length ? PCV.vmScope.dashEmptyText() :
       '... ' + _L('외', 'and') + ' ' + (shown.length - 10) + _L('개', ' more'))));
   }
   host.appendChild(mk('table', { style: 'font-size:12px' },
@@ -1464,7 +1464,7 @@ function _renderDashHealing(host) {
   host.appendChild(mk('h4', { style: 'margin:0;padding:12px 14px 10px;border-bottom:1px solid var(--bg3)', role: 'heading', 'aria-level': '3' },
     _L('자가치유 승인 대기', 'Self-healing approvals') + ' (' + pend.length + ')'));
   if (!pend.length) {
-    _dashEmptyMsg(host, ['healing'], '대기 없음', 'Nothing pending');
+    _dashEmptyMsg(host, ['healing'], PCV.vmScope ? PCV.vmScope.healingPendingEmptyText('대기 없음') : '대기 없음', PCV.vmScope ? PCV.vmScope.healingPendingEmptyText('Nothing pending') : 'Nothing pending');
   } else {
     var qaStyle = 'font-size:10px;padding:3px 8px';
     pend.slice(0, 3).forEach(function (p) {

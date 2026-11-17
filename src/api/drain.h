@@ -41,6 +41,11 @@ const gchar *pcv_drain_task_actor_of(gpointer task_or_result);
                                          
 #define pcv_drain_task_actor(x) \
     _Generic((x), GTask *: pcv_drain_task_actor_of, GAsyncResult *: pcv_drain_task_actor_of)(x)
+                                                                                                                     
+                                                                                                 
+const gchar *pcv_drain_task_actor_tenant_of(gpointer task_or_result);
+#define pcv_drain_task_actor_tenant(x) \
+    _Generic((x), GTask *: pcv_drain_task_actor_tenant_of, GAsyncResult *: pcv_drain_task_actor_tenant_of)(x)
                                                                                                      
                                          
 void pcv_drain_work_acquire(void);

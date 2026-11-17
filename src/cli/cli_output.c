@@ -109,7 +109,11 @@ void print_cyber_banner(void) {
 void print_metrics_bar(const char *label, int percent, const char *color) {
                                                                  
                               
-    if (percent < 0)   percent = 0;
+    if (percent < 0) {
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) printf("%s\tN/A\n", label);
+        else printf("%s[ %-8s ] %sN/A\n", cc(CYBER_CYAN), label, cc(CYBER_RESET));
+        return;
+    }
     if (percent > 100) percent = 100;
 
                                                    

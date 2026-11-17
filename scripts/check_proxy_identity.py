@@ -38,7 +38,8 @@ PUBLIC_PATHS = frozenset({
     "/auth/token", "/auth/refresh", "/auth/logout", "/auth/logout/all", "/auth/password", "/auth/register",
     "/auth/totp/verify", "/auth/totp/enroll",
 })
-GATE_CALL_RE = r"\s*if\s*\(\s*!\s*pcv_rest_collector_gate\s*\(\s*msg\s*\)\s*\)\s*return\s+PCV_REST_STEP_CLEANUP\s*;"
+
+GATE_CALL_RE = r"\s*if\s*\(\s*!\s*pcv_rest_collector_gate\s*\(\s*msg\s*(?:,\s*&\s*[A-Za-z_]\w*\s*)?\)\s*\)\s*return\s+PCV_REST_STEP_CLEANUP\s*;"
 AUTH_GATE_RE = r"\bpcv_rest_authenticate\s*\(\s*msg\s*,\s*&\s*key_role\s*(?:,\s*&\s*subject_role\s*)?\)"
 
 
@@ -230,7 +231,8 @@ def scan_collectors(code: str, request: str | None) -> list[str]:
     gate = rest_function_body(code, "pcv_rest_collector_gate")
     _require(reasons, "collector gate", gate, r"\bpcv_rest_client_identity_is_direct_local\s*\(", "직접 로컬 판정 미사용")
     _require(reasons, "collector gate", gate, r"\bpcv_rest_collector_needs_auth\s*\(", "모드 판정 미사용")
-    _require(reasons, "collector gate", gate, r"\bpcv_rest_authenticate\s*\(\s*msg\s*,\s*NULL\s*(?:,\s*NULL\s*)?\)", "토큰 검증 미사용")
+    _require(reasons, "collector gate", gate,
+             r"\bpcv_rest_authenticate\s*\(\s*msg\s*,\s*(?:NULL|&\s*[A-Za-z_]\w*)\s*(?:,\s*(?:NULL|&\s*[A-Za-z_]\w*)\s*)?\)", "토큰 검증 미사용")
     if request is not None:
         cut = re.search(AUTH_GATE_RE, request)
         if cut is None:

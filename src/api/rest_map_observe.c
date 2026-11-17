@@ -81,10 +81,25 @@ pcv_rest_map_observe(PcvRestRequest *rq)
     if (g_strcmp0(resource, "monitor") == 0) {
         if (g_strcmp0(method, "GET") != 0) {
             rq->rpc = NULL;
-        } else if (g_strcmp0(name, "metrics") == 0)
-            rq->rpc = pcv_rest_build_rpc("monitor.metrics", NULL);
+        } else if (g_strcmp0(name, "metrics") == 0) {
+
+            JsonObject *p = json_object_new();
+            const gchar *vm_id = query ? g_hash_table_lookup(query, "vm_id") : NULL;
+            if (vm_id)
+                json_object_set_string_member(p, "vm_id", vm_id);
+            rq->rpc = pcv_rest_build_rpc("monitor.metrics", p);
+            json_object_unref(p);
+        }
         else if (g_strcmp0(name, "fleet") == 0)
             rq->rpc = pcv_rest_build_rpc("monitor.fleet", NULL);
+        else if (g_strcmp0(name, "vm-diag") == 0) {
+            JsonObject *p = json_object_new();
+            const gchar *vm = query ? g_hash_table_lookup(query, "vm") : NULL;
+            if (vm)
+                json_object_set_string_member(p, "vm", vm);
+            rq->rpc = pcv_rest_build_rpc("monitor.vm.diag", p);
+            json_object_unref(p);
+        }
         
     }
 

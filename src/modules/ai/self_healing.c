@@ -589,10 +589,10 @@ _healing_restart_finish(RestartCtx *ctx, const gchar *result, gint rb_feedback)
     if (g_strcmp0(result, "success") == 0) {
         g_mutex_lock(&G.mu);
         G.total_executed++;
-        gchar lbl[128];
-        g_snprintf(lbl, sizeof(lbl), "policy=\"%s\",action=\"restart\"", ctx->policy_name);
-        pcv_prom_gauge_set_labels("purecvisor_healing_actions_total", lbl,
-                                  (gdouble)G.total_executed);
+        gchar lbl[PCV_PROM_LABELS_MAX];
+
+        if (pcv_prom_labels_build(lbl, sizeof(lbl), "policy", ctx->policy_name, "action", "restart", NULL))
+            pcv_prom_inc_labels("purecvisor_healing_actions_total", lbl);
         g_mutex_unlock(&G.mu);
 
         extern void pcv_ws_broadcast(const gchar*, const gchar*);
@@ -763,10 +763,10 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
         g_snprintf(detail, sizeof(detail), "[DRY_RUN] action=%s reason=%s", p->action, reason);
         pcv_audit_log("ai-ops", "healing_dry_run", p->name, detail, 0, 0, "local");
 
-        gchar metric_label[160];
-        g_snprintf(metric_label, sizeof(metric_label), "policy=\"%s\"", p->name);
-        pcv_prom_gauge_set_labels("purecvisor_healing_policy_triggered_total",
-            metric_label, (gdouble)(++G.total_triggered));
+        gchar metric_label[PCV_PROM_LABELS_MAX];
+        gboolean label_ok = pcv_prom_labels_build(metric_label, sizeof(metric_label), "policy", p->name, NULL);
+        G.total_triggered++;
+        if (label_ok) pcv_prom_inc_labels("purecvisor_healing_policy_triggered_total", metric_label);
 
         gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
         _record_healing_action(p->action, restart_with_target ? target_vm : p->name,
@@ -855,9 +855,9 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
                                                                    
     G.total_triggered++;
     if (action_executed) G.total_executed++;
-    gchar lbl[128];
-    g_snprintf(lbl, sizeof(lbl), "policy=\"%s\",action=\"%s\"", p->name, p->action);
-    pcv_prom_gauge_set_labels("purecvisor_healing_actions_total", lbl, (gdouble)G.total_executed);
+    gchar lbl[PCV_PROM_LABELS_MAX];
+    gboolean lbl_ok = pcv_prom_labels_build(lbl, sizeof(lbl), "policy", p->name, "action", p->action, NULL);
+    if (action_executed && lbl_ok) pcv_prom_inc_labels("purecvisor_healing_actions_total", lbl);
 
                                                    
     extern void pcv_ws_broadcast(const gchar*, const gchar*);

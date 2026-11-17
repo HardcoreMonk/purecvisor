@@ -28,10 +28,13 @@ G_BEGIN_DECLS
 
                                                                                                                       
                                                                                                         
-                                                                                           
+                                                                                        
+                                                                                               
+                                                                                                 
 typedef enum {
     PCV_OFFLOAD_LANE_LIBVIRT_READ,
     PCV_OFFLOAD_LANE_HOST_READ,
+    PCV_OFFLOAD_LANE_SCOPE_READ,
     PCV_OFFLOAD_LANE_NET_MUTATE,
     PCV_OFFLOAD_LANE_STORAGE_MUTATE,
     PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE,
@@ -58,6 +61,7 @@ typedef struct {
     const gchar             *rpc_id;                     
     const gchar             *req_id;                               
     const gchar             *actor;
+    const gchar             *actor_tenant;                                                                      
     const gchar             *target;
     gint64                   start_us;
     PcvRpcOffloadHandler     handler;
@@ -85,6 +89,19 @@ gboolean pcv_rpc_offload_capture(const gchar *response);
                                            
    
 gboolean pcv_rpc_offload_submit(const PcvRpcOffloadRequest *req);
+
+                                                                                  
+                                                                                            
+                                         
+typedef void (*PcvRpcOffloadContinue)(const PcvRpcOffloadRequest *req);
+
+   
+                                                                                           
+                                                                                      
+                                                                     
+                                                             
+   
+gboolean pcv_rpc_offload_submit_precheck(const PcvRpcOffloadRequest *req, PcvOffloadLane lane, PcvRpcOffloadContinue cont);
 
                                                                                                  
 void pcv_rpc_offload_shutdown(void);

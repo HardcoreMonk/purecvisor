@@ -3,6 +3,7 @@
   "device.nic.attach":      { "required": ["vm_id"], "optional": ["bridge", "model"] },
   "device.nic.detach":      { "required": ["vm_id", "mac"], "optional": [] },
   "vm.eject":               { "required": ["vm_id"], "optional": [] },
+  "vm.owner.set":           { "required": ["name", "owner"], "optional": ["expected_owner"], "keys_via": "alias-fallback" },
   "container.nic.detach":   { "required": ["name", "nic_name"], "optional": [] },
   "container.nic.attach":   { "required": ["name"], "optional": ["bridge", "hwaddr"] },
   "container.snapshot.create": { "required": ["name", "snap_name"], "optional": [] },
@@ -23,6 +24,8 @@
   "node.drain":             { "required": [], "optional": ["timeout_sec"] },
   "container.health.set":   { "required": ["name", "type", "target"], "optional": ["interval_sec", "timeout_sec"] },
   "device.disk.attach":     { "required": ["vm_id", "source", "target"], "optional": ["bus"] },
+  "auth.deleted_name.add": { "required": ["username"], "optional": [] },
+  "auth.user.create": { "required": ["username", "password", "role"], "optional": ["tenant", "reuse_deleted_name"] },
   "auth.totp.status":              { "required": [], "optional": ["username"] },
   "auth.totp.disable":             { "required": ["code"], "optional": ["username"] },
   "auth.totp.reset":               { "required": ["username"], "optional": [] },
@@ -45,5 +48,6 @@
   "vpc.attachment.delete":  { "required": ["attachment_id"], "optional": ["tenant"], "keys_via": "handler-vpc-helper" },
   "vpc.service.publish":    { "required": ["attachment_id", "protocol", "listen_address", "listen_port", "target_port", "allowed_sources"], "optional": ["tenant"], "keys_via": "handler-vpc-helper" },
   "vpc.service.unpublish":  { "required": ["publish_id"], "optional": ["tenant"], "keys_via": "handler-vpc-helper" },
-  "vpc.reconcile":          { "required": [], "optional": [] }
+  "vpc.reconcile":          { "required": [], "optional": [] },
+  "monitor.vm.diag":        { "required": [], "optional": ["vm"] }
 }

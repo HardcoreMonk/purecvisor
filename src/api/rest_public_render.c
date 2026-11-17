@@ -6,8 +6,9 @@
                                                                                                     
                                                                                                       
                                                                                          
-                                                                                                                  
-                             
+                                                                                           
+                                                                                                           
+                                                                                                   
                                                                                                           
                                                                                                     
   
@@ -26,6 +27,7 @@
 
 #include "modules/audit/pcv_audit.h"
 #include "modules/daemons/prometheus_exporter.h"
+#include "modules/daemons/vm_diag_view.h"
 #include "modules/network/dpdk_manager.h"
 #include "modules/network/ovn_manager.h"
 #include "modules/virt/pcv_virt_open.h"
@@ -44,13 +46,6 @@
                                                                    
 #define PCV_REST_INTERNAL_ABANDONED_MAX 2
 #define REST_RENDER_LOG_DOM "rest_render"
-
-                                                        
-static struct {
-    GMutex  mu;
-    gdouble total;
-    gdouble idle;
-} g_metrics_prev;
 
                                            
 static struct {
@@ -73,10 +68,34 @@ pcv_rest_rendered_clear(PcvRestRendered *r)
     r->content_type = NULL;
 }
 
-                                                                                  
-                                                        
+                                                                                                         
+                                                                                    
+static void
+_append_registry_scoped(GString *prom, const gchar *reg, PcvVmReadScope *scope, const PcvVmOwnerMap *map)
+{
+    gchar **lines = g_strsplit(reg, "\n", -1);
+    for (guint i = 0; lines[i]; i++) {
+        const gchar *l = lines[i];
+        gboolean keep = TRUE;
+        if (*l && *l != '#') {
+            gchar vm[PCV_PROM_LABELS_MAX];
+            const gint r = pcv_prom_labels_vm_value(l, vm, sizeof vm);
+            if (r != 0 && !strstr(l, "kind=\"container\""))
+                keep = r > 0 && (pcv_vm_read_visible_name(scope, map, vm) || pcv_vm_read_visible_uuid(scope, map, vm));
+        }
+        if (!keep)
+            continue;
+        g_string_append(prom, l);
+        if (lines[i + 1])
+            g_string_append_c(prom, '\n');
+    }
+    g_strfreev(lines);
+}
+
+                                                                                         
+                                                                                        
 void
-pcv_rest_render_metrics(const gchar *fleet_resp, PcvRestRendered *out)
+pcv_rest_render_metrics(const gchar *fleet_resp, PcvVmReadScope *scope, const PcvVmOwnerMap *map, PcvRestRendered *out)
 {
     GString *prom = g_string_new("");
     if (fleet_resp) {
@@ -90,35 +109,7 @@ pcv_rest_render_metrics(const gchar *fleet_resp, PcvRestRendered *out)
                               
                 if (json_object_has_member(res, "host")) {
                     JsonObject *h = json_object_get_object_member(res, "host");
-                    {
-                        gdouble cpu_pct = 0;
-                        if (json_object_has_member(h,"cpu_percent")) {
-                            cpu_pct = json_object_get_double_member(h,"cpu_percent");
-                        } else if (json_object_has_member(h,"cpu_total_ticks") &&
-                                   json_object_has_member(h,"cpu_idle_ticks")) {
-                                                                                   
-                            gdouble total = json_object_get_double_member(h,"cpu_total_ticks");
-                            gdouble idle = json_object_get_double_member(h,"cpu_idle_ticks");
-                            g_mutex_lock(&g_metrics_prev.mu);
-                            gdouble dt = total - g_metrics_prev.total;
-                            gdouble di = idle - g_metrics_prev.idle;
-                            if (dt > 0 && g_metrics_prev.total > 0)
-                                cpu_pct = 100.0 * (1.0 - di / dt);
-                            g_metrics_prev.total = total;
-                            g_metrics_prev.idle = idle;
-                            g_mutex_unlock(&g_metrics_prev.mu);
-                        }
-                        g_string_append_printf(prom,
-                            "# HELP purecvisor_host_cpu_percent Host CPU utilization\n"
-                            "# TYPE purecvisor_host_cpu_percent gauge\n"
-                            "purecvisor_host_cpu_percent %.2f\n", cpu_pct);
-                    }
-                    g_string_append_printf(prom,
-                        "# HELP purecvisor_host_memory_percent Host memory utilization\n"
-                        "# TYPE purecvisor_host_memory_percent gauge\n"
-                        "purecvisor_host_memory_percent %.2f\n",
-                        json_object_has_member(h,"mem_percent")
-                            ? json_object_get_double_member(h,"mem_percent") : 0);
+                                                                                          
                     g_string_append_printf(prom,
                         "# HELP purecvisor_host_disk_percent Host disk utilization\n"
                         "# TYPE purecvisor_host_disk_percent gauge\n"
@@ -149,55 +140,77 @@ pcv_rest_render_metrics(const gchar *fleet_resp, PcvRestRendered *out)
                 if (json_object_has_member(res, "fleet")) {
                     JsonArray *fleet = json_object_get_array_member(res, "fleet");
                     guint n = json_array_get_length(fleet);
+                                                                                              
+                    gboolean *hide = (scope && !pcv_vm_read_scope_all(scope)) ? g_new0(gboolean, n ? n : 1) : NULL;                         
+                    for (guint i = 0; hide && i < n; i++)
+                        hide[i] = !pcv_vm_read_visible_name(scope, map,
+                                                            json_object_get_string_member(json_array_get_object_element(fleet, i), "name"));
 
                     g_string_append(prom,
                         "# HELP purecvisor_vm_vcpu VM vCPU count\n"
                         "# TYPE purecvisor_vm_vcpu gauge\n");
                     for (guint i = 0; i < n; i++) {
+                        if (hide && hide[i]) continue;
                         JsonObject *vm = json_array_get_object_element(fleet, i);
-                        const gchar *vn = json_object_get_string_member(vm, "name");
-                        g_string_append_printf(prom,
-                            "purecvisor_vm_vcpu{vm=\"%s\"} %ld\n",
-                            vn, (long)json_object_get_int_member(vm, "vcpu"));
+                        gchar lb[PCV_PROM_LABELS_MAX];                                     
+                        if (!pcv_prom_labels_build(lb, sizeof(lb), "vm", json_object_get_string_member(vm, "name"), NULL)) continue;
+                        g_string_append_printf(prom, "purecvisor_vm_vcpu{%s} %ld\n",
+                            lb, (long)json_object_get_int_member(vm, "vcpu"));
                     }
 
                     g_string_append(prom,
                         "# HELP purecvisor_vm_memory_max_mb VM max memory MB\n"
                         "# TYPE purecvisor_vm_memory_max_mb gauge\n");
                     for (guint i = 0; i < n; i++) {
+                        if (hide && hide[i]) continue;
                         JsonObject *vm = json_array_get_object_element(fleet, i);
-                        const gchar *vn = json_object_get_string_member(vm, "name");
-                        g_string_append_printf(prom,
-                            "purecvisor_vm_memory_max_mb{vm=\"%s\"} %.0f\n",
-                            vn, json_object_get_double_member(vm, "mem_max_mb"));
+                        gchar lb[PCV_PROM_LABELS_MAX];
+                        if (!pcv_prom_labels_build(lb, sizeof(lb), "vm", json_object_get_string_member(vm, "name"), NULL)) continue;
+                        g_string_append_printf(prom, "purecvisor_vm_memory_max_mb{%s} %.0f\n",
+                            lb, json_object_get_double_member(vm, "mem_max_mb"));
                     }
 
                     g_string_append(prom,
                         "# HELP purecvisor_vm_memory_used_mb VM used memory MB\n"
                         "# TYPE purecvisor_vm_memory_used_mb gauge\n");
                     for (guint i = 0; i < n; i++) {
+                        if (hide && hide[i]) continue;
                         JsonObject *vm = json_array_get_object_element(fleet, i);
-                        const gchar *vn = json_object_get_string_member(vm, "name");
-                        g_string_append_printf(prom,
-                            "purecvisor_vm_memory_used_mb{vm=\"%s\"} %.0f\n",
-                            vn, json_object_get_double_member(vm, "mem_used_mb"));
+                        gdouble used = json_object_get_double_member(vm, "mem_used_mb");
+                        if (used < 0) continue;                                                     
+                        gchar lb[PCV_PROM_LABELS_MAX];
+                        if (!pcv_prom_labels_build(lb, sizeof(lb), "vm", json_object_get_string_member(vm, "name"), NULL)) continue;
+                        g_string_append_printf(prom, "purecvisor_vm_memory_used_mb{%s} %.0f\n", lb, used);
                     }
 
                     g_string_append(prom,
                         "# HELP purecvisor_vm_running VM running state\n"
                         "# TYPE purecvisor_vm_running gauge\n");
                     for (guint i = 0; i < n; i++) {
+                        if (hide && hide[i]) continue;
                         JsonObject *vm = json_array_get_object_element(fleet, i);
-                        const gchar *vn = json_object_get_string_member(vm, "name");
                         const gchar *st = json_object_get_string_member(vm, "state");
-                        g_string_append_printf(prom,
-                            "purecvisor_vm_running{vm=\"%s\"} %d\n",
-                            vn, g_strcmp0(st, "RUNNING") == 0 ? 1 : 0);
+                        gchar lb[PCV_PROM_LABELS_MAX];
+                        if (!pcv_prom_labels_build(lb, sizeof(lb), "vm", json_object_get_string_member(vm, "name"), NULL)) continue;
+                        g_string_append_printf(prom, "purecvisor_vm_running{%s} %d\n",
+                            lb, g_strcmp0(st, "RUNNING") == 0 ? 1 : 0);
                     }
+                    g_free(hide);
                 }
             }
         }
         g_object_unref(jp);
+    }
+
+                                                                          
+                                   
+    {
+        gint64 age_ms = pcv_vm_diag_store_age_ms(g_get_monotonic_time());
+        if (age_ms >= 0)
+            g_string_append_printf(prom,
+                "# HELP purecvisor_vm_diag_sample_age_seconds Age of the last successful VM diagnostics sample\n"
+                "# TYPE purecvisor_vm_diag_sample_age_seconds gauge\n"
+                "purecvisor_vm_diag_sample_age_seconds %.3f\n", (gdouble)age_ms / 1000.0);
     }
 
                                             
@@ -205,7 +218,10 @@ pcv_rest_render_metrics(const gchar *fleet_resp, PcvRestRendered *out)
         gchar *reg_metrics = pcv_prom_render();
         if (reg_metrics) {
             g_string_append(prom, "\n# HELP purecvisor_registry PureCVisor Registry Metrics\n");
-            g_string_append(prom, reg_metrics);
+            if (scope && !pcv_vm_read_scope_all(scope))
+                _append_registry_scoped(prom, reg_metrics, scope, map);
+            else
+                g_string_append(prom, reg_metrics);
             g_free(reg_metrics);
         }
     }
@@ -722,15 +738,6 @@ pcv_rest_render_set_internal_fns_for_test(JsonArray *(*vms_fn)(void), gint (*vm_
     g_internal_vms_fn = vms_fn;
     g_internal_count_fn = vm_count_fn;
     g_internal_deadline_ms = deadline_ms;
-}
-
-                                                            
-void
-pcv_rest_render_metrics_reset_for_test(void)
-{
-    g_mutex_lock(&g_metrics_prev.mu);
-    g_metrics_prev.total = g_metrics_prev.idle = 0;
-    g_mutex_unlock(&g_metrics_prev.mu);
 }
 
                                                                  

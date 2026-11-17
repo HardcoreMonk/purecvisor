@@ -64,6 +64,7 @@
 #include "modules/virt/virt_conn_pool.h"
 #include "purecvisor/pcv_handler_util.h"
 #include "modules/daemons/telemetry.h"
+#include "modules/daemons/vm_diag_view.h"                                                    
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
 #include <string.h>
@@ -77,6 +78,8 @@
 #include <stdio.h>
 #include <sys/statvfs.h>                                  
 #include "modules/daemons/process_monitor.h"
+#include "modules/resource/resource_gate.h"                           
+#include "modules/resource/vm_read_filter.h"                                         
 
    
                              
@@ -298,7 +301,16 @@ void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *
     json_object_set_string_member(res_obj, "state", state_str);
     json_object_set_int_member(res_obj, "vcpu", info.nrVirtCpu);
     json_object_set_double_member(res_obj, "mem_max_mb", info.maxMem / 1024.0);
-    json_object_set_double_member(res_obj, "mem_used_mb", info.memory / 1024.0);
+                                                                                                
+                                                      
+    {
+        char diag_uuid[VIR_UUID_STRING_BUFLEN];
+        gdouble guest_used_mb = -1;
+        if (virDomainGetUUIDString(dom, diag_uuid) == 0)
+            (void)pcv_vm_diag_store_guest_mem(diag_uuid, &guest_used_mb, NULL);
+        json_object_set_double_member(res_obj, "mem_used_mb", guest_used_mb);
+    }
+    json_object_set_double_member(res_obj, "mem_alloc_mb", info.memory / 1024.0);
     json_object_set_int_member(res_obj, "cpu_time_ns", info.cpuTime);
 
                                                             
@@ -424,7 +436,6 @@ pcv_monitor_fleet_collect(JsonObject *params,
                           JsonObject **host_out,
                           GError **error)
 {
-    (void)params;
     g_return_val_if_fail(fleet_out != NULL, FALSE);
     g_return_val_if_fail(host_out != NULL, FALSE);
     *fleet_out = NULL;
@@ -453,6 +464,12 @@ pcv_monitor_fleet_collect(JsonObject *params,
     }
 
     JsonArray *fleet_array = json_array_new();
+                                                                                                               
+                                                                                       
+    PcvResCaller rc = { 0 };
+    pcv_res_caller_init(&rc, params, NULL);
+    PcvVmReadScope *scope = pcv_vm_read_scope_new(&rc);
+    pcv_res_caller_clear(&rc);
 
                                                          
                                                                    
@@ -517,6 +534,11 @@ pcv_monitor_fleet_collect(JsonObject *params,
         if (uuid_ok)
             strncpy(vm_uuid, uuid_buf, sizeof(vm_uuid)-1);
         char *xml = virDomainGetXMLDesc(rec->dom, 0);
+        if (!pcv_vm_read_xml_visible(scope, xml, NULL)) {                                               
+            free(xml);
+            json_object_unref(vm_obj);
+            continue;
+        }
         if (xml) {
                                                                    
             char *mac_ptr = strstr(xml, "<mac address='");
@@ -709,6 +731,7 @@ pcv_monitor_fleet_collect(JsonObject *params,
     }    
     
     virDomainStatsRecordListFree(stats);                                               
+    pcv_vm_read_scope_free(scope);
 
                                                                         
                                                       
@@ -1160,9 +1183,14 @@ void handle_monitor_processes(JsonObject *params, const gchar *rpc_id,
     if (json_object_has_member(params, "type"))
         type_str = json_object_get_string_member(params, "type");
 
+                                                                                      
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
                                                     
-    JsonArray *arr = pcv_process_monitor_get_filtered(top_n, type_str);
+    JsonArray *arr = pcv_process_monitor_get_filtered(pcv_vm_read_scope_all(view.scope) ? top_n : 0, type_str);
     if (!arr) arr = json_array_new();
+    pcv_vm_read_filter_processes(view.scope, view.map, arr, top_n);
+    pcv_vm_read_view_clear(&view);
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);

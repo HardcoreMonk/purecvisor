@@ -31,6 +31,8 @@
    
 #include "pcv_job_recovery.h"
 #include "pcv_job_queue_internal.h"
+#include "modules/audit/pcv_audit.h"                                             
+#include "modules/dispatcher/rpc_completion.h"                          
 #include "utils/pcv_log.h"
 #include "api/drain.h"
 #include <gio/gio.h>
@@ -52,6 +54,7 @@
 struct _PcvJobRef {
     gint refs;
     gchar *id, *generation, *method, *target;
+    gchar *actor, *actor_tenant;                                                                      
     gboolean reserved, submitted;
 };
 
@@ -102,6 +105,8 @@ const gchar *pcv_job_id(const PcvJobRef *ref) { return ref ? ref->id : NULL; }
 const gchar *pcv_job_generation(const PcvJobRef *ref) { return ref ? ref->generation : NULL; }
 const gchar *pcv_job_method(const PcvJobRef *ref) { return ref ? ref->method : NULL; }
 const gchar *pcv_job_target(const PcvJobRef *ref) { return ref ? ref->target : NULL; }
+const gchar *pcv_job_actor(const PcvJobRef *ref) { return ref ? ref->actor : NULL; }
+const gchar *pcv_job_actor_tenant(const PcvJobRef *ref) { return ref ? ref->actor_tenant : NULL; }
 
                                       
                                                 
@@ -125,6 +130,8 @@ pcv_job_unref(PcvJobRef *ref)
     g_free(ref->generation);
     g_free(ref->method);
     g_free(ref->target);
+    g_free(ref->actor);
+    g_free(ref->actor_tenant);
     g_free(ref);
 }
 
@@ -161,7 +168,14 @@ pcv_job_admit(const gchar *type, const gchar *target, const gchar *params, const
     PcvJobRef *ref = _identity(NULL, NULL, method, target);
     ref->reserved = TRUE;
     ref->generation = g_uuid_string_random();
-    ref->id = pcv_job_db_admit(type, target, params, method, ref->generation);
+                                                                                     
+                                                                                           
+    const gchar *actor = pcv_rpc_completion_actor();
+    if (actor && (!*actor || g_strcmp0(actor, PCV_AUDIT_ACTOR_LOCAL) == 0 || g_strcmp0(actor, PCV_AUDIT_ACTOR_SYSTEM) == 0))
+        actor = NULL;
+    ref->actor = g_strdup(actor);
+    ref->actor_tenant = actor ? g_strdup(pcv_rpc_completion_actor_tenant()) : NULL;
+    ref->id = pcv_job_db_admit(type, target, params, method, ref->generation, ref->actor, ref->actor_tenant);
     if (!ref->id) { pcv_job_unref(ref); return NULL; }
     return ref;
 }
@@ -294,6 +308,31 @@ done:
     g_object_unref(inner);
     g_object_unref(parser);
     return record;
+}
+
+                                                                                                               
+                                                                                            
+                                                                 
+gboolean pcv_job_recovery_record_roundtrip_for_test(const PcvJobRef *ref, PcvJobStatus status, gchar **encoded_out);
+gboolean
+pcv_job_recovery_record_roundtrip_for_test(const PcvJobRef *ref, PcvJobStatus status, gchar **encoded_out)
+{
+    Record record = { .ref = (PcvJobRef *)ref, .status = status };
+    gsize length = 0;
+    gchar *encoded = _encode(&record, &length);
+    Record *decoded = _decode(encoded);
+    gboolean ok = decoded != NULL;
+    if (decoded) {
+        pcv_job_unref(decoded->ref);
+        g_free(decoded->result);
+        g_free(decoded->error);
+        g_free(decoded);
+    }
+    if (encoded_out)
+        *encoded_out = encoded;
+    else
+        g_free(encoded);
+    return ok;
 }
 
                                                              

@@ -57,7 +57,7 @@ class VmStartPmWakeupTests(unittest.TestCase):
         functions = ["free_vm_start_context", "_prepare_inactive_dpdk_for_start"]
         if "_wake_pm_suspended_for_start(" in source:
             functions.append("_wake_pm_suspended_for_start")
-        functions += ["vm_start_worker_thread", "vm_start_callback", "pcv_vm_start_report_rejected", "_vm_start_prepare", "pcv_vm_start_submit", "handle_vm_start_request"]
+        functions += ["vm_start_worker_thread", "vm_start_callback", "pcv_vm_start_report_rejected", "_vm_start_prepare", "pcv_vm_start_submit_ex", "pcv_vm_start_submit", "handle_vm_start_request"]
         capacity = (ROOT / "src/modules/virt/vm_start_capacity.c").read_text()
         helpers = [extract_function(capacity, name) for name in ("pcv_vm_start_info_active", "pcv_vm_start_pin_count")]
         code = "\n".join(types + ["#define MAX_PHYSICAL_CPUS 256"] + helpers +

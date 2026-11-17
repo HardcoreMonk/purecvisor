@@ -347,6 +347,26 @@ static void test_task_actor_override_clear_and_non_task(void)
     g_object_unref(plain);
 }
 
+
+static void test_task_actor_tenant_follows_actor(void)
+{
+    pcv_drain_init();
+    pcv_rpc_completion_begin("vm.start");
+    pcv_rpc_completion_set_actor("alice");
+    pcv_rpc_completion_set_actor_tenant("ta");
+    GTask *same = pcv_drain_task_new(NULL, NULL, NULL, NULL);
+    GTask *other = pcv_drain_task_new(NULL, NULL, NULL, NULL);
+    g_assert_cmpstr(pcv_drain_task_actor_tenant(same), ==, "ta");
+    pcv_drain_task_set_actor(same, "alice");
+    g_assert_cmpstr(pcv_drain_task_actor_tenant(same), ==, "ta");
+    pcv_drain_task_set_actor(other, "bob");
+    g_assert_cmpstr(pcv_drain_task_actor(other), ==, "bob");
+    g_assert_null(pcv_drain_task_actor_tenant(other));
+    (void)pcv_rpc_completion_finish();
+    g_object_unref(same);
+    g_object_unref(other);
+}
+
 typedef struct {
     gint     ran;
     gint     destroyed;
@@ -445,5 +465,6 @@ void test_drain_register(void) {
     g_test_add_func("/drain/drain_begin_shutdown", test_drain_begin_shutdown);
     g_test_add_func("/drain/task_actor_captured_in_scope", test_task_actor_captured_in_scope);
     g_test_add_func("/drain/task_actor_override_clear_and_non_task", test_task_actor_override_clear_and_non_task);
+    g_test_add_func("/drain/task_actor_tenant_follows_actor", test_task_actor_tenant_follows_actor);
     g_test_add_func("/drain/notify_ready_with_socket", test_drain_notify_ready_with_socket);
 }

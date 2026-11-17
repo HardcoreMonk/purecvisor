@@ -127,6 +127,7 @@
                                                                  
    
 #include "handler_auth.h"
+#include "handler_auth_names.h"                                               
 #include "rpc_utils.h"
 #include "../auth/pcv_rbac.h"
 #include "../audit/pcv_audit.h"
@@ -201,13 +202,21 @@ handle_auth_user_create(JsonObject       *params,
     const gchar *role_str = json_object_get_string_member(params, "role");
 
       
-                                          
-                                                       
-                                                       
+                                                                               
+                                                                          
+                                                                  
        
-    const gchar *tenant   = json_object_has_member(params, "tenant")
-                            ? json_object_get_string_member(params, "tenant")
-                            : NULL;
+    const gchar *tenant = NULL;
+    gboolean tenant_bad = FALSE;
+    {
+        JsonNode *tn = json_object_has_member(params, "tenant") ? json_object_get_member(params, "tenant") : NULL;
+        if (tn && !JSON_NODE_HOLDS_NULL(tn)) {
+            if (JSON_NODE_HOLDS_VALUE(tn) && json_node_get_value_type(tn) == G_TYPE_STRING)
+                tenant = json_node_get_string(tn);
+            else
+                tenant_bad = TRUE;
+        }
+    }
 
       
                                                 
@@ -239,6 +248,19 @@ handle_auth_user_create(JsonObject       *params,
         gchar *resp = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "username must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        return;
+    }
+
+      
+                                                                                               
+                                                        
+       
+    if (tenant_bad || (tenant && !pcv_res_name_is_valid(tenant))) {
+        gchar *resp = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "tenant must be a string matching [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         return;
@@ -294,6 +316,19 @@ handle_auth_user_create(JsonObject       *params,
        
     PcvRole role = pcv_rbac_str_to_role(role_str);
 
+                                                                                                 
+                                                            
+    JsonNode *reuse_node = json_object_has_member(params, "reuse_deleted_name")
+                           ? json_object_get_member(params, "reuse_deleted_name") : NULL;
+    if (reuse_node && (!JSON_NODE_HOLDS_VALUE(reuse_node) || json_node_get_value_type(reuse_node) != G_TYPE_BOOLEAN)) {
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                                                    "reuse_deleted_name must be a boolean");
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        return;
+    }
+    gboolean reused = FALSE;
+
       
                                    
       
@@ -308,13 +343,17 @@ handle_auth_user_create(JsonObject       *params,
                                                           
        
     GError *err = NULL;
-    gboolean ok = pcv_rbac_user_create(username, password, role, tenant, &err);
+    gboolean ok = pcv_rbac_user_create_ex(username, password, role, tenant,
+                                          reuse_node && json_node_get_boolean(reuse_node)
+                                              ? PCV_RBAC_CREATE_REUSE_DELETED_NAME : PCV_RBAC_CREATE_DEFAULT,
+                                          &reused, &err);
 
     if (!ok) {
+        PureRpcErrorCode code = pcv_auth_principal_rpc_code(err, PURE_RPC_ERR_INTERNAL_ERROR);                      
         pcv_audit_log(pcv_rpc_completion_actor(), "auth.user.create", username, "fail",
-                      PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+                      code, 0, "local");
         gchar *resp = pure_rpc_build_error_response(
-            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+            rpc_id, code,
             err ? err->message : "User creation failed");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -348,6 +387,11 @@ handle_auth_user_create(JsonObject       *params,
     else
         json_object_set_null_member(result_obj, "tenant");                    
     json_object_set_string_member(result_obj, "status", "created");
+    if (reuse_node)
+        json_object_set_boolean_member(result_obj, "reused_deleted_name", reused);
+    if (reused)
+        g_message("[auth.user.create] deleted user name reused: user=%s actor=%s", username,
+                  pcv_rpc_completion_actor() ? pcv_rpc_completion_actor() : "-");
 
     JsonNode *result_node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(result_node, result_obj);                          
@@ -1186,6 +1230,12 @@ void handle_apikey_create(JsonObject *params, const gchar *rpc_id,
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
+                                                                                            
+    if (!pcv_res_name_is_valid(client_name)) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                                                 "name must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
                                                                           
                                                           
                                                                
@@ -1207,7 +1257,8 @@ void handle_apikey_create(JsonObject *params, const gchar *rpc_id,
     gchar *key_out = nullptr;
     GError *err = nullptr;
     if (!pcv_rbac_apikey_create(client_name, (PcvRole)role, description, expires_at, &key_out, &err)) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err ? err->message : "Create failed");
+        gchar *r = pure_rpc_build_error_response(rpc_id, pcv_auth_principal_rpc_code(err, PURE_RPC_ERR_ZFS_OPERATION),
+                                                 err ? err->message : "Create failed");
         pure_uds_server_send_response(server, connection, r); g_free(r);
         if (err) g_error_free(err);
         return;

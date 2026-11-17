@@ -10,7 +10,7 @@
 
 ## 목적
 
-PureCVisor 2.2.0 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
+PureCVisor 2.2.1 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
 Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web UI runtime과 분리하면서
 `docs/GUIDE.md`의 숫자형 21개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
 `docs/DATABASE_STRUCTURE.md`는 별도 작성 정본을 유지하면서 같은 reader의 독립 데이터베이스
@@ -134,7 +134,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   Workload·Network·Storage·Security 도메인에서 연결한다. 직접 HTTPS SVG도 같은 노드와 연결을 가진다.
   공개 DB 개수의 정본은 공개 소스에 실제 존재하는 9개(`docs/DATABASE_STRUCTURE.md`와 데이터베이스
   아키텍처 SVG)이며 다른 내부 배포판의 저장소 수와 혼용하지 않는다.
-- Hero는 왼쪽에 version 표식 `PURECVISOR 2.2.0 · SINGLE EDGE`, H1 "한 대의 Linux 서버를 가상화 플랫폼으로"
+- Hero는 왼쪽에 version 표식 `PURECVISOR 2.2.1 · SINGLE EDGE`, H1 "한 대의 Linux 서버를 가상화 플랫폼으로"
   (영어 "Turn one Linux server into a virtualization platform")와 소개 한 줄, 주 action "설치 가이드"·보조
   "서비스 영상 보기", 글자 링크 "5분 퀵스타트"와 배포 note를 두고, 오른쪽에 실제 Web UI 대시보드 화면을 둔다.
   화면은 견본 데이터로 찍은 WebP이며 사이트 테마(밝은/어두운)마다 한 장이 보인다(한국어판은 한국어 UI, 영어판은
@@ -185,7 +185,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
 - 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 9개와
-  영구 테이블 28개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
+  영구 테이블 29개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
   `site/public/assets/diagrams/purecvisor-single-database-architecture.svg`에서 요청·정책 정본·작업
   상태·감사 및 외부 통합·Linux/KVM actual state의 관계를 보여 준다. SVG는 `<title>`·`<desc>`와
   본문 대체 설명, 원본 확대 link를 제공하고 mobile에서는 page가 아니라 figure canvas 안에서만

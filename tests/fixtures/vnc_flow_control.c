@@ -76,6 +76,23 @@ PcvSubjectCheck pcv_rbac_subject_check_token(const gchar *user,const gchar *toke
 }
 gboolean pcv_rbac_role_permits(PcvRole role,const gchar *method)
 { (void)method;return role!=PCV_ROLE_VIEWER; }
+                                                                                        
+                                                                                                
+PcvUserExistence pcv_rbac_lookup_subject(const gchar *user,PcvRole *role,gchar **nonce)
+{
+    if (role) *role = PCV_ROLE_VIEWER;
+    if (nonce) *nonce = NULL;
+    g_mutex_lock(&subject_mu);
+    gboolean gone = deleted_subject && !g_strcmp0(user, deleted_subject);
+    g_mutex_unlock(&subject_mu);
+    if (!user || gone) return PCV_USER_ABSENT;
+    if (role) *role = !strcmp(user,"admin")?PCV_ROLE_ADMIN:!strcmp(user,"operator")?PCV_ROLE_OPERATOR:PCV_ROLE_VIEWER;
+    return PCV_USER_PRESENT;
+}
+const gchar *pcv_rbac_get_tenant(const gchar *user){ (void)user; return NULL; }
+const gchar *pcv_res_owner_tenant(const gchar *owner){ (void)owner; return NULL; }
+gboolean pcv_res_name_is_valid(const gchar *name){ return name && *name; }
+GPtrArray *pcv_vm_diag_store_owner_rows(gint64 now_mono_us){ (void)now_mono_us; return NULL; }
 gboolean pcv_client_identity_admission_try(GHashTable *counts,const gchar *key,gint limit)
 { (void)counts;(void)key;(void)limit;return TRUE; }
 virConnectPtr virt_conn_pool_acquire(void){return test_conn;}

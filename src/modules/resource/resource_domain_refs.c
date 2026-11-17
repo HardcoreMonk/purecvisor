@@ -12,6 +12,7 @@
                                                                          
                                                                                 
 #include "modules/resource/resource_domain_refs.h"
+#include "modules/virt/vm_owner.h"
 
 #include <libxml/parser.h>
 #include <libxml/tree.h>
@@ -175,30 +176,6 @@ collect_interface(xmlNode *ifc, PcvResDomainRefs *out)
 }
 
                                                     
-static gchar *
-find_owner(xmlNode *node)
-{
-    for (xmlNode *cur = node; cur; cur = cur->next) {
-        if (node_is(cur, "owner")) {
-            xmlChar *content = xmlNodeGetContent(cur);
-            if (!content)
-                return NULL;
-            gchar *owner = g_strdup((const gchar *)content);
-            xmlFree(content);
-            g_strstrip(owner);
-            if (*owner)
-                return owner;
-            g_free(owner);
-            return NULL;
-        }
-        gchar *child = find_owner(cur->children);
-        if (child)
-            return child;
-    }
-    return NULL;
-}
-
-                                                                                
 gboolean
 pcv_res_domain_refs_parse(const gchar *xml, PcvResDomainRefs *out, GError **error)
 {
@@ -219,7 +196,7 @@ pcv_res_domain_refs_parse(const gchar *xml, PcvResDomainRefs *out, GError **erro
         g_set_error_literal(error, PCV_RES_ERROR, PCV_RES_ERROR_INVALID, "domain xml is not parseable");
         return FALSE;
     }
-    out->owner = find_owner(root);
+    out->owner = pcv_vm_owner_from_domain_node(root);
     xmlNode *devices = child_named(root, "devices");
     for (xmlNode *d = devices ? devices->children : NULL; d; d = d->next) {
         if (node_is(d, "disk"))

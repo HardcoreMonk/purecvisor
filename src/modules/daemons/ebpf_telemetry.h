@@ -171,27 +171,6 @@ JsonObject *pcv_ebpf_telemetry_get_host(void);
 
 
 
-
-                                          
-  
-                                                    
-  
-                                            
-                                                              
-                                                                 
-   
-JsonObject *pcv_ebpf_telemetry_get_vm(const gchar *vm_name);
-
-   
-                                         
-  
-                                                  
-  
-                                                            
-                           
-   
-JsonArray  *pcv_ebpf_telemetry_get_all_vms(void);
-
 G_END_DECLS
 
 #endif                                  

@@ -3512,6 +3512,15 @@ thead {
 .pill-warn { background: rgba(251,191,36,.14); color: var(--st-warn); }
 .pill-crit { background: rgba(244,63,94,.14); color: var(--st-crit); }
 .pill-idle { background: var(--bg3); color: var(--st-idle); }
+                                                                                                      
+                                                                                         
+.pill.vmdiag-pill.pill-idle { color: var(--fg); }
+.pill.vmdiag-pill.pill-crit { color: color-mix(in srgb, var(--st-crit) 55%, var(--fg)); }
+                                                                                                 
+                                                                                              
+.vmdiag-top5 td.vmdiag-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vmdiag-top5 .vmdiag-val, .vmdiag-top5 th { white-space: nowrap; }
+.vmdiag-table td.mono { white-space: nowrap; }
 .sdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .sdot-ok { background: var(--st-ok); color: var(--st-ok); } .sdot-warn { background: var(--st-warn); color: var(--st-warn); }
 .sdot-crit { background: var(--st-crit); color: var(--st-crit); } .sdot-idle { background: var(--st-idle); color: var(--st-idle); }

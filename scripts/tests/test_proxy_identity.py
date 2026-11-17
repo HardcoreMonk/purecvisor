@@ -98,21 +98,56 @@ IDENTITY = REPO / "src/api/rest_client_identity.c"
 
 def test_collector_gate_missing_is_red():
     text = _rest()
-    gate = "if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;"
+    gate = "if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;"
     assert text.count(gate) == 5, "수집기 처리부 다섯 곳의 문지기 호출이 아님"
     _assert_red(text.replace(gate, "", 1), "collector gate")
 
 def test_collector_gate_after_body_is_red():
     text = _rest()
-    body = "        pcv_rest_defer_rendered(msg, rq->self->rest_ctx, _internal_vms_render, NULL, NULL);\n"
+    body = "        if (_collector_denied(msg, &cc, REST_API_PREFIX \"/internal/vms\")) return PCV_REST_STEP_CLEANUP;\n"
     anchors = re.findall(
-        r"(?m)^        if \(!pcv_rest_collector_gate\(msg\)\) return PCV_REST_STEP_CLEANUP;[^\n]*\n" + re.escape(body),
+        r"(?m)^        if \(!pcv_rest_collector_gate\(msg, &cc\)\) return PCV_REST_STEP_CLEANUP;[^\n]*\n" + re.escape(body),
         text,
     )
     assert len(anchors) == 1, anchors
     anchor = anchors[0]
     gate = anchor[: -len(body)]
     _assert_red(text.replace(anchor, body + gate, 1), "collector gate")
+
+NEW_GATE_CALL = "if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;"
+OLD_GATE_CALL = "if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;"
+NEW_AUTH = "pcv_rest_authenticate(msg, &key_role, &subject_role)"
+OLD_AUTH = "pcv_rest_authenticate(msg, NULL, NULL)"
+
+def _old_form(text: str) -> str:
+
+    assert text.count(NEW_GATE_CALL) == 5
+    text = text.replace(NEW_GATE_CALL, OLD_GATE_CALL)
+    at = text.index(NEW_AUTH, text.index("pcv_rest_collector_gate(SoupServerMessage *msg"))
+    return text[:at] + OLD_AUTH + text[at + len(NEW_AUTH):]
+
+def _forms():
+    text = _rest()
+    return {"new": (text, NEW_GATE_CALL, NEW_AUTH), "old": (_old_form(text), OLD_GATE_CALL, OLD_AUTH)}
+
+def test_collector_gate_both_forms_pass():
+    for name, (text, _gate, _auth) in _forms().items():
+        assert scan_text(text) == [], name
+
+def test_collector_gate_not_first_statement_both_forms_red():
+    for name, (text, gate, _auth) in _forms().items():
+        metrics = text.index('REST_API_PREFIX "/metrics"')
+        at = text.index(gate, metrics)
+        line_end = text.index("\n", at)
+        moved = text[:at] + "(void)0;" + text[at + len(gate):line_end] + "\n        " + gate + text[line_end:]
+        _assert_red(moved, "collector gate")
+
+def test_collector_gate_without_auth_both_forms_red():
+    for name, (text, _gate, auth) in _forms().items():
+        at = text.index(auth, text.index("pcv_rest_collector_gate(SoupServerMessage *msg"))
+        _assert_red(text[:at] + "NULL" + text[at + len(auth):], "collector gate")
+        lax = auth.replace("pcv_rest_authenticate", "pcv_rest_authenticate_lax")
+        _assert_red(text[:at] + lax + text[at + len(auth):], "collector gate")
 
 def test_new_public_path_above_gate_is_red():
     text = _rest()

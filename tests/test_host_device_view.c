@@ -26,6 +26,8 @@
 #include <json-glib/json-glib.h>
 
 #include "modules/dispatcher/host_device_view.h"
+#include "modules/auth/pcv_rbac.h"
+#include "modules/resource/vm_read_scope.h"
 
                                                                      
 
@@ -167,10 +169,17 @@ static gboolean hv_vis_except(gpointer ctx, PcvResKind kind, const gchar *id)
     return g_strcmp0(id, ctx) != 0;
 }
 
-static const PcvHostViewCaller ADMIN = { 2, "root", hv_vis_none, NULL };                           
-static const PcvHostViewCaller ALICE = { 1, "alice", hv_vis_all, NULL };                             
-static const PcvHostViewCaller VIEWER = { 0, "vic", hv_vis_all, NULL };
-static const PcvHostViewCaller NOTENANT = { 1, "nob", hv_vis_none, NULL };
+static PcvVmReadScope *
+hv_scope(gint role, const gchar *subject, const gchar *tenant)
+{
+    PcvResCaller c = { .role = role, .subject = (gchar *)subject, .tenant = (gchar *)tenant };
+    return pcv_vm_read_scope_new(&c);
+}
+
+static const PcvHostViewCaller ADMIN = { 2, "root", hv_vis_none, NULL, NULL };
+static PcvHostViewCaller ALICE = { 1, "alice", hv_vis_all, NULL, NULL };
+static PcvHostViewCaller VIEWER = { 0, "vic", hv_vis_all, NULL, NULL };
+static PcvHostViewCaller NOTENANT = { 1, "nob", hv_vis_none, NULL, NULL };
 
                        
 static JsonObject *hv_build(const PcvHostScan *s, const GPtrArray *vms, const PcvHostViewCaller *c, guint max)
@@ -680,13 +689,65 @@ static void test_visibility(void)
     g_assert_cmpstr(nvms, ==, "");                                                      
     json_object_unref(r);
 
-    PcvHostViewCaller part = { 1, "alice", hv_vis_except, (gpointer)"0000:01:00.0" };                 
+    PcvHostViewCaller part = { 1, "alice", hv_vis_except, (gpointer)"0000:01:00.0", ALICE.vm_scope };
     r = hv_build(s, vms, &part, 0);
     g_autofree gchar *pids = hv_ids_csv(r);
     g_assert_cmpstr(pids, ==, "0000:09:00.0,248a:8327,1038:22ac");                              
     json_object_unref(r);
     g_ptr_array_unref(vms);
     pcv_host_device_scan_free(s);
+}
+
+static const gchar *hv_owner_tenant(const gchar *owner)
+{
+    return g_strcmp0(owner, "alice") == 0 ? "ta" : (g_strcmp0(owner, "bob") == 0 ? "tb" : NULL);
+}
+
+void pcv_vm_read_set_owner_tenant_fn_for_test(const gchar *(*fn)(const gchar *owner));
+
+static void test_vm_name_tenant_scope(void)
+{
+    pcv_vm_read_set_owner_tenant_fn_for_test(hv_owner_tenant);
+    PcvHostScan *s = hv_scan(TRUE);
+    PcvHostGpu *g = hv_gpu(s, "0000:01:00.0", "vfio-pci", FALSE, TRUE, TRUE);
+    hv_companion(s, g, "0000:01:00.1");
+    hv_usb(s, "3-3.2.2", 0x248a, 0x8327, 3, 7, 0, "Telink", "Wireless Receiver");
+    GPtrArray *vms = hv_vms();
+    hv_vm(vms, "win", "alice", TRUE, TRUE, USB_ADDR("0x248a", "0x8327", "3", "7"), USB_POL("optional", "0x248a", "0x8327"));
+    hv_vm(vms, "other", "bob", FALSE, TRUE, NULL,
+          PCI_HD(" managed='no'", "0x01", "0x00", "0x0") PCI_HD(" managed='no'", "0x01", "0x00", "0x1")
+          INACTIVE_22AC PCI_HD(" managed='no'", "0x09", "0x00", "0x0"));
+    hv_vm(vms, "orphan", NULL, FALSE, TRUE, NULL, USB_PLAIN("0x248a", "0x8327"));
+    guint hidden = 0;
+
+    PcvHostViewCaller same = { 0, "vic", hv_vis_all, NULL, hv_scope(0, "vic", "ta") };
+    JsonObject *r = hv_build(s, vms, &same, 0);
+    g_assert_cmpuint(hv_walk_names(r, "win", &hidden), ==, 1);
+    g_assert_cmpuint(hidden, ==, 5);
+    g_autofree gchar *svms = hv_vms_csv(r);
+    g_assert_cmpstr(svms, ==, "win");
+    json_object_unref(r);
+
+    PcvHostViewCaller other = { 0, "vic", hv_vis_all, NULL, hv_scope(0, "vic", "tc") };
+    r = hv_build(s, vms, &other, 0);
+    g_assert_cmpuint(hv_walk_names(r, NULL, &hidden), ==, 0);
+    g_assert_cmpuint(hidden, ==, 6);
+    g_autofree gchar *ovms = hv_vms_csv(r);
+    g_assert_cmpstr(ovms, ==, "");
+    json_object_unref(r);
+
+    r = hv_build(s, vms, &ADMIN, 0);
+    g_autofree gchar *avms = hv_vms_csv(r);
+    g_assert_cmpstr(avms, ==, "orphan,other,win");
+    json_object_unref(r);
+    g_autofree gchar *msg = pcv_host_device_read_error_message(&same, "win");
+    g_assert_cmpstr(msg, ==, "cannot read a VM definition");
+
+    pcv_vm_read_scope_free(same.vm_scope);
+    pcv_vm_read_scope_free(other.vm_scope);
+    g_ptr_array_unref(vms);
+    pcv_host_device_scan_free(s);
+    pcv_vm_read_set_owner_tenant_fn_for_test(NULL);
 }
 
                                                                        
@@ -900,6 +961,9 @@ static void test_json_shape(void)
 void test_host_device_view_register(void);
 void test_host_device_view_register(void)
 {
+    ALICE.vm_scope = hv_scope(1, "alice", NULL);
+    VIEWER.vm_scope = hv_scope(0, "vic", NULL);
+    NOTENANT.vm_scope = hv_scope(1, "nob", NULL);
     g_test_add_func("/host_device/view/pci_hostdev_parse", test_pci_hostdev_parse);
     g_test_add_func("/host_device/view/read_outcome_table", test_read_outcome_table);
     g_test_add_func("/host_device/view/read_error_message", test_read_error_message);
@@ -907,6 +971,7 @@ void test_host_device_view_register(void)
     g_test_add_func("/host_device/view/pci_match_managed", test_pci_match_managed);
     g_test_add_func("/host_device/view/companions_partial", test_companions_partial);
     g_test_add_func("/host_device/view/visibility", test_visibility);
+    g_test_add_func("/host_device/view/vm_name_tenant_scope", test_vm_name_tenant_scope);
     g_test_add_func("/host_device/view/blocked_and_order", test_blocked_and_order);
     g_test_add_func("/host_device/view/truncate_and_sources", test_truncate_and_sources);
     g_test_add_func("/host_device/view/json_shape", test_json_shape);

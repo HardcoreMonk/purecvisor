@@ -29,7 +29,7 @@ def compile_fixture(binary, source):
                "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-g", "-O1",
                "-ffunction-sections", "-fdata-sections", "-I.", "-Isrc", "-Isrc/api", "-Iinclude",
                "-Iinclude/purecvisor", f'-DPCV_VNC_SOURCE="{source}"',
-               "tests/fixtures/vnc_proxy_lifetime.c", "src/modules/dispatcher/rpc_utils.c", "src/api/drain.c", "src/modules/dispatcher/rpc_completion.c", "src/utils/pcv_worker_pool.c", "-Wl,--gc-sections",
+               "tests/fixtures/vnc_proxy_lifetime.c", "src/modules/dispatcher/rpc_utils.c", "src/api/drain.c", "src/modules/dispatcher/rpc_completion.c", "src/utils/pcv_worker_pool.c", "src/modules/virt/vm_owner.c", "-Wl,--gc-sections",
                "-Wl,--wrap=soup_websocket_connection_close", "-Wl,--wrap=read", "-o", str(binary), *flags,
                *shlex.split(os.environ.get("PCV_VNC_TEST_CFLAGS", ""))]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=90)

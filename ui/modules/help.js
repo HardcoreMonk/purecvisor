@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 317, REST = cfg.REST_COUNT || 225, METRICS = cfg.METRICS_COUNT || 155;
+  var RPC = cfg.RPC_COUNT || 320, REST = cfg.REST_COUNT || 227, METRICS = cfg.METRICS_COUNT || '164+';
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -70,7 +70,7 @@ function renderHelp(b) {
       HN.row(_L('REST 엔드포인트', 'REST Endpoints'), REST + '+'),
       HN.row(_L('CLI 명령 안내', 'CLI Reference'), 'pcvctl help all')]),
     HN.card('📈 ' + _L('모니터링', 'Monitoring'), [
-      HN.row(_L('Prometheus 메트릭', 'Prometheus Metrics'), METRICS + '+'),
+      HN.row(_L('Prometheus 메트릭', 'Prometheus Metrics'), String(METRICS)),
       HN.row(_L('메트릭 접두', 'Metric Prefixes'), 'node_* / purecvisor_*'),
       HN.row(_L('노출 엔드포인트', 'Exposed at'), el('code', null, '/api/v1/metrics'))]),
     HN.card('💻 ' + _L('인프라', 'Infrastructure'), [
@@ -103,8 +103,9 @@ function renderHelp(b) {
       ['vm.list', 0, 'vm list', 'dashboard', '전체 VM 목록 (offset/limit 페이징)', 'List all VMs (offset/limit paging)'],
       ['vm.inspect', 2, 'vm inspect', '-', 'UUID 기반 비밀정보 제외 영구 구성 관측 (관리자 전용)', 'Observe redacted persistent configuration by UUID (admin-only)'],
       ['vm.limit', 1, 'vm limit', 'summary', 'cgroup CPU/MEM 제한 설정', 'Set cgroup CPU/MEM limits'],
-      ['vm.metrics', 0, 'monitor metrics', 'summary/performance', 'VM별 CPU/MEM/디스크/네트워크 메트릭', 'Per-VM CPU/MEM/disk/net metrics'],
+      ['vm.metrics', 0, 'monitor metrics', 'summary', 'VM별 CPU/MEM 사용률과 디스크/네트워크 누적값(mem_source, 값 없음 −1 — 속도는 monitor.vm.diag)', 'Per-VM CPU/MEM usage and cumulative disk/net (mem_source, −1 = no value — rates in monitor.vm.diag)'],
       ['vm.rename', 1, 'vm rename', 'summary', '중지된 VM 이름 변경 + 표준 디스크 경로', 'Rename shut-off VM + standard disk path'],
+      ['vm.owner.set', 2, 'vm owner', '—', 'VM 소유자 이관(ADMIN, 영구·실행 중 metadata)', 'Transfer VM owner (admin, persistent and live metadata)'],
       ['vm.vnc', 1, 'vm vnc', 'console', '실행 중 VM의 VNC 포트 조회', 'Get VNC port for running VM'],
       ['get_vnc_info', 1, '-', 'console', 'VNC 접속 정보 (vm.vnc 레거시 별칭)', 'VNC access info (legacy alias of vm.vnc)'],
       ['vm.mount_iso', 1, 'iso mount', 'console', '가상 CD-ROM에 ISO 마운트', 'Mount ISO into virtual CD-ROM'],
@@ -302,6 +303,7 @@ function renderHelp(b) {
       ['auth.user.delete', 2, 'auth delete', 'accounts', '사용자 삭제', 'Delete user'],
       ['auth.role.set', 2, 'auth role', 'accounts', '사용자 역할 설정', 'Set user role'],
       ['auth.user.tenant.set', 2, 'auth tenant', 'accounts', '테넌트 없는 사용자에게 테넌트 지정', 'Assign a tenant to a user that has none'],
+      ['auth.deleted_name.add', 2, 'auth retire-name', 'accounts', '계정 없이 지운 이름을 묘비에 올림', 'Retire a deleted user name without an account'],
       ['auth.apikey.create', 2, '-', 'apimgmt', 'API 키 생성 (이름/역할/만료)', 'Create API key (name/role/expiry)'],
       ['auth.apikey.list', 2, '-', 'apimgmt', 'API 키 목록', 'List API keys'],
       ['auth.apikey.revoke', 2, '-', 'apimgmt', 'API 키 폐기', 'Revoke an API key'],
@@ -381,8 +383,9 @@ function renderHelp(b) {
       ['jobs.cancel', 2, '-', 'activity-log', '작업 취소', 'Cancel a job'],
     ]},
     { id: 'monitor', ko: '모니터링', en: 'Monitoring', rows: [
-      ['monitor.metrics', 0, 'monitor metrics', 'mon-overview', '단일 VM CPU/MEM 사용량', 'Single-VM CPU/MEM usage'],
+      ['monitor.metrics', 0, 'monitor metrics', 'mon-overview', '단일 VM libvirt 기본 정보(vm_id 필수, mem_used_mb 게스트 추정·mem_alloc_mb 할당)', 'Single-VM libvirt basics (vm_id required, mem_used_mb guest estimate, mem_alloc_mb allocation)'],
       ['monitor.fleet', 0, 'monitor fleet', 'mon-overview', '전체 플릿 통계 대시보드', 'Global fleet stats dashboard'],
+      ['monitor.vm.diag', 0, 'monitor diag', 'mon-overview·mon-vms·performance', 'VM별 속도·품질·경합 신호(5초 표본 캐시)', 'Per-VM rates, data quality and contention hints (5 s sample cache)'],
       ['monitor.processes', 0, 'monitor processes', 'mon-hosts', '호스트 상위 프로세스 (type/top)', 'Top host processes (type/top)'],
     ]},
     { id: 'node', ko: '노드', en: 'Node', rows: [
@@ -576,7 +579,7 @@ window.filterHelp = filterHelp;
 function renderSwaggerApi(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var mc = function(m) { return m === 'GET' ? '#61affe' : m === 'POST' ? '#49cc90' : m === 'DELETE' ? '#f93e3e' : m === 'PUT' ? '#fca130' : '#00f0ff'; };
-  var METRICS = (typeof PCV !== 'undefined' && PCV.config) ? (PCV.config.METRICS_COUNT || 155) : 155;
+  var METRICS = (typeof PCV !== 'undefined' && PCV.config) ? (PCV.config.METRICS_COUNT || '164+') : '164+';
 
                                                                
                                              
@@ -656,6 +659,7 @@ function renderSwaggerApi(b) {
       { m: 'PUT', p: '/vms/{name}/memory', d: _L('메모리 설정', 'Set memory'), body: '{"memory_mb":4096}' },
       { m: 'GET', p: '/vms/{name}/delete-status', d: _L('최근 삭제 Job 상태', 'Latest delete job status') },
       { m: 'PUT', p: '/vms/{name}/rename', d: _L('이름 변경', 'Rename VM'), body: '{"new_name":"pcv-example-vm2"}' },
+      { m: 'PUT', p: '/vms/{name}/owner', d: _L('소유자 이관(ADMIN)', 'Transfer owner (admin)'), body: '{"owner":"alice","expected_owner":null}' },
       { m: 'POST', p: '/vms/{name}/iso', d: _L('ISO 마운트', 'Mount ISO'), body: '{"iso_path":"/isos/pcv-example.iso"}' },
       { m: 'DELETE', p: '/vms/{name}/iso', d: _L('ISO 꺼내기', 'Eject ISO') },
       { m: 'POST', p: '/vms/{name}/clone', d: _L('VM 복제', 'Clone VM'), body: '{"clone_name":"pcv-example-clone","mode":"cow"}' },
@@ -775,6 +779,7 @@ function renderSwaggerApi(b) {
     { id: 'monitoring', name: _L('모니터링 & 알림', 'Monitoring & Alerts'), endpoints: [
       { m: 'GET', p: '/monitor/metrics', d: _L('단일 VM 메트릭', 'Single-VM metrics') },
       { m: 'GET', p: '/monitor/fleet', d: _L('플릿 통계', 'Fleet stats') },
+      { m: 'GET', p: '/monitor/vm-diag', d: _L('VM 진단 — 속도·품질·경합 신호(질의 vm)', 'VM diagnostics — rates, quality, hints (query vm)') },
       { m: 'GET', p: '/processes', d: _L('호스트 프로세스', 'Host processes') },
       { m: 'GET', p: '/alerts', d: _L('알림 이력', 'Alert history') },
       { m: 'GET', p: '/alerts/config', d: _L('알림 설정 조회', 'Get alert config') },

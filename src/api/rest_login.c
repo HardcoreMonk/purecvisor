@@ -105,7 +105,11 @@ pcv_rest_login_run(const PcvRestLoginRequest *in, PcvRestLoginResult *out)
                                                                                   
     PcvRole role = PCV_ROLE_VIEWER;
     g_autofree gchar *identity_nonce = NULL;
-    if (pcv_rbac_password_check_subject(username, password, &role, &identity_nonce, &err)) {
+                                                                                                   
+                                                                                       
+                                                                                  
+    gboolean have_creds = username && *username && password && *password;
+    if (have_creds && pcv_rbac_password_check_subject(username, password, &role, &identity_nonce, &err)) {
         PcvTotpStatus totp_st = { 0 };
         gboolean have_st = pcv_rbac_totp_status(username, &totp_st);
         gboolean confirmed = have_st && totp_st.confirmed;
@@ -139,15 +143,16 @@ pcv_rest_login_run(const PcvRestLoginRequest *in, PcvRestLoginResult *out)
 
         if (present)
             token = pcv_rbac_issue_tokens(username, identity_nonce, &refresh, &err);
-    } else if (bootstrap_configured &&
+    } else if (have_creds && bootstrap_configured &&
                pcv_rest_auth_should_fallback_bootstrap(username, password,
                    cfg_user, cfg_pass, pcv_rbac_user_exists(username) != PCV_USER_ABSENT)) {
                                                                                
                                                                                    
                                                                      
         PCV_LOG_WARN(REST_LOGIN_LOG_DOM,
-            "bootstrap fallback refused for '%s': admin is missing from the RBAC DB — create an account "
-            "over the local UDS (pcvctl auth create) or restart the daemon to re-seed the bootstrap admin",
+            "bootstrap fallback refused for '%s': admin is missing from the RBAC DB — create an admin with another name over the local "
+            "UDS (pcvctl auth create <name> <password> admin) or recreate a deleted name explicitly (pcvctl auth create ... "
+            "--reuse-deleted-name); a deleted account is not re-seeded on restart",
             username);
         pcv_audit_log(username, "auth.bootstrap.fallback",
                       "bootstrap recovery refused", "fail", 401, 0, client_ip);

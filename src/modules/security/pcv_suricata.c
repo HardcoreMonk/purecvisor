@@ -1059,13 +1059,13 @@ pcv_suricata_metrics_tick(void)
                    
     guint64 crit = 0, warn = 0, info = 0, dropped = 0;
     pcv_suricata_get_stats(&crit, &warn, &info, &dropped);
-    pcv_prom_gauge_set_labels("purecvisor_suricata_alerts_total",
+    pcv_prom_source_counter_set_labels("purecvisor_suricata_alerts_total",
                               "severity=\"crit\"", (gdouble)crit);
-    pcv_prom_gauge_set_labels("purecvisor_suricata_alerts_total",
+    pcv_prom_source_counter_set_labels("purecvisor_suricata_alerts_total",
                               "severity=\"warn\"", (gdouble)warn);
-    pcv_prom_gauge_set_labels("purecvisor_suricata_alerts_total",
+    pcv_prom_source_counter_set_labels("purecvisor_suricata_alerts_total",
                               "severity=\"info\"", (gdouble)info);
-    pcv_prom_gauge_set_labels("purecvisor_suricata_eve_dropped_total", "",
+    pcv_prom_source_counter_set_labels("purecvisor_suricata_eve_dropped_total", "",
                               (gdouble)dropped);
 
                                           

@@ -62,6 +62,44 @@ PcvUserExistence pcv_rbac_lookup_subject_locked(sqlite3 *db, const gchar *userna
    
 void pcv_rbac_identity_migrate(void);
 
+                                                                                  
+                                                                                      
+                                                                                     
+                                                                                                 
+                                                                      
+
+                                                                                                               
+void pcv_rbac_names_migrate_locked(sqlite3 *db);
+
+   
+                                                                                  
+                                                                      
+                                                                                                     
+                                                                                 
+                                                                                                        
+                                               
+   
+gboolean pcv_rbac_names_insert_user_locked(sqlite3 *db, const gchar *username, const gchar *hash, const gchar *salt,
+                                           PcvRole role, const gchar *tenant, const gchar *nonce,
+                                           gboolean reuse_deleted_name, gboolean *out_reused, GError **error);
+
+   
+                                                                                                     
+                                                                                                                  
+                                                     
+   
+gboolean pcv_rbac_names_insert_apikey_locked(sqlite3 *db, const gchar *key_hash, const gchar *client_name, PcvRole role,
+                                             const gchar *description, gint64 expires_at, GError **error);
+
+   
+                                                                                                          
+                                                             
+   
+gboolean pcv_rbac_names_tombstone_locked(sqlite3 *db, const gchar *username);
+
+                                                                                                     
+void pcv_rbac_names_log_bootstrap_refusal(const gchar *admin_user, const GError *err);
+
                                                                     
                                                                           
                                                

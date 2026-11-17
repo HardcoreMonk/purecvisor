@@ -42,6 +42,9 @@ WS_SERVER_C = ROOT / "src" / "api" / "ws_server.c"
 SRC_ROOT = ROOT / "src"
 SEND_HELPER_REL = "api/ws_send.h"                                         
 FANOUT_BODY = "_ws_broadcast_fanout"
+SCOPED_FANOUT = "_ws_broadcast_scoped_fanout"
+SCOPED_ENTRY = "_ws_broadcast_scoped"
+SCOPED_DISPATCH_RE = re.compile(r'\bpcv_ws_dispatch_on_owner\s*\(\s*owner\s*,\s*' + SCOPED_FANOUT + r'\b')
 
 FUNC_HEAD_RE = re.compile(
     r'^(?:static\s+)?(?:inline\s+)?(?:[A-Za-z_][\w\s\*]*?\s+\**)([A-Za-z_]\w*)\s*\(([^;{}]*)\)\s*\{',
@@ -128,6 +131,17 @@ def check(text: str) -> list[str]:
                 or DEFAULT_CTX_RE.search(body):
             failures.append("R2: pcv_ws_broadcast()의 소유 컨텍스트가 _ws_owner_ref()(=G.ctx)에서 오지 않음 — "
                             "방송 목적지는 WS 소유 컨텍스트여야 한다")
+    if SCOPED_FANOUT not in fanouts:
+        failures.append(f"R2: 범위 분배 본문 {SCOPED_FANOUT}() fan-out 루프를 찾지 못함")
+    scoped = bodies.get(SCOPED_ENTRY)
+    if not scoped:
+        failures.append(f"R2: {SCOPED_ENTRY}() 정의가 없음")
+    else:
+        _, body = scoped
+        if CLIENT_ITER_RE.search(body) or SEND_RE.search(body):
+            failures.append(f"R2: {SCOPED_ENTRY}()가 G.clients를 직접 돌거나 보낸다 — 범위 분배도 소유 컨텍스트에서만")
+        if not SCOPED_DISPATCH_RE.search(body) or not OWNER_REF_RE.search(body) or DEFAULT_CTX_RE.search(body):
+            failures.append(f"R2: {SCOPED_ENTRY}()가 _ws_owner_ref()의 owner로 {SCOPED_FANOUT}를 넘기지 않음")
     mt = bodies.get("pcv_ws_broadcast_job_complete_mt")
     if not mt:
         failures.append("R2: pcv_ws_broadcast_job_complete_mt() 정의가 없음")

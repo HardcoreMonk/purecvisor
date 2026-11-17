@@ -101,6 +101,7 @@
 #include "modules/dispatcher/handler_vm_create.h"
 #include "modules/dispatcher/handler_vm_admin.h"
 #include "api/dispatcher_internal.h"
+#include "modules/resource/vm_read_filter.h"
 
 
                                                                      
@@ -161,7 +162,16 @@ void handle_vm_delete_status(JsonObject *params, const gchar *rpc_id,
         return;
     }
     JsonObject *job = NULL;
-    if (!pcv_job_find_latest("vm.delete", vm, &job)) {
+
+    PcvResCaller rc = { 0 };
+    pcv_res_caller_init(&rc, params, connection);
+    PcvVmReadScope *scope = pcv_vm_read_scope_new(&rc);
+    PcvJobScope jscope;
+    pcv_vm_read_job_scope(scope, &jscope);
+    const gboolean ledger_ok = pcv_job_find_latest("vm.delete", vm, &jscope, &job);
+    pcv_vm_read_scope_free(scope);
+    pcv_res_caller_clear(&rc);
+    if (!ledger_ok) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, "Job ledger unavailable");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -564,8 +574,11 @@ void handle_vm_billing_report(JsonObject *params, const gchar *rpc_id,
 void handle_vm_numa_info(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
-    (void)params;
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
     JsonObject *result = cpu_allocator_get_numa_info(global_allocator);                   
+    pcv_vm_read_mask_numa(view.scope, view.map, result);
+    pcv_vm_read_view_clear(&view);
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(n, result);
     gchar *resp = pure_rpc_build_success_response(rpc_id, n);

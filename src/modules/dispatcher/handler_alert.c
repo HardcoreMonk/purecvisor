@@ -102,6 +102,7 @@
 #include "modules/dispatcher/handler_suricata.h"
 #include "modules/dispatcher/handler_alert.h"
 #include "api/dispatcher_internal.h"
+#include "modules/resource/vm_read_filter.h"
 
 
                                                                        
@@ -115,6 +116,11 @@ void handle_alert_history(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
     JsonArray *arr = pcv_alert_engine_get_history();
+
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
+    pcv_vm_read_mask_security_alerts(view.scope, view.map, arr, NULL, NULL);
+    pcv_vm_read_view_clear(&view);
     gint pg_off = 0, pg_lim = 0;
     pcv_disp_get_pagination_params(params, &pg_off, &pg_lim);
     JsonNode *node = pcv_disp_paginate_array(arr, pg_off, pg_lim);
@@ -289,13 +295,16 @@ void handle_agent_config_set(JsonObject *params, const gchar *rpc_id,
 void handle_agent_history(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
-    (void)params;
     extern gchar *pcv_agent_get_last_comparison_json(void);
     gchar *json_str = pcv_agent_get_last_comparison_json();
     JsonParser *p2 = json_parser_new();
                                                      
     json_parser_load_from_data(p2, json_str, -1, NULL);
     JsonNode *node = json_node_copy(json_parser_get_root(p2));
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
+    node = pcv_vm_read_filter_agent_comparison(view.scope, view.map, node);
+    pcv_vm_read_view_clear(&view);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
     pure_uds_server_send_response(server, connection, resp);
     g_free(resp);
@@ -400,7 +409,14 @@ void handle_anomaly_reset_baseline(JsonObject *params, const gchar *rpc_id,
 void handle_healing_pending(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
-    (void)params;
+    if (pcv_disp_dispatcher_caller_role(params, connection) < PCV_ROLE_ADMIN) {
+        JsonNode *empty = json_node_new(JSON_NODE_ARRAY);
+        json_node_take_array(empty, json_array_new());
+        gchar *resp = pure_rpc_build_success_response(rpc_id, empty);
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        return;
+    }
     extern gchar *pcv_healing_get_pending_json(void);
     gchar *json_str = pcv_healing_get_pending_json();
     JsonParser *p2 = json_parser_new();
@@ -519,6 +535,22 @@ void handle_healing_history(JsonObject *params, const gchar *rpc_id,
 
     gint pg_off = 0, pg_lim = 0;
     pcv_disp_get_pagination_params(params, &pg_off, &pg_lim);
+
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
+    if (!pcv_vm_read_scope_all(view.scope)) {
+        JsonArray *rows = (parsed && JSON_NODE_HOLDS_ARRAY(parsed)) ? json_array_ref(json_node_get_array(parsed)) : json_array_new();
+        rows = pcv_vm_read_filter_healing_history(view.scope, view.map, rows);
+        pcv_vm_read_view_clear(&view);
+        JsonNode *node = pcv_disp_paginate_array(rows, pg_off, pg_lim);
+        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        g_free(json_str);
+        g_object_unref(p2);
+        return;
+    }
+    pcv_vm_read_view_clear(&view);
 
     if (pg_lim > 0 && parsed && JSON_NODE_HOLDS_ARRAY(parsed)) {
         JsonArray *full = json_array_ref(json_node_get_array(parsed));

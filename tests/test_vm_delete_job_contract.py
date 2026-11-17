@@ -68,7 +68,7 @@ class VmDeleteJobContract(unittest.TestCase):
 
     def test_status_reads_job_ledger(self):
         a = self.admin
-        self.assertIn('pcv_job_find_latest("vm.delete", vm, &job)', a)
+        self.assertIn('pcv_job_find_latest("vm.delete", vm, &jscope, &job)', a)
         self.assertIn("pcv_vm_delete_status_build(vm, job)", a)
         self.assertIn("PURE_RPC_ERR_INVALID_PARAMS", a)
         self.assertIn('"Job ledger unavailable"', a)

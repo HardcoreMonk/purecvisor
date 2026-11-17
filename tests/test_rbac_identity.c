@@ -17,6 +17,8 @@
 
                                                                          
 void pcv_rbac_identity_last_migration_for_test(gint *filled, gint *revoked, gint *downgraded);
+
+void pcv_rbac_names_startup_counts_for_test(gint out[7]);
                                                                        
 const gchar *pcv_test_ws_closed_subject(gint *calls);
 
@@ -145,7 +147,10 @@ test_identity_create_and_recreate_nonce(void)
     g_assert_cmpstr(a1, !=, b1);
     g_assert_true(pcv_rbac_user_delete("alice", &err));
     g_assert_no_error(err);
-    g_assert_true(pcv_rbac_user_create("alice", "pw", PCV_ROLE_VIEWER, NULL, &err));
+    gboolean reused = FALSE;
+    g_assert_true(pcv_rbac_user_create_ex("alice", "pw", PCV_ROLE_VIEWER, NULL, PCV_RBAC_CREATE_REUSE_DELETED_NAME,
+                                          &reused, &err));
+    g_assert_true(reused);
     g_autofree gchar *a2 = user_nonce("alice");
     g_assert_true(is_hex32(a2));
     g_assert_cmpstr(a1, !=, a2);
@@ -359,6 +364,7 @@ test_identity_migrate_old_schema(void)
     gint filled = -2, revoked = -2, downgraded = -2;
     pcv_rbac_identity_last_migration_for_test(&filled, &revoked, &downgraded);
     g_assert_cmpint(filled, ==, 3);
+    { gint w[7]; pcv_rbac_names_startup_counts_for_test(w); g_assert_cmpint(w[0], ==, 3); }
     g_assert_cmpint(revoked, ==, 2);
     g_assert_cmpint(downgraded, ==, 3);
     g_autofree gchar *n1 = user_nonce("olduser");
@@ -481,7 +487,10 @@ test_identity_subject_check_token_paths(void)
                                                                                         
     g_assert_true(pcv_rbac_user_delete("liam", &err));
     g_assert_cmpint(pcv_rbac_subject_check_token("liam", access, NULL), ==, PCV_SUBJECT_REJECT);
-    g_assert_true(pcv_rbac_user_create("liam", "pw2", PCV_ROLE_ADMIN, NULL, &err));
+    gboolean reused = FALSE;
+    g_assert_true(pcv_rbac_user_create_ex("liam", "pw2", PCV_ROLE_ADMIN, NULL, PCV_RBAC_CREATE_REUSE_DELETED_NAME,
+                                          &reused, &err));
+    g_assert_true(reused);
     g_assert_cmpint(pcv_rbac_subject_check_token("liam", access, NULL), ==, PCV_SUBJECT_REJECT);
     g_assert_cmpint(pcv_rbac_subject_check_token("liam", rotated, NULL), ==, PCV_SUBJECT_REJECT);
     g_assert_cmpint(pcv_rbac_subject_check_token("liam", pending, NULL), ==, PCV_SUBJECT_REJECT);

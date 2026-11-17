@@ -5,7 +5,7 @@ import { withPage } from './harness.mjs';
 export const APP_MODS = [
   'ui/i18n.js', 'ui/modules/endpoints.js', 'ui/modules/api.js', 'ui/modules/ui.js',
   'ui/modules/filter-state.js', 'ui/modules/uxlib.js', 'ui/modules/modal-core.js', 'ui/modules/modal.js',
-  'ui/modules/charts.js', 'ui/modules/metrics.js', 'ui/modules/security.js', 'ui/modules/monitor.js',
+  'ui/modules/charts.js', 'ui/modules/metrics.js', 'ui/modules/security.js', 'ui/modules/monitor.js', 'ui/modules/monitor-vmdiag.js',
   'ui/modules/vm.js', 'ui/modules/vm-console.js', 'ui/modules/vm-lifecycle.js', 'ui/modules/vm-guest.js',
   'ui/modules/container.js', 'ui/modules/network.js', 'ui/modules/storage.js', 'ui/modules/host-devices.js',
   'ui/modules/help.js',

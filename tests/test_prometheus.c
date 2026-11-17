@@ -664,10 +664,67 @@ static void test_render_omits_over_budget_label(void)
     g_free(huge);
 }
 
+                                                                                                   
+                                                      
+static void
+test_label_escape_build(void)
+{
+    gchar b[96];
+    g_assert_true(pcv_prom_labels_build(b, sizeof(b), "vm", "a\\b", NULL));
+    g_assert_cmpstr(b, ==, "vm=\"a\\\\b\"");
+    g_assert_true(pcv_prom_labels_build(b, sizeof(b), "vm", "a\"b", NULL));
+    g_assert_cmpstr(b, ==, "vm=\"a\\\"b\"");
+    g_assert_true(pcv_prom_labels_build(b, sizeof(b), "vm", "a\nb", NULL));
+    g_assert_cmpstr(b, ==, "vm=\"a\\nb\"");
+    g_assert_true(pcv_prom_labels_build(b, sizeof(b), "vm", "가상-머신}x,y=z", "kind", "vm", NULL));
+    g_assert_cmpstr(b, ==, "vm=\"가상-머신}x,y=z\",kind=\"vm\"");
+    g_assert_true(pcv_prom_labels_build(b, sizeof(b), "vm", NULL, NULL));
+    g_assert_cmpstr(b, ==, "vm=\"\"");
+    g_assert_true(pcv_prom_labels_build(b, sizeof(b), NULL));
+    g_assert_cmpstr(b, ==, "");
+
+                                                                               
+    gchar s[12];
+    g_assert_true(pcv_prom_labels_build(s, sizeof(s), "vm", "abcdef", NULL));
+    g_assert_cmpstr(s, ==, "vm=\"abcdef\"");
+    g_assert_false(pcv_prom_labels_build(s, sizeof(s), "vm", "abcdefg", NULL));
+    g_assert_cmpstr(s, ==, "");
+                                                                 
+    g_assert_true(pcv_prom_labels_build(s, sizeof(s), "vm", "ab\"cd", NULL));
+    g_assert_cmpstr(s, ==, "vm=\"ab\\\"cd\"");
+    g_assert_false(pcv_prom_labels_build(s, sizeof(s), "vm", "ab\"c\"d", NULL));
+    g_assert_cmpstr(s, ==, "");
+                                 
+    g_assert_false(pcv_prom_labels_build(s, sizeof(s), "a", "1", "bb", "22222", NULL));
+    g_assert_cmpstr(s, ==, "");
+    g_assert_false(pcv_prom_labels_build(s, 0, "a", "1", NULL));
+}
+
                                                                          
                                                            
    
+                                                                                                           
+                                                     
+static void
+test_labels_vm_value_parse(void)
+{
+    gchar out[64];
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{vm=\"x\\\"y\",kind=\"vm\"} 1", out, sizeof out), ==, 1);
+    g_assert_cmpstr(out, ==, "x\"y");
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{kind=\"vm\",vm_name=\"web\\\\01\\n\"} 1", out, sizeof out), ==, 1);
+    g_assert_cmpstr(out, ==, "web\\01\n");
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{vm_id=\"11111111-2222-3333-4444-555555555555\"} 1", out, sizeof out), ==, 1);
+    g_assert_cmpstr(out, ==, "11111111-2222-3333-4444-555555555555");
+    g_assert_cmpint(pcv_prom_labels_vm_value("host_load1 1.5", out, sizeof out), ==, 0);
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{kvm=\"x\",device=\"d\"} 1", out, sizeof out), ==, 0);
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{vm=\"x} 1", out, sizeof out), ==, -1);
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{vm=x} 1", out, sizeof out), ==, -1);
+    gchar tiny[3];
+    g_assert_cmpint(pcv_prom_labels_vm_value("a{vm=\"long\"} 1", tiny, sizeof tiny), ==, -1);
+}
+
 void test_prometheus_register(void) {
+    g_test_add_func("/prometheus/label_escape/build", test_label_escape_build);
                                 
     g_test_add_func("/prometheus/checkpoint/roundtrip_multiple",
                     test_checkpoint_roundtrip_multiple);
@@ -711,6 +768,7 @@ void test_prometheus_register(void) {
                     test_label_budget_boundaries);
     g_test_add_func("/prometheus/label_budget/render_line_closed",
                     test_render_line_closed_at_max_legal_label);
+    g_test_add_func("/prometheus/labels_vm_value_parse", test_labels_vm_value_parse);
     g_test_add_func("/prometheus/label_budget/over_budget_omitted",
                     test_render_omits_over_budget_label);
 }

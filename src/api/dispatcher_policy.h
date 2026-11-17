@@ -25,4 +25,16 @@ pcv_disp_vm_method_requires_owner_scope(const gchar *method);
 gboolean pcv_dispatcher_vm_target_aliases_valid(const gchar *method, JsonObject *params,
                                                 const gchar **reason_out);
 
+   
+                                                                                                     
+                                                                                          
+                                                                               
+                                                    
+   
+gboolean pcv_disp_vm_read_method_lookup(const gchar *method, const gchar **target_key_out);
+gboolean pcv_disp_vm_method_is_read(const gchar *method);
+                                                                                             
+                                   
+gboolean pcv_disp_vm_read_needs_precheck(const gchar *method);
+
 #endif                              

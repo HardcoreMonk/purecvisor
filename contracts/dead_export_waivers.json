@@ -415,12 +415,6 @@
       "tests/test_rest_public_render.c"
     ]
   },
-  "pcv_rest_render_metrics_reset_for_test": {
-    "reason": "/metrics 이전 값을 지우는 테스트 전용 진입점이다. 프로덕션 호출자 없음이 의도다.",
-    "evidence": [
-      "tests/test_rest_public_render.c"
-    ]
-  },
   "pcv_rest_render_set_internal_fns_for_test": {
     "reason": "내부 상태 렌더 경로의 libvirt 조회와 기한을 주입하는 테스트 전용 주입점이다. 프로덕션 호출자 없음이 의도다.",
     "evidence": [
@@ -512,6 +506,37 @@
     "reason": "ZFS 실행 잠금 대기 시간을 줄이는 테스트 전용 설정점이다. 프로덕션 호출자 없음이 의도다.",
     "evidence": [
       "tests/test_zfs_exec.c"
+    ]
+  },
+  "pcv_drain_task_actor_tenant_of": {
+    "reason": "매크로 pcv_drain_task_actor_tenant가 부르는 실체다(매크로 전용 — pcv_drain_task_actor_of와 같은 표지). 이름 직접 호출 없음이 의도다.",
+    "evidence": [
+      "src/api/drain.h"
+    ]
+  },
+  "pcv_plugin_respond_error": {
+    "reason": "플러그인 ABI(데몬 제공 API)다. 호출자는 트리 밖 플러그인 .so이고 src/modules/plugin/pcv_plugin_exports.list로 내보낸다. 처리기가 오류 응답을 보내는 창구다.",
+    "evidence": [
+      "tests/fixtures/plugin_api_probe.c"
+    ]
+  },
+  "pcv_plugin_respond_success": {
+    "reason": "플러그인 ABI(데몬 제공 API)다. 호출자는 트리 밖 플러그인 .so이고 src/modules/plugin/pcv_plugin_exports.list로 내보낸다. 처리기가 성공 응답을 보내는 창구다.",
+    "evidence": [
+      "tests/fixtures/plugin_api_probe.c"
+    ]
+  },
+  "pcv_ws_broadcast_job_complete_mt": {
+    "reason": "VM·보안 호출처가 범위 판정 방송(_scoped)으로 옮겨 생산 호출처가 없다. WebSocket 방송 게이트와 VNC 고정물이 이름으로 참조한다.",
+    "evidence": [
+      "tests/fixtures/async_shutdown_lifetime.c",
+      "tests/fixtures/vnc_flow_control.c"
+    ]
+  },
+  "pcv_plugin_registry_add": {
+    "reason": "플러그인 ABI(데몬 제공 API)다. 호출자는 트리 밖 플러그인 .so이고 src/modules/plugin/pcv_plugin_exports.list로 내보낸다. 플러그인이 RPC 처리기를 등록하는 창구다.",
+    "evidence": [
+      "tests/fixtures/plugin_api_probe.c"
     ]
   }
 }

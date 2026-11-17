@@ -257,3 +257,27 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+SCOPED_GUARD = "        if (!_ws_conn_is_authed(conn)) {"
+SCOPED_DISPATCH = "pcv_ws_dispatch_on_owner(owner, _ws_broadcast_scoped_fanout, sc,"
+
+
+def test_scoped_fanout_guard_removed_fails():                                      
+    text = _real()
+    assert SCOPED_GUARD in text
+    first_guard = "        if (!_ws_conn_is_authed(conn))\n            continue;\n"
+    scoped = text.index("_ws_broadcast_scoped_fanout(gpointer data)")
+    body = text[scoped:]
+    assert first_guard in body
+    mutated = text[:scoped] + body.replace(first_guard, "", 1).replace(SCOPED_GUARD, "        if (0) {", 1)
+    result = _run(mutated)
+    assert result.returncode == 1, result.stdout
+    assert "R1" in result.stdout and "_ws_broadcast_scoped_fanout" in result.stdout
+
+
+def test_scoped_entry_bypassing_owner_fails():                                   
+    text = _real()
+    assert SCOPED_DISPATCH in text
+    result = _run(text.replace(SCOPED_DISPATCH, "pcv_ws_dispatch_on_owner(g_main_context_default(), _ws_broadcast_scoped_fanout, sc,", 1))
+    assert result.returncode == 1, result.stdout
+    assert "R2" in result.stdout and "_ws_broadcast_scoped" in result.stdout

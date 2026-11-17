@@ -2164,10 +2164,9 @@ pcv_qos_metrics_tick(void)
                                                                 
                                                             
         gchar lbl[256];
-        g_snprintf(lbl, sizeof(lbl), "tenant=\"%s\",vm=\"%s\",class=\"%s\"",
-                   s->tenant, s->vm, s->classid);
-        pcv_prom_gauge_set_labels("purecvisor_qos_class_bytes_total", lbl, (gdouble)s->bytes);
-        pcv_prom_gauge_set_labels("purecvisor_qos_class_drops_total", lbl, (gdouble)s->drops);
+        if (!pcv_prom_labels_build(lbl, sizeof(lbl), "tenant", s->tenant, "vm", s->vm, "class", s->classid, NULL)) continue;
+        pcv_prom_source_counter_set_labels("purecvisor_qos_class_bytes_total", lbl, (gdouble)s->bytes);
+        pcv_prom_source_counter_set_labels("purecvisor_qos_class_drops_total", lbl, (gdouble)s->drops);
     }
     g_ptr_array_unref(stats);
 }

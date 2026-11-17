@@ -60,7 +60,12 @@ static struct {
     sqlite3  *db;                                                     
     GMutex    mu;                                    
     gboolean  initialized;                              
+    gboolean  scope_cols;                                                                                   
 } G = {0};
+
+                                                                
+static gboolean g_scope_alter_fail;
+static gint g_scope_warns;
 
 static gsize g_mutex_once = 0;                                   
 
@@ -153,6 +158,47 @@ _migrate_schema(void)
     return ok;
 }
 
+                                                                                                             
+                                                                                        
+                                                                 
+static gboolean
+_ensure_scope_columns(void)
+{
+    gboolean has_actor = FALSE, has_tenant = FALSE;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(G.db, "PRAGMA table_info(jobs)", -1, &stmt, NULL) != SQLITE_OK)
+        return FALSE;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const gchar *name = (const gchar *)sqlite3_column_text(stmt, 1);
+        has_actor |= name && strcmp(name, "actor") == 0;
+        has_tenant |= name && strcmp(name, "actor_tenant") == 0;
+    }
+    sqlite3_finalize(stmt);
+    if (g_scope_alter_fail && (!has_actor || !has_tenant))
+        return FALSE;
+    if (!has_actor && sqlite3_exec(G.db, "ALTER TABLE jobs ADD COLUMN actor TEXT", NULL, NULL, NULL) != SQLITE_OK)
+        return FALSE;
+    if (!has_tenant && sqlite3_exec(G.db, "ALTER TABLE jobs ADD COLUMN actor_tenant TEXT", NULL, NULL, NULL) != SQLITE_OK)
+        return FALSE;
+    return TRUE;
+}
+
+                                                                                   
+void pcv_job_queue_fail_scope_alter_for_test(gboolean fail);
+void
+pcv_job_queue_fail_scope_alter_for_test(gboolean fail)
+{
+    g_scope_alter_fail = fail;
+}
+
+                                                                                     
+guint pcv_job_queue_scope_warns_for_test(void);
+guint
+pcv_job_queue_scope_warns_for_test(void)
+{
+    return (guint)g_atomic_int_get(&g_scope_warns);
+}
+
                                                                
                                                     
                                                          
@@ -214,6 +260,11 @@ pcv_job_queue_init(void)
                             NULL, NULL, NULL) != SQLITE_OK) {
                                                                                                   
         PCV_LOG_WARN(JOB_LOG_DOM, "Job lookup index creation failed — latest-job lookup scans the table");
+    }
+    G.scope_cols = G.db && _ensure_scope_columns();
+    if (G.db && !G.scope_cols) {                                                         
+        g_atomic_int_inc(&g_scope_warns);
+        PCV_LOG_WARN(JOB_LOG_DOM, "Job scope columns unavailable — non-admin job reads are empty");
     }
     G.initialized = TRUE;
     PCV_LOG_INFO(JOB_LOG_DOM, "Job queue initialized (db=%s)", db_path);
@@ -474,12 +525,45 @@ _row_to_json(sqlite3_stmt *stmt)
     return obj;
 }
 
+                                                                                                              
+                                                                                               
+static void
+_job_visible_fn(sqlite3_context *ctx, int argc, sqlite3_value **argv)
+{
+    const PcvJobScope *s = sqlite3_user_data(ctx);
+    const gchar *actor = argc == 2 ? (const gchar *)sqlite3_value_text(argv[0]) : NULL;
+    const gchar *actor_tenant = argc == 2 ? (const gchar *)sqlite3_value_text(argv[1]) : NULL;
+    gboolean visible = s && s->decide && actor && *actor && s->decide(s->role, s->subject, s->tenant, actor, actor_tenant);
+    sqlite3_result_int(ctx, visible ? 1 : 0);
+}
+
+                                                                                             
+                                                                  
+                                                   
+static gint
+_scope_begin(const PcvJobScope *scope)
+{
+    if (!scope || scope->all)
+        return 0;
+    if (!G.scope_cols || !scope->decide)
+        return -1;
+    return sqlite3_create_function_v2(G.db, "pcv_job_visible", 2, SQLITE_UTF8 | SQLITE_DETERMINISTIC, (void *)scope,
+                                      _job_visible_fn, NULL, NULL, NULL) == SQLITE_OK ? 1 : -1;
+}
+
+static void
+_scope_end(gint mode)
+{
+    if (mode == 1)
+        sqlite3_create_function_v2(G.db, "pcv_job_visible", 2, SQLITE_UTF8, NULL, NULL, NULL, NULL, NULL);
+}
+
                                                             
                                              
                                                          
                                                                      
 JsonArray *
-pcv_job_list(gint limit)
+pcv_job_list(gint limit, const PcvJobScope *scope)
 {
     JsonArray *arr = json_array_new();
     if (limit <= 0) limit = JOB_DEFAULT_LIMIT;                           
@@ -488,8 +572,14 @@ pcv_job_list(gint limit)
 
     g_mutex_lock(&G.mu);
     if (!G.db) { g_mutex_unlock(&G.mu); return arr; }                        
+    const gint mode = _scope_begin(scope);
+    if (mode < 0) { g_mutex_unlock(&G.mu); return arr; }                                       
 
-    const gchar *sql =
+                                              
+    const gchar *sql = mode ?
+        "SELECT job_id,type,target,status,progress,detail,params,result,"
+        "created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs WHERE pcv_job_visible(actor,actor_tenant)"
+        " ORDER BY created_at DESC LIMIT ?" :
         "SELECT job_id,type,target,status,progress,detail,params,result,"
         "created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs ORDER BY created_at DESC LIMIT ?";
     sqlite3_stmt *stmt;
@@ -499,6 +589,7 @@ pcv_job_list(gint limit)
             json_array_add_object_element(arr, _row_to_json(stmt));
         sqlite3_finalize(stmt);
     }
+    _scope_end(mode);
     g_mutex_unlock(&G.mu);
     return arr;
 }
@@ -507,7 +598,7 @@ pcv_job_list(gint limit)
                                            
                                                                      
 JsonObject *
-pcv_job_get(const gchar *job_id)
+pcv_job_get(const gchar *job_id, const PcvJobScope *scope)
 {
     if (!job_id) return NULL;
 
@@ -515,8 +606,12 @@ pcv_job_get(const gchar *job_id)
 
     g_mutex_lock(&G.mu);
     if (!G.db) { g_mutex_unlock(&G.mu); return NULL; }
+    const gint mode = _scope_begin(scope);
+    if (mode < 0) { g_mutex_unlock(&G.mu); return NULL; }                           
 
-    const gchar *sql =
+    const gchar *sql = mode ?
+        "SELECT job_id,type,target,status,progress,detail,params,result,"
+        "created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs WHERE job_id=? AND pcv_job_visible(actor,actor_tenant)" :
         "SELECT job_id,type,target,status,progress,detail,params,result,"
         "created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs WHERE job_id=?";
     sqlite3_stmt *stmt;
@@ -527,6 +622,7 @@ pcv_job_get(const gchar *job_id)
             obj = _row_to_json(stmt);
         sqlite3_finalize(stmt);
     }
+    _scope_end(mode);
     g_mutex_unlock(&G.mu);
     return obj;
 }
@@ -537,7 +633,7 @@ pcv_job_get(const gchar *job_id)
                                                                                                
    
 gboolean
-pcv_job_find_latest(const gchar *method, const gchar *target, JsonObject **out)
+pcv_job_find_latest(const gchar *method, const gchar *target, const PcvJobScope *scope, JsonObject **out)
 {
     g_return_val_if_fail(out != NULL, FALSE);
     *out = NULL;
@@ -547,8 +643,14 @@ pcv_job_find_latest(const gchar *method, const gchar *target, JsonObject **out)
 
     g_mutex_lock(&G.mu);
     if (!G.db) { g_mutex_unlock(&G.mu); return FALSE; }
+    const gint mode = _scope_begin(scope);
+    if (mode < 0) { g_mutex_unlock(&G.mu); return TRUE; }                                     
 
-    const gchar *sql =
+                                                              
+    const gchar *sql = mode ?
+        "SELECT job_id,type,target,status,progress,detail,params,result,"
+        "created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs"
+        " WHERE method=? AND target=? AND pcv_job_visible(actor,actor_tenant) ORDER BY created_at DESC, rowid DESC LIMIT 1" :
         "SELECT job_id,type,target,status,progress,detail,params,result,"
         "created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs"
         " WHERE method=? AND target=? ORDER BY created_at DESC, rowid DESC LIMIT 1";
@@ -559,6 +661,7 @@ pcv_job_find_latest(const gchar *method, const gchar *target, JsonObject **out)
     if (rc == SQLITE_OK) rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) *out = _row_to_json(stmt);
     sqlite3_finalize(stmt);
+    _scope_end(mode);
     g_mutex_unlock(&G.mu);
     return rc == SQLITE_ROW || rc == SQLITE_DONE;
 }
@@ -601,7 +704,7 @@ pcv_job_cancel(const gchar *job_id)
                                                         
 gchar *
 pcv_job_db_admit(const gchar *type, const gchar *target, const gchar *params,
-                 const gchar *method, const gchar *generation)
+                 const gchar *method, const gchar *generation, const gchar *actor, const gchar *actor_tenant)
 {
     ensure_mutex();
     g_mutex_lock(&G.mu);
@@ -614,7 +717,9 @@ pcv_job_db_admit(const gchar *type, const gchar *target, const gchar *params,
         sqlite3_finalize(stmt);
         stmt = NULL;
     }
-    if (ok) ok = sqlite3_prepare_v2(G.db,
+                                                                               
+    if (ok) ok = sqlite3_prepare_v2(G.db, G.scope_cols ?
+        "INSERT INTO jobs(job_id,type,target,params,method,generation,status,progress,created_at,updated_at,actor,actor_tenant) VALUES(?,?,?,?,?,?,0,0,?,?,?,?)" :
         "INSERT INTO jobs(job_id,type,target,params,method,generation,status,progress,created_at,updated_at) VALUES(?,?,?,?,?,?,0,0,?,?)",
         -1, &stmt, NULL) == SQLITE_OK;
     if (ok) {
@@ -626,6 +731,8 @@ pcv_job_db_admit(const gchar *type, const gchar *target, const gchar *params,
         if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 6, generation, -1, SQLITE_TRANSIENT);
         if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 7, time(NULL));
         if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 8, time(NULL));
+        if (rc == SQLITE_OK && G.scope_cols) rc = sqlite3_bind_text(stmt, 9, actor, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK && G.scope_cols) rc = sqlite3_bind_text(stmt, 10, actor_tenant, -1, SQLITE_TRANSIENT);
         for (guint i = 0; rc == SQLITE_OK && i < JOB_ID_ATTEMPTS; i++) {
             g_free(id);
             id = g_strdup_printf("job-%08x", g_random_int());

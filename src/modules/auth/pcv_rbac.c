@@ -801,9 +801,7 @@ _ensure_admin_user(void)
         PCV_LOG_INFO(RBAC_LOG_DOM,
                      "Auto-created admin user '%s' (ADMIN role)", admin_user);
     } else {
-        PCV_LOG_ERROR(RBAC_LOG_DOM,
-                      "Failed to auto-create admin user: %s",
-                      err ? err->message : "unknown");
+        pcv_rbac_names_log_bootstrap_refusal(admin_user, err);
         if (err) g_error_free(err);
     }
 }
@@ -1546,11 +1544,11 @@ pcv_rbac_shutdown(void)
    
 
 gboolean
-pcv_rbac_user_create(const gchar *username,
-                     const gchar *password,
-                     PcvRole      role,
-                     const gchar *tenant,
-                     GError     **error)
+pcv_rbac_user_create_ex(const gchar *username,
+                        const gchar *password,
+                        PcvRole      role,
+                        const gchar *tenant, PcvRbacCreateFlags flags, gboolean *out_reused,
+                        GError     **error)
 {
     g_return_val_if_fail(username && *username, FALSE);                 
     g_return_val_if_fail(password && *password, FALSE);                  
@@ -1560,46 +1558,14 @@ pcv_rbac_user_create(const gchar *username,
     g_autofree gchar *nonce = pcv_rbac_identity_nonce_new();                           
 
     g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "INSERT INTO users (username, password_hash, salt, role, tenant, identity_nonce) "
-        "VALUES (?, ?, ?, ?, ?, ?);",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_mutex_unlock(&g_rbac_mutex);
-        g_free(salt);
-        g_free(hash);
-        return FALSE;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, hash,     -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, salt,     -1, SQLITE_STATIC);
-    sqlite3_bind_int (stmt, 4, (int)role);
-    if (tenant)
-        sqlite3_bind_text(stmt, 5, tenant, -1, SQLITE_STATIC);
-    else
-        sqlite3_bind_null(stmt, 5);                                                      
-    sqlite3_bind_text(stmt, 6, nonce, -1, SQLITE_STATIC);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
+    gboolean ok = pcv_rbac_names_insert_user_locked(g_rbac_db, username, hash, salt, role, tenant, nonce,
+                                                    (flags & PCV_RBAC_CREATE_REUSE_DELETED_NAME) != 0, out_reused, error);
     g_mutex_unlock(&g_rbac_mutex);
 
     g_free(salt);                                   
     g_free(hash);
-
-    if (rc != SQLITE_DONE) {
-                                                                
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS,
-                    "User '%s' already exists or DB error: %s",
-                    username, sqlite3_errmsg(g_rbac_db));
+    if (!ok)
         return FALSE;
-    }
 
     PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.user.create", username,
                   "User created (role=%s, tenant=%s)",
@@ -2567,24 +2533,13 @@ pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
                                      
     g_mutex_lock(&g_rbac_mutex);
     _ensure_apikey_table();
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "INSERT INTO api_keys (key_hash, client_name, role, description, expires_at) "
-        "VALUES (?, ?, ?, ?, ?)", -1, &stmt, NULL);
-    if (rc == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, hash, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, client_name, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 3, (int)role);
-        sqlite3_bind_text(stmt, 4, description ? description : "", -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 5, expires_at > 0 ? expires_at : 0);
-        rc = sqlite3_step(stmt);
-    }
-    if (stmt) sqlite3_finalize(stmt);
+
+    gboolean ok = pcv_rbac_names_insert_apikey_locked(g_rbac_db, hash, client_name, role, description,
+                                                      expires_at, error);
     g_mutex_unlock(&g_rbac_mutex);
 
-    if (rc != SQLITE_DONE) {
+    if (!ok) {
                                                               
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to create API key");
         g_free(hash);
                                                                
         pcv_secure_wipe(plaintext_key->str, plaintext_key->len);

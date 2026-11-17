@@ -4,6 +4,8 @@
                                                                                                     
                                                                                
                                                                      
+                                                                                                            
+                                         
                                                                     
  
                       
@@ -71,6 +73,8 @@ LXC_METHODS = {"state", "get_ips", "is_running", "start", "stop", "shutdown", "r
 STOP = (KINDS["spawn-unbounded"] | KINDS["spawn-bounded"] | KINDS["pool"] | KINDS["uds-sync"]
         | {"pcv_spawn_fire", "pcv_virt_open_bounded"})
 SKIP_FILES = {"src/utils/pcv_spawn.c", "src/modules/virt/virt_conn_pool.c", "src/modules/virt/pcv_virt_open.c"}
+                                                                        
+SCOPE_READ_FORBIDDEN = {"libvirt", "virt-open", "gvir", "pool", "spawn-unbounded", "spawn-bounded"}
 CRITICAL_MUTEX = {"g_mutation_mu"}                                                 
                                                           
 SOURCE_APIS = {"g_timeout_add": (1, None), "g_timeout_add_seconds": (1, None), "g_timeout_add_full": (2, None),
@@ -340,8 +344,12 @@ def collect(g: Graph):
             if lane == "HOST_READ" and names & GUARD_OUT:
                 violations.append(f"{method}(HOST_READ)가 가드 밖 spawn {sorted(names & GUARD_OUT)}에 닿습니다")
             spawns = {n for k, _, n in g.sinks_of(reach) if k.startswith("spawn")}
-            if lane in ("LIBVIRT_READ", "VM_DEVICE_MUTATE") and spawns:
+            if lane in ("LIBVIRT_READ", "VM_DEVICE_MUTATE") and spawns:                                       
                 violations.append(f"{method}({lane})가 spawn {sorted(spawns)}에 닿습니다")
+            if lane == "SCOPE_READ":                                                            
+                blocked = sorted({n for k, _, n in g.sinks_of(reach) if k in SCOPE_READ_FORBIDDEN})
+                if blocked:
+                    violations.append(f"{method}(SCOPE_READ)가 메모리·sqlite 밖 차단 {blocked}에 닿습니다")
             continue
         root = "route:" + method
         reaches[root] = reach
@@ -606,6 +614,18 @@ def self_test() -> int:
             if not any(r[1] == "route:a.get" for r in collect(Graph(root))[0]):
                 print("[SELF-TEST FAIL] 주석 처리한 오프로드 표 줄을 오프로드로 셌다", file=sys.stderr)
                 return 1
+        for label, body, want in (("SCOPE_READ 레인의 libvirt", "virDomainLookupByName(c, n);", True),
+                                  ("SCOPE_READ 레인의 풀", "virt_conn_pool_acquire();", True),
+                                  ("SCOPE_READ 레인의 spawn", "pcv_spawn_sync(a);", True),
+                                  ("SCOPE_READ 레인의 메모리 읽기", "g++;", False)):
+            with tempfile.TemporaryDirectory() as td:                                    
+                root = Path(td)
+                _write_tree(root, {"src/h.c": "static int g;\nvoid h(void)\n{\n    %s\n}\n" % body,
+                                   "src/modules/dispatcher/rpc_offload.c": '{ "a.get", PCV_OFFLOAD_LANE_SCOPE_READ },\n'}, routes)
+                got = any("SCOPE_READ" in v for v in collect(Graph(root))[3])
+                if got != want:
+                    print(f"[SELF-TEST FAIL] {label}: 기대 {want}, 실제 {got}", file=sys.stderr)
+                    return 1
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write_tree(root, {"src/h.c": "void h(void)\n{\n}\n"}, {"a.get": "없는_핸들러"})

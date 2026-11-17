@@ -34,8 +34,6 @@ pcv_cluster_upgrade_status
 pcv_dispatcher_register_pre_hook
 pcv_dpdk_shutdown
 pcv_ebpf_proc_stat_is_cpu_core_line
-pcv_ebpf_telemetry_get_all_vms
-pcv_ebpf_telemetry_get_vm
 pcv_federation_init
 pcv_federation_node_join
 pcv_federation_node_leave
@@ -83,14 +81,10 @@ pcv_ovn_tenant_delete
 pcv_ovn_vm_port_cleanup
 pcv_ovn_vm_port_setup
 pcv_plugin_list
-pcv_plugin_manager_shutdown
-pcv_plugin_registry_add
 pcv_plugin_unload
 pcv_predict_shutdown
 pcv_privdrop_no_new_privs
 pcv_prom_gauge_set
-pcv_prom_inc
-pcv_prom_shutdown
 pcv_rbac_check_quota
 pcv_rbac_check_user_rate
 pcv_rbac_cleanup_expired_sessions

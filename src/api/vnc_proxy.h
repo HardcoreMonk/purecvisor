@@ -12,10 +12,12 @@
    
 #ifndef PCV_VNC_PROXY_H
 #define PCV_VNC_PROXY_H
+#include "modules/resource/vm_read_filter.h"                                              
 #include "modules/auth/pcv_rbac.h"
 #include "modules/virt/virt_conn_pool.h"
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
+#include "modules/virt/vm_owner.h"                                                
 #include <fcntl.h>
 #include <sys/random.h>
 #include "utils/pcv_worker_pool.h"
@@ -48,13 +50,15 @@ typedef struct {
     GByteArray *pending;
     gchar *nonce, *client_ip;
     gchar *auth_subject;                                                   
+    gchar *vm_uuid;                                                                               
+    gint auth_role;                                                               
     guint64 sequence;
     gsize input_highwater, screen_batch_highwater;                            
     gboolean closing, authenticating, connected, awaiting_ack, eof;
 } VncProxy;
 
 typedef struct { gchar *token, *uuid, *client_ip; int requested_port; } VncAuth;
-typedef struct { int port; gchar *subject; } VncAuthResult;                                     
+typedef struct { int port; gchar *subject; gchar *uuid; gint role; } VncAuthResult;                                                
 static gint vnc_sessions;
 static gint vnc_auth_tasks, vnc_close_waits, vnc_transport_closes;
 static gboolean vnc_stopping;                         
@@ -95,6 +99,7 @@ static void _vnc_proxy_free(VncProxy *vp)
     g_clear_pointer(&vp->pending, g_byte_array_unref);
     g_clear_pointer(&vp->nonce, g_free);
     g_clear_pointer(&vp->auth_subject, g_free);
+    g_clear_pointer(&vp->vm_uuid, g_free);
     g_clear_pointer(&vp->client_ip, g_free);
     g_clear_pointer(&vp->context, g_main_context_unref);
     g_clear_object(&vp->ws);
@@ -307,10 +312,10 @@ static int _vnc_xml_port(const char *xml, const char *subject, PcvRole role)
         xmlFree(value); xmlFree(listen);
     }
     if (port && role != PCV_ROLE_ADMIN) {
-        xmlXPathObjectPtr owner = xmlXPathEvalExpression(BAD_CAST "/domain/metadata/*[local-name()='owner' and namespace-uri()='urn:purecvisor:metadata']", ctx);
-        xmlChar *name = owner && owner->nodesetval && owner->nodesetval->nodeNr == 1 ? xmlNodeGetContent(owner->nodesetval->nodeTab[0]) : NULL;
-        if (!name || !subject || strcmp((char *)name, subject)) port = 0;
-        xmlFree(name); if (owner) xmlXPathFreeObject(owner);
+                                                                                                  
+        gchar *name = pcv_vm_owner_from_domain_node(xmlDocGetRootElement(doc));
+        if (!name || !subject || strcmp((char *)name, subject)) port = 0;                                      
+        g_free(name);
     }
     if (graphics) xmlXPathFreeObject(graphics);
     if (ctx) xmlXPathFreeContext(ctx);
@@ -333,7 +338,7 @@ static void _vnc_auth_result_free(gpointer data)
 {
     VncAuthResult *result = data;
     if (!result) return;
-    g_free(result->subject); g_free(result);
+    g_free(result->subject); g_free(result->uuid); g_free(result);
 }
 
                                                                                                  
@@ -345,6 +350,7 @@ static void _vnc_auth_worker(GTask *task, gpointer source, gpointer data, GCance
     gchar *subject = pcv_jwt_verify_with_ip(auth->token, auth->client_ip, &error);
     int port = 0;
     PcvRole role = PCV_ROLE_VIEWER;
+    char canonical[VIR_UUID_STRING_BUFLEN] = { 0 };
     if (subject && pcv_rbac_subject_check_token(subject, auth->token, &role) == PCV_SUBJECT_OK
         && pcv_rbac_role_permits(role, "get_vnc_info")) {
         if (role == PCV_ROLE_OPERATOR || role == PCV_ROLE_ADMIN) {
@@ -357,6 +363,7 @@ static void _vnc_auth_worker(GTask *task, gpointer source, gpointer data, GCance
                         char *xml = virDomainGetXMLDesc(domain, 0);
                         port = _vnc_xml_port(xml, subject, role);
                         if (port != auth->requested_port) port = 0;
+                        if (port && virDomainGetUUIDString(domain, canonical) < 0) canonical[0] = '\0';
                         g_free(xml);
                     }
                 }
@@ -369,6 +376,8 @@ static void _vnc_auth_worker(GTask *task, gpointer source, gpointer data, GCance
     VncAuthResult *result = g_new0(VncAuthResult, 1);
     result->port = port;
     result->subject = port ? subject : NULL;
+    result->uuid = port && canonical[0] ? g_strdup(canonical) : NULL;
+    result->role = role;
     if (!port) g_free(subject);
     g_task_return_pointer(task, result, _vnc_auth_result_free);
 }
@@ -395,7 +404,11 @@ static void _vnc_auth_done(GObject *source, GAsyncResult *result, gpointer data)
                                                                       
     if (port && (!auth || pcv_rbac_subject_check_token(outcome->subject, auth->token, NULL) != PCV_SUBJECT_OK))
         port = 0;
-    if (port) vp->auth_subject = g_steal_pointer(&outcome->subject);
+    if (port) {
+        vp->auth_subject = g_steal_pointer(&outcome->subject);
+        vp->vm_uuid = g_steal_pointer(&outcome->uuid);
+        vp->auth_role = outcome->role;
+    }
     _vnc_auth_result_free(outcome);
     if (vnc_stopping || pcv_drain_is_shutdown() || !port || soup_websocket_connection_get_state(vp->ws) != SOUP_WEBSOCKET_STATE_OPEN) {
         _vnc_proxy_close(vp, "VNC authorization failed"); return;
@@ -538,6 +551,23 @@ static void _vnc_close_subject(const gchar *user)
         }
         if (!victim) return;
         _vnc_proxy_close(victim, "VNC subject removed");
+    }
+}
+
+                                                                                                  
+                                                                                  
+static void _vnc_close_vm(const gchar *uuid)
+{
+    for (;;) {
+        VncProxy *victim = NULL;
+        for (guint i = 0; vnc_proxies && i < vnc_proxies->len && !victim; i++) {
+            VncProxy *candidate = g_ptr_array_index(vnc_proxies, i);
+            if (candidate->vm_uuid &&
+                pcv_vm_read_vnc_should_close(candidate->auth_role, g_ascii_strcasecmp(candidate->vm_uuid, uuid) == 0))
+                victim = candidate;
+        }
+        if (!victim) return;
+        _vnc_proxy_close(victim, "VNC owner changed");
     }
 }
 

@@ -7,9 +7,10 @@
                                                                                                      
                                                                                  
                                                                                                   
-                                                                                    
+                                                                                                 
                                                                                                     
-                                                                                          
+                                                                                                          
+                                                                  
                                                                                                      
                             
                                                                               
@@ -45,6 +46,34 @@ typedef struct {
    
 void pcv_res_caller_init(PcvResCaller *c, JsonObject *params, GSocketConnection *connection);
 void pcv_res_caller_clear(PcvResCaller *c);
+
+   
+                                                                                                             
+                                                                                                        
+                                                                             
+                                                                                   
+                                                                 
+   
+void pcv_res_inject_caller_tenant(JsonObject *params, gint role, const gchar *tenant);
+
+   
+                                                                                                  
+                                                                          
+                                                                                                      
+                                                                   
+                                      
+                                                                      
+   
+const gchar *pcv_res_rest_tenant_subject(gint role, gboolean api_key, const gchar *subject);
+
+   
+                                                                                              
+                                                                                                     
+                                                              
+                                                                                   
+                                                                             
+   
+const gchar *pcv_res_actor_tenant(JsonObject *params, gint role);
 
    
                                                                                                       

@@ -94,7 +94,7 @@ AUDIT_CALL_RE = re.compile(
                                                            
                
 WS_COMPLETE_RE = re.compile(
-    r'pcv_ws_broadcast_job_complete(?:_tracked)?(?:_mt)?\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
+    r'pcv_ws_broadcast_job_complete(?:_tracked)?(?:_mt|_scoped)?\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
 )
 
@@ -172,7 +172,7 @@ def collect_durable_completion_methods() -> set[str]:
     ws = (REPO_ROOT / "src/api/ws_server.c").read_text()
     recovery = (REPO_ROOT / "src/utils/pcv_job_recovery.c").read_text()
     if (not re.search(r'pcv_job_finish_async\(ref, status, result, error, _job_result_ready', ws)
-            or not re.search(r'_broadcast_job_complete\(pcv_job_id\(ref\), pcv_job_method\(ref\)', ws)
+            or not re.search(r'_broadcast_job_complete(?:_to)?\(pcv_job_id\(ref\), pcv_job_method\(ref\)', ws)
             or 'pcv_drain_invoke(NULL, _deliver, copy)' not in recovery):
         return set()
 

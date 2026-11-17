@@ -228,8 +228,10 @@ function getFiltered() {
   const f = (document.getElementById('vf') || {}).value || '';
   let l = [...vmList];
   if (f) l = l.filter(v => typeof window.fuzzyMatch === 'function' ? window.fuzzyMatch(v.name, f) : v.name.toLowerCase().includes(f.toLowerCase()));
+  const memOk = v => typeof v.mem_percent === 'number' && v.mem_percent >= 0;
   l.sort((a, b) => {
     let va, vb;
+    if (sortField === 'mem' && memOk(a) !== memOk(b)) return memOk(a) ? -1 : 1;
     if (sortField === 'cpu') { va = a.live_cpu_pct || 0; vb = b.live_cpu_pct || 0; }
     else if (sortField === 'mem') { va = a.mem_percent || 0; vb = b.mem_percent || 0; }
     else if (sortField === 'state') { va = a.state; vb = b.state; }
@@ -279,7 +281,7 @@ function _renderCore(skipContent) {
 
   var listErr = window.vmListError || null;
   var newHash = vmList.map(function(v){return v.name+v.uuid+v.state+(v.live_cpu_pct||0);}).join('|') + ':' + Array.from(checkedVms).join(',') +
-    (listErr ? ':E:' + (listErr.code || '') + (listErr.message || '') : '');
+    (listErr ? ':E:' + (listErr.code || '') + (listErr.message || '') : '') + ':S:' + _vmScopeKey();
   if (skipContent && newHash === _lastVmListHash) return;
   _lastVmListHash = newHash;
   const l = getFiltered();
@@ -306,10 +308,11 @@ function _renderCore(skipContent) {
     var _vl = document.getElementById('vl');
     PCV.uxlib.clearEl(_vl);
     if (listErrNode) _vl.appendChild(listErrNode);
+    var _es = vmScopeEmptyState();
     _vl.appendChild(emptyStatePro({
       icon: '&#128187;',
-      title: _L('VM이 없습니다', 'No virtual machines'),
-      desc: _L('첫 VM을 만들어 시작하세요. 몇 초 안에 부팅 가능합니다.', 'Create your first VM. Boots in seconds.'),
+      title: _es.title,
+      desc: _es.desc,
       ctaLabel: _L('+ VM 만들기', '+ Create VM'),
       ctaAction: 'showCreate()'
     }));
@@ -336,7 +339,7 @@ function _renderCore(skipContent) {
     l.forEach(function(v, ri) {
       var on = v.state === 'running';
       var cp = v.live_cpu_pct || 0;
-      var mp = v.mem_percent || 0;
+      var mp = typeof v.mem_percent === 'number' && v.mem_percent >= 0 ? v.mem_percent : null;
       cardGrid.appendChild(el('div', { class: 'hc', draggable: 'true', ondragstart: "event.dataTransfer.setData('text/plain','" + v.name + "')", style: 'cursor:grab;border-left:3px solid ' + (on ? 'var(--st-ok)' : 'var(--st-idle)'), onclick: 'selectedVmIndex=' + vmList.indexOf(v) + ";window.navigateTo('summary')" },
         el('div', { class: 'flex items-center gap-6 mb-6' },
           el('input', { type: 'checkbox', checked: checkedVms.has(vmList.indexOf(v)) ? '' : null,
@@ -348,7 +351,7 @@ function _renderCore(skipContent) {
           el('b', null, v.name)),
         el('div', { class: 'flex gap-8 text-11' },
           el('div', { class: 'flex-1' }, el('div', { class: 'color-muted' }, 'CPU ' + cp.toFixed(1) + '%'), HN.gauge({ value: cp, warn: 80, crit: 95, inline: true })),
-          el('div', { class: 'flex-1' }, el('div', { class: 'color-muted' }, 'MEM ' + mp.toFixed(1) + '%'), HN.gauge({ value: mp, warn: 80, crit: 95, inline: true }))),
+          el('div', { class: 'flex-1' }, el('div', { class: 'color-muted' }, 'MEM ' + (mp === null ? '\u2014' : mp.toFixed(1) + '%')), mp === null ? null : HN.gauge({ value: mp, warn: 80, crit: 95, inline: true }))),
         el('div', { class: 'flex gap-8 mt-6 text-xs color-muted' },
           el('span', null, (v.vcpu || '?') + ' vCPU'),
           el('span', null, (v.memory_mb || '?') + ' MB'),
@@ -678,7 +681,8 @@ async function renderSummary(b, v) {
     networks = unwrapList(summaryResults[2].value);
 
   var cpuPct = metrics.cpu || v.live_cpu_pct || 0;
-  var memPct = metrics.mem || v.mem_percent || 0;
+
+  var memPct = typeof metrics.mem === 'number' && metrics.mem >= 0 ? metrics.mem : (typeof v.mem_percent === 'number' && v.mem_percent >= 0 ? v.mem_percent : null);
   var vcpu = metrics.vcpu || v.vcpu || '-';
   var memMb = metrics.memory_mb || v.memory_mb || '-';
   var diskRd = metrics.disk_rd || v.disk_rd || 0;
@@ -694,7 +698,7 @@ async function renderSummary(b, v) {
 
                                             
   v.live_cpu_pct = cpuPct;
-  v.mem_percent = memPct;
+  if (memPct !== null) v.mem_percent = memPct;
   v.vcpu = vcpu;
   v.memory_mb = memMb;
   v.ip = primaryIp;
@@ -716,8 +720,8 @@ async function renderSummary(b, v) {
     ]),
     HN.card('📌 ' + _L('메모리', 'Memory'), [
       HN.row(_L('할당', 'Allocated'), String(memMb) + ' MB'),
-      HN.row(_L('사용률', 'Usage'), memPct.toFixed(1) + '%'),
-      HN.gauge({ value: memPct, warn: 80, crit: 95, inline: true })
+      HN.row(_L('사용률', 'Usage'), memPct === null ? '\u2014' : memPct.toFixed(1) + '%'),
+      memPct === null ? el('div', { class: 'stat-label' }, _L('게스트 메모리 통계 없음', 'No guest memory stats')) : HN.gauge({ value: memPct, warn: 80, crit: 95, inline: true })
     ]),
     HN.card('💾 ' + _L('스토리지', 'Storage'), [
       HN.row(_L('타입', 'Type'), HN.statusPill('idle', String(v.storage_type || '-').toUpperCase())),
@@ -728,19 +732,20 @@ async function renderSummary(b, v) {
       HN.row('NIC', String(v.network_count || 0))
     ]),
     HN.card('💾 Disk I/O', [
-      HN.row(_L('읽기', 'Read'), el('span', { class: 'color-cyan' }, formatBytes(diskRd))),
-      HN.row(_L('쓰기', 'Write'), el('span', { class: 'color-peach' }, formatBytes(diskWr))),
-      HN.row('IOPS R', el('span', { class: 'color-cyan' }, (metrics.disk_rd_req || 0).toLocaleString())),
-      HN.row('IOPS W', el('span', { class: 'color-peach' }, (metrics.disk_wr_req || 0).toLocaleString()))
+
+      HN.row(_L('읽기(누적)', 'Read (cumulative)'), el('span', { class: 'color-cyan' }, formatBytes(diskRd))),
+      HN.row(_L('쓰기(누적)', 'Write (cumulative)'), el('span', { class: 'color-peach' }, formatBytes(diskWr))),
+      HN.row(_L('읽기 요청(누적)', 'Read requests (cumulative)'), el('span', { class: 'color-cyan' }, (metrics.disk_rd_req || 0).toLocaleString())),
+      HN.row(_L('쓰기 요청(누적)', 'Write requests (cumulative)'), el('span', { class: 'color-peach' }, (metrics.disk_wr_req || 0).toLocaleString()))
     ]),
     el('div', { class: 'hc glitch-panel' },
       el('h4', null, '🌐 ' + _L('네트워크', 'Network')),
-      HN.row('RX', el('span', { class: 'color-yellow' }, formatBytes(netRx))),
-      HN.row('TX', el('span', { class: 'color-yellow' }, formatBytes(netTx))),
+      HN.row(_L('수신(누적)', 'RX (cumulative)'), el('span', { class: 'color-yellow' }, formatBytes(netRx))),
+      HN.row(_L('송신(누적)', 'TX (cumulative)'), el('span', { class: 'color-yellow' }, formatBytes(netTx))),
       HN.row('IP', primaryIp && primaryIp !== '-' ? el('span', { class: 'color-green' }, primaryIp) : el('span', { class: 'color-muted' }, '-')),
       HN.row('DNS', primaryDns),
-      HN.row('RX pps', el('span', { class: 'color-muted' }, (metrics.net_rx_pkts || 0).toLocaleString())),
-      HN.row('TX pps', el('span', { class: 'color-muted' }, (metrics.net_tx_pkts || 0).toLocaleString())),
+      HN.row(_L('수신 패킷(누적)', 'RX packets (cumulative)'), el('span', { class: 'color-muted' }, (metrics.net_rx_pkts || 0).toLocaleString())),
+      HN.row(_L('송신 패킷(누적)', 'TX packets (cumulative)'), el('span', { class: 'color-muted' }, (metrics.net_tx_pkts || 0).toLocaleString())),
       _vmRenderNicDetails(nics, networks, v))
   ];
 
@@ -955,6 +960,51 @@ window.renderVmScreen = renderVmScreen;
                                                   
                                        
                                        
+function _vmScopeRole() {
+  var r = String((window.currentUser && window.currentUser.role) || '').toLowerCase();
+  return (r === 'viewer' || r === 'operator') ? r : 'admin';
+}
+function _vmScopeHasTenant() {
+  var t = window.currentUser && window.currentUser.tenant;
+  return typeof t === 'string' && t !== '' && t !== '---';
+}
+function _vmScopeKey() { return _vmScopeRole() + (_vmScopeHasTenant() ? '+t' : ''); }
+
+function vmScopeEmptyState() {
+  var role = _vmScopeRole();
+  if (role === 'admin') {
+    return { title: _L('VM이 없습니다', 'No virtual machines'),
+      desc: _L('첫 VM을 만들어 시작하세요. 몇 초 안에 부팅 가능합니다.', 'Create your first VM. Boots in seconds.') };
+  }
+  var title = _L('볼 수 있는 VM이 없습니다', 'No visible VMs');
+  if (_vmScopeHasTenant())
+    return { title: title, desc: _L('같은 테넌트의 VM과 직접 만든 VM만 보입니다.', 'Only VMs in your tenant and VMs you created are shown.') };
+  if (role === 'viewer')
+    return { title: title, desc: _L('이 계정에 tenant가 없어 볼 수 있는 VM이 없습니다', 'This account has no tenant, so no VMs are visible') };
+  return { title: title, desc: _L('이 계정에 tenant가 없어 직접 만든 VM만 보입니다', 'This account has no tenant, so only VMs you created are shown') };
+}
+
+function vmScopeDashEmptyText() {
+  return _vmScopeRole() === 'admin' ? '' : _L('볼 수 있는 VM 없음', 'No visible VMs');
+}
+
+function vmScopeActionErrorText(err) {
+  if (err && Number(err.code) === -32006 && /only VMs they created/.test(String(err.message || '')))
+    return _L('이 VM은 만든 사용자만 조작할 수 있습니다', 'Only the user who created this VM can operate it');
+  return (err && err.message) || 'Failed';
+}
+
+function vmScopeHealingPendingEmptyText(fallback) {
+  return _vmScopeRole() === 'admin' ? fallback
+    : _L('대기 항목은 관리자만 볼 수 있습니다', 'Pending items are visible to administrators only');
+}
+PCV.vmScope = {
+  emptyState: vmScopeEmptyState,
+  dashEmptyText: vmScopeDashEmptyText,
+  actionErrorText: vmScopeActionErrorText,
+  healingPendingEmptyText: vmScopeHealingPendingEmptyText,
+};
+
 PCV.vm = Object.assign(PCV.vm || {}, {
   render: render,
   setSort: setSort,

@@ -8,7 +8,8 @@
                                                                                      
                                                                                        
                                                                                       
-                                                                                   
+                                                                                         
+                      
                                                                                               
                                                                                
   
@@ -377,13 +378,13 @@ static gboolean view_partial(const ViewRow *r)
 
                                                                         
 
-                                                                                   
-                                         
+                                                                                                        
+                                                                                       
 static gboolean view_name_visible(const PcvHostViewCaller *caller, const PcvHostVmDef *vm)
 {
     if (caller->role >= PCV_ROLE_ADMIN)
         return TRUE;
-    return caller->role >= PCV_ROLE_OPERATOR && vm->owner && caller->subject && g_strcmp0(vm->owner, caller->subject) == 0;
+    return pcv_vm_read_visible(caller->vm_scope, vm->owner);
 }
 
                                                                                  

@@ -223,7 +223,7 @@ if (invalidGuideBreakLines.length) {
 if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 9) {
   throw new Error("database document schema group count mismatch");
 }
-if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 28) {
+if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 29) {
   throw new Error("database document table heading count mismatch");
 }
 if (/^### (?:테이블:|.*인덱스$|인덱스$)/m.test(databaseStructureSource)) {
@@ -398,7 +398,7 @@ for (const marker of [
     throw new Error(`database architecture responsive style missing: ${marker}`);
   }
 }
-const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.2.0</code>입니다.<br>
+const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.2.1</code>입니다.<br>
 단일 노드 배포 뒤 <code dir="auto">purecvisorsd</code>는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 <code dir="auto">/api/v1/health</code>, <code dir="auto">/api/v1/version</code>과 BPF 상태 검사가 통과해야 합니다.`;
 if (!overview.includes(releaseSummaryLineBreakContract)) {
@@ -726,7 +726,7 @@ const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
 const databaseArchitectureSvgHash = createHash("sha256")
   .update(databaseArchitectureSvg)
   .digest("hex");
-if (databaseArchitectureSvgHash !== "79e3fb307c2c64fb0da69a0d6c6141e0e178cb10c825f42e68f0e0f294c39fba") {
+if (databaseArchitectureSvgHash !== "8e8107af915b9130e20b5582abf7c4fdf2913aae1855c53c968c55256805c2a7") {
   throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
 }
 for (const marker of [
@@ -734,13 +734,13 @@ for (const marker of [
   'role="img" aria-labelledby="pcv-db-title pcv-db-desc"',
   '<title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>',
   '<desc id="pcv-db-desc">',
-  "9 local SQLite files · 28 permanent tables",
+  "9 local SQLite files · 29 permanent tables",
   "no cross-DB transaction",
   "즉시 응답 · accepted 먼저",
   "긴 작업만",
   "관련 정책 read/write",
   "VM lock · 선택형 job register",
-  "정본과 정책 · 5 files / 22 tables",
+  "정본과 정책 · 5 files / 23 tables",
   "resource_registry.db",
   "작업 상태 · 2 files / 2 tables",
   "증거와 외부 통합 · 2 files / 4 tables",
@@ -931,7 +931,7 @@ for (const marker of [
   }
 }
 
-const heroEyebrow = "PURECVISOR 2.2.0 · SINGLE EDGE";
+const heroEyebrow = "PURECVISOR 2.2.1 · SINGLE EDGE";
 const koreanHeroTitle = "한 대의 Linux 서버를 가상화 플랫폼으로";
 
 const koreanHeroCopy = "VM·컨테이너·ZFS 스토리지·네트워크를 Web\u00a0UI·REST\u00a0API·CLI 하나의 제어면으로 관리합니다.";
@@ -1584,7 +1584,7 @@ for (const document of supplementalDocuments) {
   }
   for (const marker of [
     "로컬 SQLite 파일 9개",
-    "영구 테이블 28개",
+    "영구 테이블 29개",
     "pcv-database-summary",
     "pcv-database-architecture",
     'href="/assets/diagrams/purecvisor-single-database-architecture.svg"',

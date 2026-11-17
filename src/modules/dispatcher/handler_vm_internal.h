@@ -49,6 +49,7 @@ typedef struct {
                                                   
     gint out_cpu_pct;                                   
     gint out_mem_pct;                                   
+    const gchar *out_mem_source;
     gint out_vcpu;                        
     gint64 out_memory_mb;                     
     gint64 out_disk_rd;                       
@@ -65,6 +66,11 @@ typedef struct {
                                                       
                                                          
     PcvVmLock *lock;
+
+    gint caller_role;
+    gchar *caller_sub;
+    gboolean caller_tenant_known;
+    gchar *caller_tenant;
 } VmLifecycleCtx;
 
                                                                

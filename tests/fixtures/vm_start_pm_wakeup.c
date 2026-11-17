@@ -11,6 +11,7 @@
 #include <string.h>
 #include "src/api/ws_server.c"
 #include "api/drain.h"
+#include "modules/dispatcher/rpc_completion.h"
 #include "api/uds_server.h"
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/core/cpu_allocator.h"
@@ -163,17 +164,22 @@ gboolean pcv_qos_apply_vm(const gchar *iface, const PcvQosSla *sla, GError **err
 gboolean pcv_qos_ids_save(const gchar *path, GError **error) { (void)path; (void)error; return TRUE; }
 
 static int fixture_lock_token;
-PcvVmLock *pcv_vm_lock_acquire(const gchar *id, gint operation, gchar **error)
+
+PcvVmLock *pcv_vm_lock_acquire_ex(const gchar *id, gint operation, gchar **error, gboolean *contended)
 {
     (void)id; (void)operation;
+    if (contended) *contended = FALSE;
     if (g_strcmp0(mode, "lock-busy") == 0) {
         if (error) *error = g_strdup("fixture: VM busy");
+        if (contended) *contended = TRUE;
         effect("LOCK_BUSY");
         return NULL;
     }
     effect("LOCK");
     return (PcvVmLock *)&fixture_lock_token;
 }
+PcvVmLock *pcv_vm_lock_acquire(const gchar *id, gint operation, gchar **error)
+{ return pcv_vm_lock_acquire_ex(id, operation, error, NULL); }
 void pcv_vm_lock_release(PcvVmLock *lock) { (void)lock; effect("UNLOCK"); }
 void _pcv_log(GLogLevelFlags level, const gchar *domain, const gchar *fmt, ...)
 { (void)level; (void)domain; (void)fmt; }
@@ -199,6 +205,24 @@ void pcv_audit_log(const gchar *user, const gchar *method, const gchar *target,
 }
 void pure_uds_server_send_response(UdsServer *server, GSocketConnection *connection, const gchar *text)
 { (void)server; (void)connection; g_free(rpc_response); rpc_response = g_strdup(text); effect("RESPONSE"); }
+
+PcvWsScopeKind pcv_ws_scope_kind(const gchar *type)
+{ return g_strcmp0(type, "job.complete") == 0 ? PCV_WS_SCOPE_JOB : PCV_WS_SCOPE_ALL; }
+gboolean pcv_ws_scope_should_send(PcvWsScopeKind kind, gint conn_role, const gchar *conn_subject, const gchar *conn_tenant,
+                                  const gchar *actor, const gchar *actor_tenant)
+{ (void)kind; (void)conn_subject; (void)conn_tenant; (void)actor; (void)actor_tenant; return conn_role >= PCV_ROLE_ADMIN; }
+PcvWsSubjectCache *pcv_ws_subject_cache_new(void) { return (PcvWsSubjectCache *)g_malloc0(8); }
+gboolean pcv_ws_subject_cache_lookup(PcvWsSubjectCache *c, const gchar *subject, gint *role_out, const gchar **tenant_out)
+{ (void)c; if (role_out) *role_out = PCV_ROLE_ADMIN; if (tenant_out) *tenant_out = NULL; return subject != NULL; }
+void pcv_ws_subject_cache_free(PcvWsSubjectCache *c) { g_free(c); }
+PcvVmReadScope *pcv_vm_read_scope_new_parts(gint role, const gchar *subject, gboolean tenant_known, const gchar *tenant)
+{ (void)role; (void)subject; (void)tenant_known; (void)tenant; return NULL; }
+void pcv_vm_read_scope_free(PcvVmReadScope *s) { (void)s; }
+PcvVmOwnerMap *pcv_vm_owner_map_current(gint64 now_mono_us) { (void)now_mono_us; return NULL; }
+void pcv_vm_owner_map_free(PcvVmOwnerMap *m) { (void)m; }
+JsonNode *pcv_vm_read_filter_agent_comparison(PcvVmReadScope *s, const PcvVmOwnerMap *m, JsonNode *take)
+{ (void)s; (void)m; return take; }
+
 void __wrap_soup_websocket_connection_send_text(SoupWebsocketConnection *connection, const char *text)
 {
     (void)connection;
@@ -251,6 +275,7 @@ static void setup_ws(void)
 {
     SoupWebsocketConnection *authed = fixture_ws(&peer);
     g_object_set_data(G_OBJECT(authed), "pcv-ws-authed", GINT_TO_POINTER(1));
+    g_object_set_data_full(G_OBJECT(authed), "pcv-ws-subject", g_strdup("fixture-admin"), g_free);
     SoupWebsocketConnection *pending = fixture_ws(&unauth_peer);
     g_object_set_data(G_OBJECT(pending), "pcv-ws-authed", GINT_TO_POINTER(0));
     g_mutex_init(&G.mu); G.clients = g_ptr_array_new_with_free_func(g_object_unref);

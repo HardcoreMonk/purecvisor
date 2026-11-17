@@ -69,6 +69,8 @@
 #include "api/rest_transport.h"
 #include "api/rest_request_auth.h"
 #include "api/rest_public_render.h"
+#include "modules/resource/resource_gate.h"
+#include "modules/resource/vm_read_scope.h"
 
                                                                                                                                                      
                                                                    
@@ -273,14 +275,63 @@ _cluster_vms_render(gpointer data, PcvRestRendered *out)
 
                                                                                             
 static void
+_collector_caller_clear(PcvCollectorCaller *c)
+{
+    g_clear_pointer(&c->subject, g_free);
+}
+
+static void
+_collector_caller_free(gpointer p)
+{
+    if (!p) return;
+    _collector_caller_clear(p);
+    g_free(p);
+}
+
+static gboolean
+_collector_scoped(const PcvCollectorCaller *c)
+{
+    return c && !c->all && c->role < PCV_ROLE_ADMIN;
+}
+
+static gboolean
+_collector_denied(SoupServerMessage *msg, PcvCollectorCaller *cc, const gchar *path)
+{
+    const gboolean deny = _collector_scoped(cc);
+    if (deny) {
+        pcv_audit_log(cc->subject, path, "", "denied", PURE_RPC_ERR_FORBIDDEN, 0, "rbac");
+        pcv_rest_send_error(msg, 403, "FORBIDDEN", "Forbidden");
+    }
+    _collector_caller_clear(cc);
+    return deny;
+}
+
+static gboolean
+_own_failure_row(const gchar *username, gpointer ud)
+{
+    const PcvCollectorCaller *c = ud;
+    return pcv_vm_read_decide(c->role, c->subject, NULL, username, NULL);
+}
+
+static void
 _metrics_render(gpointer data, PcvRestRendered *out)
 {
-    (void)data;
+    const PcvCollectorCaller *c = data;
                                              
     gchar *rpc = pcv_rest_build_rpc("monitor.fleet", NULL);
     gchar *resp = pcv_rest_rpc_over_uds(rpc);
     g_free(rpc);
-    pcv_rest_render_metrics(resp, out);
+    if (!_collector_scoped(c)) {
+        pcv_rest_render_metrics(resp, NULL, NULL, out);
+    } else {
+
+        const gboolean lookup = pcv_res_rest_tenant_subject(c->role, c->is_key, c->subject) != NULL;
+        PcvVmReadScope *scope = pcv_vm_read_scope_new_parts(c->role, c->subject, !lookup, NULL);
+        PcvVmOwnerMap *map = pcv_vm_owner_map_current(g_get_monotonic_time());
+        pcv_rest_render_metrics(resp, scope, map, out);
+        pcv_vm_owner_map_free(map);
+        pcv_vm_read_scope_free(scope);
+    }
     g_free(resp);
 }
 
@@ -293,6 +344,7 @@ pcv_rest_health(PcvRestRequest *rq)
     const gchar *path = rq->path;
     GHashTable *query = rq->query;
     PcvRestServer *self = rq->self;
+    PcvCollectorCaller cc = { 0 };
                                                                      
                                               
       
@@ -337,7 +389,7 @@ pcv_rest_health(PcvRestRequest *rq)
                                                                                             
                                                                         
     if (g_strcmp0(path, REST_API_PREFIX "/health/recent-errors") == 0) {
-        if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;                            
+        if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;
         const gchar *vm_q = NULL;
         gint lim = 5;
         if (query) {
@@ -348,7 +400,10 @@ pcv_rest_health(PcvRestRequest *rq)
                 if (v > 0 && v <= 50) lim = v;
             }
         }
-        JsonArray *failures = pcv_audit_recent_failures(vm_q, lim);
+
+        JsonArray *failures = _collector_scoped(&cc) ? pcv_audit_recent_failures(_own_failure_row, &cc, vm_q, lim)
+                                                     : pcv_audit_recent_failures(NULL, NULL, vm_q, lim);
+        _collector_caller_clear(&cc);
         JsonObject *root = json_object_new();
         JsonNode *fnode = json_node_new(JSON_NODE_ARRAY);
         json_node_take_array(fnode, failures);
@@ -429,6 +484,7 @@ pcv_rest_internal(PcvRestRequest *rq)
     SoupServerMessage *msg = rq->msg;
     const gchar *path = rq->path;
     const gchar *method = rq->method;
+    PcvCollectorCaller cc = { 0 };
       
                                                                                             
       
@@ -444,7 +500,8 @@ pcv_rest_internal(PcvRestRequest *rq)
     if (g_strcmp0(path, REST_API_PREFIX "/internal/vms") == 0
         && g_strcmp0(method, "GET") == 0)
     {
-        if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;                            
+        if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;
+        if (_collector_denied(msg, &cc, REST_API_PREFIX "/internal/vms")) return PCV_REST_STEP_CLEANUP;
         pcv_rest_defer_rendered(msg, rq->self->rest_ctx, _internal_vms_render, NULL, NULL);
         return PCV_REST_STEP_CLEANUP;
     }
@@ -454,7 +511,8 @@ pcv_rest_internal(PcvRestRequest *rq)
     if (g_strcmp0(path, REST_API_PREFIX "/internal/cluster/vms") == 0
         && g_strcmp0(method, "GET") == 0)
     {
-        if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;                            
+        if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;
+        if (_collector_denied(msg, &cc, REST_API_PREFIX "/internal/cluster/vms")) return PCV_REST_STEP_CLEANUP;
         pcv_rest_defer_rendered(msg, rq->self->rest_ctx, _cluster_vms_render, NULL, NULL);
         return PCV_REST_STEP_CLEANUP;
     }
@@ -473,7 +531,8 @@ pcv_rest_internal(PcvRestRequest *rq)
     if (g_strcmp0(path, REST_API_PREFIX "/internal/telemetry") == 0
         && g_strcmp0(method, "GET") == 0)
     {
-        if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;                            
+        if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;
+        if (_collector_denied(msg, &cc, REST_API_PREFIX "/internal/telemetry")) return PCV_REST_STEP_CLEANUP;
         pcv_rest_defer_rendered(msg, rq->self->rest_ctx, _internal_telemetry_render, NULL, NULL);
         return PCV_REST_STEP_CLEANUP;
     }
@@ -488,6 +547,7 @@ pcv_rest_metrics(PcvRestRequest *rq)
     SoupServerMessage *msg = rq->msg;
     const gchar *path = rq->path;
     const gchar *method = rq->method;
+    PcvCollectorCaller cc = { 0 };
       
                                                                             
       
@@ -511,10 +571,12 @@ pcv_rest_metrics(PcvRestRequest *rq)
     if (g_strcmp0(path, REST_API_PREFIX "/metrics") == 0
         && g_strcmp0(method, "GET") == 0)
     {
-        if (!pcv_rest_collector_gate(msg)) return PCV_REST_STEP_CLEANUP;                            
+        if (!pcv_rest_collector_gate(msg, &cc)) return PCV_REST_STEP_CLEANUP;
 
                                                                    
-        pcv_rest_defer_rendered(msg, rq->self->rest_ctx, _metrics_render, NULL, NULL);
+        PcvCollectorCaller *copy = g_new(PcvCollectorCaller, 1);
+        *copy = cc;
+        pcv_rest_defer_rendered(msg, rq->self->rest_ctx, _metrics_render, copy, _collector_caller_free);
         return PCV_REST_STEP_CLEANUP;
     }
     return PCV_REST_STEP_NEXT;
@@ -522,16 +584,18 @@ pcv_rest_metrics(PcvRestRequest *rq)
 
                                                                                     
 gboolean
-pcv_rest_collector_gate(SoupServerMessage *msg)
+pcv_rest_collector_gate(SoupServerMessage *msg, PcvCollectorCaller *out)
 {
+    *out = (PcvCollectorCaller){ .all = TRUE, .subject = NULL, .role = PCV_ROLE_ADMIN, .is_key = FALSE };
     PcvCollectorAuthMode mode = pcv_rest_collector_auth_mode_from_config(NULL);
     gboolean direct = pcv_rest_client_identity_is_direct_local(pcv_rest_client_identity_get(msg));
     if (!pcv_rest_collector_needs_auth(mode, direct))
         return TRUE;
-    gchar *subject = pcv_rest_authenticate(msg, NULL, NULL);                                           
+    gint key_role = -1, subject_role = -1;
+    gchar *subject = pcv_rest_authenticate(msg, &key_role, &subject_role);
     if (!subject)
         return FALSE;                                                       
-    g_free(subject);
+    *out = (PcvCollectorCaller){ .all = FALSE, .subject = subject, .role = subject_role, .is_key = key_role >= 0 };
     return TRUE;
 }
 
@@ -547,5 +611,5 @@ pcv_rest_collector_auth_log_config(void)
     else if (!recognized)
         PCV_LOG_WARN(REST_LOG_DOM, "[metrics] auth='%s' 알 수 없는 값 — required로 취급(수집기 경로에 토큰 필요)", raw ? raw : "");
     else if (mode == PCV_COLLECTOR_AUTH_NONE)
-        PCV_LOG_WARN(REST_LOG_DOM, "[metrics] auth=none — /metrics·/internal/*·/health/recent-errors가 누구에게나 무인증 공개");
+        PCV_LOG_WARN(REST_LOG_DOM, "[metrics] auth=none — /metrics·/internal/*·/health/recent-errors가 누구에게나 무인증 공개 — 모든 테넌트 VM 계열 공개");
 }

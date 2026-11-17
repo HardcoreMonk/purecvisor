@@ -20,7 +20,7 @@
                                                                        
                                                                     
                                                                
-                                                                           
+                                                                                   
                                                                         
                                                  
                                                                 
@@ -39,6 +39,7 @@
 #include "../../utils/pcv_config.h"
 
 #include <glib/gstdio.h>
+#include "modules/resource/vm_read_filter.h"                               
 
                                                                                      
 
@@ -384,8 +385,8 @@ security_action_approve_worker(GTask *task,
                                                                        
         pcv_audit_log(d->admin_user, "security.action.approve", d->event_id,
                       "ok", 0, duration_ms, "local");
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "security.action.approve",
-                                         "completed", NULL);
+        pcv_ws_broadcast_job_complete_scoped(d->job_id, "security.action.approve",
+                                         "completed", NULL, d->admin_user, NULL);
         g_task_return_boolean(task, TRUE);
         return;
     }
@@ -394,8 +395,8 @@ security_action_approve_worker(GTask *task,
     const gchar *message = error ? error->message : "security action approval failed";
     pcv_audit_log(d->admin_user, "security.action.approve", d->event_id,
                   "fail", PURE_RPC_ERR_INTERNAL_ERROR, duration_ms, "local");
-    pcv_ws_broadcast_job_complete_mt(d->job_id, "security.action.approve",
-                                     "failed", message);
+    pcv_ws_broadcast_job_complete_scoped(d->job_id, "security.action.approve",
+                                     "failed", message, d->admin_user, NULL);
     if (error) {
         g_task_return_error(task, error);                                         
     } else {
@@ -403,6 +404,21 @@ security_action_approve_worker(GTask *task,
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "security action approval failed");
     }
+}
+
+                                                                                     
+typedef struct {
+    const gchar *severity;
+    const gchar *source;
+    const gchar *status;
+} SecListFilter;
+
+                                                                              
+static JsonArray *
+sec_list_source(gint offset, gint limit, gpointer ud)
+{
+    const SecListFilter *f = ud;
+    return pcv_security_store_list_events(offset, limit, f->severity, f->source, f->status);
 }
 
    
@@ -430,8 +446,15 @@ handle_security_event_list(JsonObject *params,
     const gchar *source = json_string_default(params, "source", NULL);
     const gchar *status = json_string_default(params, "status", NULL);
 
-    JsonArray *arr = pcv_security_store_list_events(offset, limit,
-                                                    severity, source, status);
+    if (limit <= 0 || limit > 500)
+        limit = 100;                                                                    
+                                                                                           
+                              
+    SecListFilter filter = { severity, source, status };
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
+    JsonArray *arr = pcv_vm_read_collect_security_rows(view.scope, view.map, sec_list_source, &filter, offset, limit);
+    pcv_vm_read_view_clear(&view);
     send_success_array(server, connection, rpc_id, arr);
 }
 
@@ -461,6 +484,11 @@ handle_security_event_get(JsonObject *params,
     }
 
     JsonObject *obj = pcv_security_store_get_event(event_id);
+    PcvVmReadView view;                                                        
+    pcv_vm_read_view_init(&view, params, connection);
+    if (obj && !pcv_vm_read_security_row_visible(view.scope, view.map, obj))
+        g_clear_pointer(&obj, json_object_unref);
+    pcv_vm_read_view_clear(&view);
     if (!obj) {
         send_error(server, connection, rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
                    "security event not found");
@@ -560,7 +588,7 @@ handle_security_event_close(JsonObject *params,
                                                            
    
 void
-handle_security_action_pending(JsonObject *params __attribute__((unused)),
+handle_security_action_pending(JsonObject *params,
                                const gchar *rpc_id,
                                UdsServer *server,
                                GSocketConnection *connection)
@@ -572,6 +600,10 @@ handle_security_action_pending(JsonObject *params __attribute__((unused)),
     }
 
     JsonArray *arr = pcv_hips_action_list_pending();
+    PcvVmReadView view;                                                                      
+    pcv_vm_read_view_init(&view, params, connection);
+    arr = pcv_vm_read_filter_security_rows(view.scope, view.map, arr);
+    pcv_vm_read_view_clear(&view);
     send_success_array(server, connection, rpc_id, arr);
 }
 

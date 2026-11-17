@@ -69,7 +69,8 @@
                                                                               
   
                                               
-                                                                     
+                                                                      
+                                                                       
    
 
 #include <glib.h>
@@ -78,10 +79,24 @@
 G_BEGIN_DECLS
 
   
-                                                                   
-                                                         
+                                                
+                                                                                                     
+                                                                                                             
+                                                                                         
+                                                                      
    
-#define PCV_PROM_MAX_METRICS 4096
+#define PCV_PROM_MAX_METRICS 8192
+
+   
+                                                                 
+  
+                                                         
+                                                       
+  
+                                                             
+                                                                           
+   
+#define PCV_PROM_VM_SERIES_MAX 64
 
    
                                           
@@ -127,15 +142,56 @@ pcv_prom_labels_fit(const gchar *labels)
     return strlen(labels) < PCV_PROM_LABELS_MAX;
 }
 
+   
+                                                                                             
+                                                                                             
+  
+                                                                       
+                                                                    
+  
+                                                                                                               
+                                                                              
+                                                                                                   
+                                                                            
+  
+                                
+                            
+                                                                           
+                             
+   
+G_GNUC_NULL_TERMINATED gboolean pcv_prom_labels_build(gchar *buf, gsize cap, ...);
+
+   
+                                                                                                            
+                                                                                                               
+                                                                            
+                
+                                                                                         
+   
+gint pcv_prom_labels_vm_value(const gchar *line, gchar *out, gsize cap);
+
                 
 
                                                                           
                                    
 void pcv_prom_init(void);
 
-                                                                  
-                                 
-void pcv_prom_shutdown(void);
+   
+                                                               
+  
+                                                         
+                                                           
+  
+                                                            
+                                                                     
+                                                      
+                                                                                 
+                                                                                             
+                                                                                        
+                                                                           
+                                                             
+   
+void pcv_prom_flush(void);
 
                       
 
@@ -175,10 +231,54 @@ void pcv_prom_gauge_set(const gchar *name, const gchar *label_key,
                                                                   
                                                      
   
-                                                                                                 
+                                                                            
+                                                                                                         
    
 void pcv_prom_gauge_set_labels(const gchar *name, const gchar *labels,
                                 gdouble value);
+
+   
+                                                                      
+  
+                                                                            
+                                                
+  
+                                   
+                                                                                                     
+   
+void pcv_prom_inc_labels(const gchar *name, const gchar *labels);
+
+   
+                                                                        
+  
+                                                                                  
+                                              
+  
+                                                          
+                    
+                               
+                                               
+                                                                                           
+  
+                                    
+   
+typedef enum {
+    PCV_PROM_KIND_GAUGE = 0,
+    PCV_PROM_KIND_COUNTER,
+    PCV_PROM_KIND_SOURCE_COUNTER,
+} PcvPromKind;
+
+   
+                                               
+  
+                                                                               
+                                                                    
+  
+                                                                                  
+                                                                                 
+                        
+   
+void pcv_prom_source_counter_set_labels(const gchar *name, const gchar *labels, gdouble value);
 
    
                                                 

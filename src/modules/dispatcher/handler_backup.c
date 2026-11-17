@@ -101,6 +101,7 @@
 #include <string.h>
 #include "api/snapshot_verify_probe.h"
 #include "utils/pcv_spawn.h"
+#include "modules/resource/vm_read_filter.h"
 
   
                                             
@@ -218,7 +219,7 @@ void handle_backup_policy_set(JsonObject       *params,
                                                                        
                                                     
    
-void handle_backup_policy_list(JsonObject       *params __attribute__((unused)),
+void handle_backup_policy_list(JsonObject       *params,
                                 const gchar      *rpc_id,
                                 UdsServer        *server,
                                 GSocketConnection *connection)
@@ -239,6 +240,11 @@ void handle_backup_policy_list(JsonObject       *params __attribute__((unused)),
         json_array_add_object_element(arr, obj);
     }
     g_ptr_array_unref(policies);
+
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
+    arr = pcv_vm_read_filter_by_member(view.scope, view.map, arr, "vm_name", TRUE);
+    pcv_vm_read_view_clear(&view);
 
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);                         

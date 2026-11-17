@@ -16,8 +16,8 @@
   
                                                         
                                                               
-
-
+                                                                 
+                                                                     
                                                                
                                                
                             
@@ -32,12 +32,13 @@
                                                      
                                                                                
                                                                 
-
-
-                                                                              
+                                                        
+                                               
+                                                                                      
+                                                                                                           
                                                              
                                                              
-                                                                      
+                                                                                   
                                              
   
           
@@ -110,17 +111,17 @@ void cb_init(void);
 [[nodiscard]] gboolean cb_is_open(void);
 
    
-
-
-
-
-
-
-
-
+                            
+                                                    
+                                                            
+                                                   
+  
+                                                  
+                                                          
+   
 [[nodiscard]] gboolean cb_should_reject_request(void);
 
-
+   
                      
                              
                                        
@@ -186,14 +187,6 @@ gint cb_get_failure_threshold(void);
                                               
    
 CbState cb_get_named_state(const gchar *name);
-
-   
-                             
-                                             
-                          
-                                                     
-   
-gchar *cb_get_prometheus_metrics(void);
 
    
                

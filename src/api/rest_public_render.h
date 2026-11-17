@@ -12,6 +12,7 @@
 #ifndef PCV_REST_PUBLIC_RENDER_H
 #define PCV_REST_PUBLIC_RENDER_H
 
+#include "modules/resource/vm_read_scope.h"                              
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <libvirt/libvirt.h>
@@ -28,8 +29,13 @@ typedef struct {
                      
 void pcv_rest_rendered_clear(PcvRestRendered *r);
 
-                                                                                        
-void pcv_rest_render_metrics(const gchar *fleet_resp, PcvRestRendered *out);
+                                                                                                    
+                                                                                      
+                                                                                                     
+                                                                                                      
+                                                                                                  
+                                 
+void pcv_rest_render_metrics(const gchar *fleet_resp, PcvVmReadScope *scope, const PcvVmOwnerMap *map, PcvRestRendered *out);
                                                                                                     
 void pcv_rest_render_rpc_result(const gchar *resp, const gchar *fail_detail, PcvRestRendered *out);
                                                                                                
@@ -60,8 +66,6 @@ typedef virConnectPtr (*PcvRestHealthOpenFn)(const gchar *uri, gboolean read_onl
 void pcv_rest_render_set_open_fn_for_test(PcvRestHealthOpenFn fn);
                                                                                                                  
 void pcv_rest_render_set_internal_fns_for_test(JsonArray *(*vms_fn)(void), gint (*vm_count_fn)(void), guint deadline_ms);
-                               
-void pcv_rest_render_metrics_reset_for_test(void);
                                     
 void pcv_rest_health_reset_for_test(void);
 

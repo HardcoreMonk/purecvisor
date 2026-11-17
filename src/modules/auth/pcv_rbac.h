@@ -139,6 +139,35 @@ gboolean pcv_rbac_user_create(const gchar *username,
                               GError     **error);
 
    
+                                                                     
+                                                                                            
+                                                                             
+                                                     
+   
+typedef enum {
+    PCV_RBAC_CREATE_DEFAULT            = 0,
+    PCV_RBAC_CREATE_REUSE_DELETED_NAME = 1u << 0,
+} PcvRbacCreateFlags;
+
+   
+                                                                                                   
+                                                                              
+                                                                                               
+                                                   
+   
+gboolean pcv_rbac_user_create_ex(const gchar *username, const gchar *password, PcvRole role, const gchar *tenant,
+                                 PcvRbacCreateFlags flags, gboolean *out_reused, GError **error);
+
+   
+                                                                                                          
+                                                                                                   
+                                                                                  
+                                                       
+                                                              
+   
+gboolean pcv_rbac_deleted_name_add(const gchar *username, gboolean *out_added, GError **error);
+
+   
                     
                                                          
                                                   
@@ -345,6 +374,8 @@ gboolean pcv_rbac_password_check(const gchar *username,
                                                                              
                                                                   
                                                                   
+                                                                                                 
+                                                         
                                                  
   
                                                      

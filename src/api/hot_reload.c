@@ -16,6 +16,7 @@
                                    
                                    
                                           
+                                                             
                                                
   
          
@@ -24,6 +25,7 @@
    
 #include "hot_reload.h"
 #include "drain.h"
+#include "modules/daemons/prometheus_exporter.h"
 #include "purecvisor/version.h"
 #include "utils/pcv_log.h"
 #include <glib-unix.h>
@@ -60,6 +62,7 @@ static struct {
          
                                                        
                                                       
+                                                                   
                                              
                                            
   
@@ -74,7 +77,7 @@ static struct {
 static gboolean
 _do_upgrade(gpointer user_data __attribute__((unused)))
 {
-
+                                                
     if (pcv_drain_is_terminating()) return G_SOURCE_REMOVE;
     if (pcv_drain_get_work() != 0) {
         g_timeout_add(100, _do_upgrade, NULL);
@@ -103,6 +106,14 @@ _do_upgrade(gpointer user_data __attribute__((unused)))
         g_snprintf(pid_str, sizeof(pid_str), "%d", getpid());
         g_setenv("LISTEN_PID", pid_str, TRUE);
     }
+
+                                                                                       
+                                                                           
+                                         
+                                                        
+    pcv_prom_flush();
+                                                                                            
+                                                                                            
 
                                        
     gchar *argv[] = {G.binary_path, NULL};

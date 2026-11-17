@@ -93,11 +93,11 @@
 #include <errno.h>
 #include "api/dispatcher_policy.h"
 #include "modules/dispatcher/dispatcher_shared.h"
+#include "modules/resource/resource_gate.h"
+#include "modules/resource/vm_read_scope.h"
+#include "modules/virt/vm_owner.h"
 #include "api/dispatcher_owner_scope.h"
 
-                                                           
-                                                       
-#define PCV_VM_METADATA_URI "urn:purecvisor:metadata"
 
 
                                                        
@@ -165,58 +165,6 @@ pcv_disp_vm_owner_scope_target_from_params(const gchar *method, JsonObject *para
                                                   
                                                          
                                                           
-static gchar *
-_xml_find_owner_node(xmlNodePtr node)
-{
-    for (xmlNodePtr cur = node; cur; cur = cur->next) {                 
-        if (cur->type == XML_ELEMENT_NODE &&
-            cur->name &&
-            xmlStrcmp(cur->name, BAD_CAST "owner") == 0) {
-            xmlChar *content = xmlNodeGetContent(cur);
-            if (!content)
-                return NULL;
-            gchar *owner = g_strdup((const gchar *)content);
-            xmlFree(content);
-            return owner;
-        }
-
-        gchar *child_owner = _xml_find_owner_node(cur->children);
-        if (child_owner)
-            return child_owner;
-    }
-    return NULL;
-}
-
-                                                   
-                                                 
-                                                             
-                                                        
-static gchar *
-_vm_owner_from_xml(const gchar *xml)
-{
-    if (!xml || !*xml)
-        return NULL;
-
-    xmlDocPtr doc = xmlReadMemory(xml, (int)strlen(xml), "pcv-vm-metadata.xml",
-                                  NULL, XML_PARSE_NONET | XML_PARSE_NOERROR |
-                                                XML_PARSE_NOWARNING);
-    if (!doc)
-        return NULL;
-
-    gchar *owner = _xml_find_owner_node(xmlDocGetRootElement(doc));
-    xmlFreeDoc(doc);
-
-    if (owner)
-        g_strstrip(owner);
-    if (owner && *owner)
-        return owner;
-    g_free(owner);
-    return NULL;
-}
-
-                                                     
-                                                         
-                                                        
                                                                       
                                                                            
 static gchar *
@@ -240,27 +188,13 @@ _lookup_vm_owner(const gchar *vm_name)
         return NULL;
     }
 
+    {
                                                          
-                                                 
-                                         
-    char *metadata = virDomainGetMetadata(dom, VIR_DOMAIN_METADATA_ELEMENT,
-                                          PCV_VM_METADATA_URI,
-                                          VIR_DOMAIN_AFFECT_CONFIG);
-    if (!metadata) {
-        metadata = virDomainGetMetadata(dom, VIR_DOMAIN_METADATA_ELEMENT,
-                                        PCV_VM_METADATA_URI, 0);
-    }
-    if (metadata) {
-        owner = _vm_owner_from_xml(metadata);
-        g_free(metadata);
-    }
-
-    if (!owner) {
         char *xml = virDomainGetXMLDesc(dom, VIR_DOMAIN_XML_INACTIVE);
         if (!xml)
             xml = virDomainGetXMLDesc(dom, 0);
         if (xml) {
-            owner = _vm_owner_from_xml(xml);
+            owner = pcv_vm_owner_from_domain_xml(xml);
             g_free(xml);
         }
     }
@@ -268,6 +202,53 @@ _lookup_vm_owner(const gchar *vm_name)
     virDomainFree(dom);
     virt_conn_pool_release(conn);
     return owner;
+}
+
+static gchar *(*g_vm_owner_lookup_fn)(const gchar *vm_name);
+
+static gchar *
+_vm_owner_lookup(const gchar *vm_name)
+{
+    return g_vm_owner_lookup_fn ? g_vm_owner_lookup_fn(vm_name) : _lookup_vm_owner(vm_name);
+}
+
+void pcv_disp_set_vm_owner_lookup_for_test(gchar *(*fn)(const gchar *vm_name));
+void
+pcv_disp_set_vm_owner_lookup_for_test(gchar *(*fn)(const gchar *vm_name))
+{
+    g_vm_owner_lookup_fn = fn;
+}
+
+static const gchar k_vm_read_deny_message[] = "Permission denied: VM not found or not visible";
+
+static const gchar *
+_vm_read_target(const gchar *method, JsonObject *params)
+{
+    const gchar *key = NULL;
+    (void)pcv_disp_vm_read_method_lookup(method, &key);
+    return key ? pcv_disp_json_string_member(params, key) : pcv_disp_vm_owner_scope_target_from_params(method, params);
+}
+
+gboolean
+pcv_disp_vm_read_allowed(const gchar *method, JsonObject *params, GSocketConnection *connection, gchar **deny_message)
+{
+    PcvResCaller rc = { 0 };
+    pcv_res_caller_init(&rc, params, connection);
+    gboolean allowed = rc.role >= PCV_ROLE_ADMIN;
+    if (!allowed) {
+        const gchar *target = _vm_read_target(method, params);
+        gchar *owner = (target && *target) ? _vm_owner_lookup(target) : NULL;
+        if (owner && *owner) {
+            PcvVmReadScope *scope = pcv_vm_read_scope_new(&rc);
+            allowed = pcv_vm_read_visible(scope, owner);
+            pcv_vm_read_scope_free(scope);
+        }
+        g_free(owner);
+    }
+    pcv_res_caller_clear(&rc);
+    if (!allowed && deny_message)
+        *deny_message = g_strdup(k_vm_read_deny_message);
+    return allowed;
 }
 
                                                                   
@@ -290,7 +271,7 @@ _vm_owner_matches_caller(const gchar *vm_name,
                                                         
                                               
                     
-    gchar *owner = _lookup_vm_owner(vm_name);
+    gchar *owner = _vm_owner_lookup(vm_name);
     gboolean allowed = (owner && g_strcmp0(owner, caller_sub) == 0);
     g_free(owner);
 

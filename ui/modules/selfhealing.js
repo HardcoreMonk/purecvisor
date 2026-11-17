@@ -325,7 +325,7 @@ function render() {
     _el('h3', { text: '⏳ 승인 대기 (' + _state.pending.length + ')' })
   ]);
   if (_state.pending.length === 0) {
-    pendingSec.appendChild(_el('p', { class: 'sh-empty', text: '대기 중인 액션 없음' }));
+    pendingSec.appendChild(_el('p', { class: 'sh-empty', text: PCV.vmScope ? PCV.vmScope.healingPendingEmptyText('대기 중인 액션 없음') : '대기 중인 액션 없음' }));
   } else {
     var thead = _el('thead', null, [
       _el('tr', null, ['ID','정책','액션','이유','시각','관리'].map(function(t) {

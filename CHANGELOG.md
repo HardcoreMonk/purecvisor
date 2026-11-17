@@ -1,8 +1,117 @@
 # Changelog
 
+## 2.2.1 기능 릴리스 — 2026-11-18
+
+2.2.0 이후의 Single Edge 기능·보안·안정성 변경을 담은 기능 릴리스다. ADMIN이 아닌 계정의 VM 읽기 범위, 사용자·API
+키 이름 규칙, Prometheus 출력 형식이 바뀌고 DB에 열 두 개와 표 하나가 더해진다(`user_version`은 그대로). 기존 RPC
+메서드와 REST 경로는 그대로 쓸 수 있지만 일부 응답이 바뀐다. 업그레이드 전에 아래 "업그레이드 시 확인할 점"과
+"2.2.0으로 되돌릴 때"를 확인한다. 2.2.0 뒤 공개 main에만 있던 변경(바로 아래 "2026-11-11 2.2.0 이후 main 변경")도 이
+릴리스에 들어 있다.
+
+### 신규 기능
+
+- VM 진단을 더했다. 새 VIEWER RPC `monitor.vm.diag`(REST `GET /api/v1/monitor/vm-diag`, CLI
+  `pcvctl monitor diag [--vm 이름]`)가 데몬이 5초마다 모은 표본에서 VM별 CPU %(vCPU 대비·호스트 대비), 디스크·네트워크
+  속도와 지연, 메모리 네 값(지금 할당·게스트 안 사용 추정·게스트 가용·호스트 RSS), 데이터 품질(`ok`·`warming_up`·
+  `partial`·`busy`·`stopped`), 잠정 경합 신호 7종과 호스트 할당률을 낸다. 요청마다 libvirt를 부르지 않는다. 웹 UI
+  운영 개요에 "VM 자원" 절과 요약 띠 "VM 신호", VM 모니터에 VM 진단 표, VM 상세 `성능` 탭에 진단 속도를 그린다.
+  설명은 가이드 8.1 "VM 진단".
+- VM 소유자 이관 `vm.owner.set`(ADMIN)을 더했다. REST `PUT /api/v1/vms/{name}/owner`, CLI
+  `pcvctl vm owner <vm> <owner> [--expect <이전 소유자>|--expect-none]`. 새 소유자는 존재하는 사용자여야 하고, 영구·실행
+  중 정의를 함께 바꾸며, 성공하면 그 VM의 비ADMIN VNC 연결을 닫는다. ADMIN `vm.list`에 `owner` 칸이 생긴다.
+- 호스트 재부팅 뒤 PCV 관리 브리지(기본 NAT `pcvnat0`, 물리 브리지, VPC Linux 브리지)에 붙은 autostart VM을 데몬이
+  네트워크 준비를 마친 직후 부팅당 한 번 켠다. 이 브리지는 libvirt 자동 시작보다 늦게 생겨 그런 VM이 "No such device"로
+  꺼진 채 남았다. 켜는 경로는 정식 `vm.start`(한 대씩, 감사 행위자 `system`)이고, 꺼진 이유가 `FAILED`(libvirt 자동 시작
+  실패)인 VM만 켠다. 같은 부팅의 데몬 재시작·SIGUSR2는 다시 판정하지 않는다. 설정 `[network]
+  vm_autostart_after_bootstrap`(기본 1), 감사 `vm.boot_autostart`, 지표 `purecvisor_vm_boot_autostart_total{result}`.
+- 플러그인이 RPC 메서드를 등록하고 응답할 수 있다. 데몬 링크가 목록(`src/modules/plugin/pcv_plugin_exports.list`)의 세
+  함수 `pcv_plugin_registry_add`·`pcv_plugin_respond_success`·`pcv_plugin_respond_error`만 동적 심볼로 내보낸다. 응답은
+  정확히 한 번이고(응답 없이 돌아온 처리기에는 데몬이 −32603), 호출마다 감사 행과 RPC 지표가 남는다. 플러그인 ABI 버전은
+  1 그대로이며 플러그인 메서드는 지금처럼 ADMIN만 부른다.
+- 계정 없이 지운 사용자 이름을 닫는 `auth.deleted_name.add`(ADMIN, CLI `pcvctl auth retire-name <이름>`)와 지운 이름을
+  일부러 되살리는 `auth.user.create`의 `reuse_deleted_name`(CLI `pcvctl auth create … --reuse-deleted-name`)을 더했다.
+
+### 보안·동작
+
+- ADMIN이 아닌 계정(VIEWER·OPERATOR)의 VM 읽기가 한 규칙을 따른다 — 자기가 만든 VM과 같은 테넌트 사용자가 소유한
+  VM만 본다. 이전에는 표면마다 범위가 달라 일부 목록·지표·이벤트·수집기 경로가 다른 테넌트의 VM 정보를 비ADMIN에게
+  주었다. 이제 VM 목록·단일 VM 조회 14개·Job·WebSocket 이벤트·`/metrics`가 같은 규칙으로 거른다. 소유자 없는 VM은
+  ADMIN만 보고, 테넌트 없는 VIEWER는 VM을 보지 못하며, 테넌트 없는 OPERATOR는 자기가 만든 VM만 본다. 조작(시작·정지·
+  삭제·콘솔)은 지금처럼 만든 사람과 ADMIN만 한다. 설명은 가이드 10.2 "VM 읽기 범위".
+- 사용자·API 키·내부 행위자 이름이 한 이름 공간을 쓴다. 다른 종류와 같은 이름, 예약 이름(`grpc`·`local-admin`·
+  `system`·`ai-agent`·`ai-ops`·`-`), 지운 사용자 이름(묘비)은 만들 수 없다. API 키 호출자는 테넌트를 갖지 않는다(같은
+  이름 사용자의 테넌트를 빌리지 않는다). 키 이름과 사용자 `tenant`는 자원 이름 규칙을 따르며 문자열이 아닌 `tenant`는
+  −32602다. gRPC는 매핑 뒤 메서드 이름이 문법 밖이면 디스패처를 부르지 않고 오류 프레임을 보낸다.
+- 셀프 가입(`POST /api/v1/auth/register`)은 가입할 수 없는 이름 전부를 같은 409 `username is reserved`로, 그 밖의
+  실패를 500 `registration failed` 고정 문구로 답한다.
+- 플러그인 디렉터리와 그 위 모든 성분(`/`까지)·`.so`는 소유자 root·그룹/기타 쓰기 없음이어야 로딩한다(어기면 감사
+  `plugin.load` 코드 7·8로 건너뛴다). 이름이 빈 플러그인도 거부한다(코드 9). 데몬은 검사한 그 파일을 연다.
+- 비ADMIN의 VM 읽기 범위 판정은 메인 루프 밖에서 돈다. 메모리·sqlite만 읽는 목록 RPC용 실행 줄 `범위 읽기`(2칸)가
+  생기고 `monitor.vm.diag`가 그리로 옮긴다.
+
+### 수정
+
+- `vm.metrics`가 게스트 메모리 통계가 없을 때 할당량의 20%를 지어내지 않는다 — `mem`은 −1이고 새 필드 `mem_source`가
+  원천을 알린다. 디스크·네트워크는 정의의 모든 디스크·인터페이스 합이다. `monitor.metrics`의 `mem_used_mb`는 게스트 안
+  사용 추정(없으면 −1)이고 지금 할당은 새 필드 `mem_alloc_mb`다. 웹 UI·CLI는 값 없음을 `—`·`N/A`로 보인다.
+- REST `GET /api/v1/monitor/metrics?vm_id=<이름>`이 늘 −32602로 실패하던 것을 고쳤다.
+- 웹 UI 모니터의 디스크·네트워크 순위 표가 늘 0이던 것을 고쳤다. 호스트 네트워크 속도는 실제 경과로 계산하고 첫 표본과
+  카운터 재설정에서 `0` 대신 `—`를 보인다.
+- 빈 아이디·비밀번호 로그인이 데몬 로그에 GLib CRITICAL을 남기던 것을 고쳤다. 응답(401, 잠긴 이름이면 429)과 실패 기록은
+  그대로다.
+- `pcvctl iso list`의 표가 줄마다 `(null)`이고 plain 출력이 비정상 종료하던 것을 고쳤다.
+- 누적 지표 계수기가 60초마다만 저장돼 정지·재시작·SIGUSR2 직전 최대 60초의 증가분이 사라지던 것을 고쳤다. 정지 정리와
+  교체 직전에도 저장한다.
+- 데몬 정지 때 플러그인 종료 콜백 `pcv_plugin_shutdown()`을 정확히 한 번 부른다(SIGUSR2 교체에서는 부르지 않는다).
+- 거절된 플러그인(`dlclose`로 내려가지 않는 `.so`)의 파일 번호가 다음 `.so`에 다시 쓰여 뒤쪽 플러그인이 모두 거절되던
+  것을 고쳤다. 데몬이 연 플러그인 파일은 성공·거절과 무관하게 정지 때까지 열어 둔다.
+
+### 업그레이드 시 확인할 점
+
+- `sudo apt install ./purecvisor-single_2.2.1_amd64.deb`로 설치한 뒤 `sudo systemctl restart purecvisorsd`로 실행
+  중인 데몬을 새 바이너리로 바꾼다. 기존 `daemon.conf`와 데이터는 보존된다.
+- **DB.** 기동 때 Job 상태 DB의 `jobs`에 `actor`·`actor_tenant` 열을, RBAC DB에 지운 이름 표 `deleted_user_names`를
+  없을 때만 더한다. 두 DB의 `user_version`은 바뀌지 않는다. 그 전에 쌓인 Job(행위자 없음)은 ADMIN만 본다.
+- **VM 읽기 범위.** 소유자 없는 VM과 테넌트 없는 계정의 VM이 비ADMIN 화면에서 사라진다. 반영 직후 ADMIN으로 `vm.list`의
+  `owner`를 보고 넘길 VM을 `vm.owner.set`으로 정하고, `pcvctl --format=json auth list`로 OPERATOR·VIEWER 계정의
+  `tenant`를 확인한다. OPERATOR의 VM 읽기 거절 문구가 `Permission denied: VM not found or not visible`(−32006)로 바뀐다.
+  비ADMIN의 `vm.metrics`·`vm.sla.report`는 없는 VM에 0값 성공 대신 이 오류다. 절차는 가이드 10.2 "업그레이드
+  절차(VM 읽기 범위, ADMIN)".
+- **외부 Prometheus.** 비ADMIN 토큰으로 긁는 `/metrics`는 보이는 VM의 계열만 담고, 권한 0·1 API 키에는 테넌트가 없어
+  VM 계열이 사라진다. `/internal/vms`·`/internal/telemetry`는 비ADMIN 토큰에 403, `/health/recent-errors`는 자기 실패만
+  준다. VM 계열이 필요하면 같은 호스트에서 데몬 리스너(`127.0.0.1:8080`)로 곧장 붙는 스크레이퍼를 쓴다(가이드 8.10).
+  `[metrics] auth=none`은 기동 경고에 모든 테넌트 VM 계열 공개를 함께 남긴다.
+- **Prometheus 출력 형식.** 원천 누적 `_total` 이름의 TYPE이 gauge에서 counter로 바뀐다(값 그대로 — 패널은 `rate()`·
+  `increase()`로). 같은 이름의 계열이 한 덩어리로 나오고 `# TYPE`은 이름마다 한 번이다. 호스트 CPU%·메모리%가 한 번만
+  나온다. `purecvisor_circuit_breaker_failures_total`은 `purecvisor_circuit_breaker_consecutive_failures`(gauge)로
+  바뀐다. healing·agent 계수는 라벨별로 센다. 라벨 값의 `\`·`"`·줄바꿈을 이스케이프한다. 새 VM·호스트·표본기 계열이
+  생긴다. 전체 목록은 가이드 8.1 "Prometheus 출력 변경".
+- **이름 규칙.** 사용자와 같은 이름의 API 키, 키와 같은 이름의 사용자, 예약 이름 계정·키, 플래그 없는 지운 이름 재생성,
+  규칙 밖 키 이름·사용자 테넌트가 생성 시점에 거절된다. 비ADMIN API 키는 테넌트가 없어 테넌트가 필요한 작업(VM 생성의
+  기본 브리지 판정, 호스트 자원 참조, VPC 테넌트 작업)이 거절된다. 이미 있는 겹침은 그대로 인증되며 데몬이 기동 때 겹침
+  수만 로그 한 줄로 남긴다. 지운 부트스트랩 관리자는 재기동으로 되살아나지 않는다(가이드 10.2 "주체 이름 규칙과 지운
+  이름").
+- **부팅 뒤 자동 시작.** 이 판을 처음 반영한 기동은 판정 표지 `/var/lib/purecvisor/vm_boot_autostart.json`만 쓰고 VM을
+  켜지 않는다(`record_only`). 보완 시작은 그다음 재부팅부터다. 끄려면 `[network] vm_autostart_after_bootstrap = 0`.
+- 지표 레지스트리 슬롯이 4096에서 8192로 늘어 그 정적 배열이 약 3.3 MB(전의 약 두 배)다.
+- BPF 소스는 2.1.0부터 같다. 선택형 BPF tarball의 객체·manifest는 2.2.0 tarball과 바이트 동일하므로 설치된 BPF
+  객체를 그대로 써도 된다.
+- 웹 UI 정적 자산의 버전 표기가 `2.2.1`로 바뀐다. 업그레이드 뒤 브라우저를 새로고침해 새 UI를 받는다.
+
+### 2.2.0으로 되돌릴 때
+
+- 데몬을 멈춘 뒤 `/var/lib/purecvisor/vm_boot_autostart.json`을 지운다. 남겨 두면 되돌림 → 재부팅 → 다시 올릴 때 꺼 둔
+  PCV 브리지 autostart VM이 켜질 수 있다.
+- 업그레이드 전에 `/var/lib/purecvisor/prom_counters.json` 사본을 두고, 되돌릴 때 2.2.0 데몬을 띄우기 전에 사본으로
+  되돌린다. 그대로 두면 라벨별 counter 때문에 렌더마다 `Metric type mismatch` 경고가 찍힐 수 있다.
+- Job DB의 `actor`·`actor_tenant` 열과 RBAC DB의 `deleted_user_names` 표는 남지만 2.2.0 동작에 영향이 없다. 비ADMIN VM
+  읽기 범위와 이름 규칙은 2.2.0 동작으로 돌아간다. `vm.owner.set`으로 바꾼 소유자는 그대로다.
+- 2.2.0 패키지를 다시 설치하고(`sudo apt install --allow-downgrades ./purecvisor-single_2.2.0_amd64.deb`) 데몬을
+  재시작한다.
+
 ## 2026-11-11 2.2.0 이후 main 변경
 
-새 릴리스가 아니다. 아래 변경은 공개 main 소스에만 있고, 2.2.0 태그·Release 자산과 패키지는 그대로다.
+새 릴리스가 아니었다. 아래 변경은 2.2.0 태그 뒤 공개 main에 들어갔고 2.2.1 릴리스에 포함됐다.
 
 - ZFS 풀 잠금의 자가 초기화를 스레드 안전하게 고쳤다. 초기화 전에 여러 스레드가 동시에 첫 `pcv_zfs_pool_lock()`을
   부르면 잠금 표와 등록 뮤텍스가 두 번 만들어져 같은 풀을 두 스레드가 함께 잠글 수 있었다. 이제 초기화와 종료가 정적

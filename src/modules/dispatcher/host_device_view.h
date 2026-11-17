@@ -32,6 +32,7 @@
 #include "modules/dispatcher/host_device_scan.h"
 #include "modules/resource/resource_domain_refs.h"
 #include "modules/resource/resource_registry.h"
+#include "modules/resource/vm_read_scope.h"
 
 G_BEGIN_DECLS
 
@@ -99,12 +100,14 @@ void pcv_host_vm_def_free(gpointer def);
 typedef gboolean (*PcvHostVisibleFn)(gpointer ctx, PcvResKind kind, const gchar *id);
 
                                                                                                           
-                                                                    
+                                                                                                  
+                                                                                     
 typedef struct {
     gint             role;
     const gchar     *subject;
     PcvHostVisibleFn visible;
     gpointer         ctx;
+    PcvVmReadScope  *vm_scope;
 } PcvHostViewCaller;
 
    

@@ -37,6 +37,8 @@
 #include <string.h>
 #include "fixtures/job_queue_legacy.h"
 #include "../src/utils/pcv_job_queue.h"
+#include "../src/utils/pcv_job_recovery.h"
+#include "../src/modules/dispatcher/rpc_completion.h"
 
 static gchar *g_tmpdir = NULL;
 static gchar *g_dbpath = NULL;
@@ -87,7 +89,7 @@ static void test_create_returns_id(void) {
 static void test_get_pending_after_create(void) {
     setup_db();
     gchar *id = pcv_job_create("ova_export", "vm-test", "{\"k\":\"v\"}");
-    JsonObject *job = pcv_job_get(id);
+    JsonObject *job = pcv_job_get(id, NULL);
     g_assert_nonnull(job);
     g_assert_cmpstr(json_object_get_string_member(job, "type"), ==, "ova_export");
     g_assert_cmpstr(json_object_get_string_member(job, "target"), ==, "vm-test");
@@ -101,7 +103,7 @@ static void test_update_status_progress(void) {
     setup_db();
     gchar *id = pcv_job_create("backup", "vm-x", NULL);
     pcv_job_update_status(id, PCV_JOB_RUNNING, 42, "in progress");
-    JsonObject *job = pcv_job_get(id);
+    JsonObject *job = pcv_job_get(id, NULL);
     g_assert_cmpint((gint)json_object_get_int_member(job, "status_code"), ==, PCV_JOB_RUNNING);
     g_assert_cmpint((gint)json_object_get_int_member(job, "progress"), ==, 42);
     g_assert_cmpstr(json_object_get_string_member(job, "detail"), ==, "in progress");
@@ -114,7 +116,7 @@ static void test_set_result_completed(void) {
     setup_db();
     gchar *id = pcv_job_create("vm_create", "vm-c", NULL);
     pcv_job_set_result(id, PCV_JOB_COMPLETED, "{\"ok\":true}");
-    JsonObject *job = pcv_job_get(id);
+    JsonObject *job = pcv_job_get(id, NULL);
     g_assert_cmpint((gint)json_object_get_int_member(job, "status_code"), ==, PCV_JOB_COMPLETED);
     g_assert_cmpstr(json_object_get_string_member(job, "result"), ==, "{\"ok\":true}");
     json_object_unref(job);
@@ -126,7 +128,7 @@ static void test_cancel_pending(void) {
     setup_db();
     gchar *id = pcv_job_create("backup", "vm-y", NULL);
     g_assert_true(pcv_job_cancel(id));
-    JsonObject *job = pcv_job_get(id);
+    JsonObject *job = pcv_job_get(id, NULL);
     g_assert_cmpint((gint)json_object_get_int_member(job, "status_code"), ==, PCV_JOB_CANCELLED);
     json_object_unref(job);
                                       
@@ -152,7 +154,7 @@ static void test_list_returns_recent(void) {
         ids[i] = pcv_job_create("test", target, NULL);
         g_free(target);
     }
-    JsonArray *list = pcv_job_list(10);
+    JsonArray *list = pcv_job_list(10, NULL);
     g_assert_nonnull(list);
     g_assert_cmpuint(json_array_get_length(list), >=, 3);
     json_array_unref(list);
@@ -162,7 +164,7 @@ static void test_list_returns_recent(void) {
 
 static void test_get_nonexistent(void) {
     setup_db();
-    JsonObject *job = pcv_job_get("job-nonexistent");
+    JsonObject *job = pcv_job_get("job-nonexistent", NULL);
     g_assert_null(job);
     g_assert_false(pcv_job_cancel("job-nonexistent"));
     teardown_db();
@@ -175,7 +177,7 @@ static void test_cleanup_old(void) {
                                                   
                                                     
     pcv_job_queue_cleanup_old(-1);
-    JsonObject *job = pcv_job_get(id);
+    JsonObject *job = pcv_job_get(id, NULL);
     g_assert_null(job);
     g_free(id);
     teardown_db();
@@ -257,7 +259,7 @@ static void test_retention_tick_deletes_terminal_keeps_running(void) {
     g_assert_true(pcv_job_queue_retention_tick(&last0, now, 1));
     g_assert_cmpint(last0, ==, now);
     assert_external_count(db, 1);
-    JsonObject *job = pcv_job_get(pending);
+    JsonObject *job = pcv_job_get(pending, NULL);
     g_assert_nonnull(job);
     g_assert_cmpint((gint)json_object_get_int_member(job, "status_code"), ==, PCV_JOB_PENDING);
     json_object_unref(job);
@@ -436,7 +438,7 @@ static void insert_job_row(sqlite3 *db, gint64 rowid, const gchar *id, const gch
 
 static gchar *latest_id(const gchar *method, const gchar *target) {
     JsonObject *job = NULL;
-    g_assert_true(pcv_job_find_latest(method, target, &job));
+    g_assert_true(pcv_job_find_latest(method, target, NULL, &job));
     gchar *id = job ? g_strdup(json_object_get_string_member(job, "job_id")) : NULL;
     if (job) json_object_unref(job);
     return id;
@@ -446,7 +448,7 @@ static void test_find_latest_absent(void) {
     setup_db();
     JsonObject *job = json_object_new();
     JsonObject *keep = job;
-    g_assert_true(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", NULL, &job));
     g_assert_null(job);
     json_object_unref(keep);
     teardown_db();
@@ -463,7 +465,7 @@ static void test_find_latest_newest_and_method_filter(void) {
     g_assert_cmpstr(id, ==, "job-new");
     g_free(id);
     JsonObject *job = NULL;
-    g_assert_true(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", NULL, &job));
     g_assert_cmpstr(json_object_get_string_member(job, "status"), ==, "failed");
     g_assert_cmpstr(json_object_get_string_member(job, "method"), ==, "vm.delete");
     json_object_unref(job);
@@ -490,7 +492,7 @@ static void test_find_latest_returns_interrupted(void) {
     sqlite3 *db = external_db();
     insert_job_row(db, 1, "job-int", "vm.delete", "web", PCV_JOB_INTERRUPTED, 100);
     JsonObject *job = NULL;
-    g_assert_true(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", NULL, &job));
     g_assert_cmpstr(json_object_get_string_member(job, "status"), ==, "interrupted");
     g_assert_false(json_object_get_boolean_member(job, "outcome_known"));
     json_object_unref(job);
@@ -503,9 +505,9 @@ static void test_find_latest_disabled_ledger(void) {
     g_setenv("PCV_JOBS_DB_PATH", missing, TRUE);
     pcv_job_queue_init();
     JsonObject *job = NULL;
-    g_assert_false(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_false(pcv_job_find_latest("vm.delete", "web", NULL, &job));
     g_assert_null(job);
-    g_assert_false(pcv_job_find_latest(NULL, "web", &job));
+    g_assert_false(pcv_job_find_latest(NULL, "web", NULL, &job));
     g_free(missing); teardown_db();
 }
 
@@ -523,6 +525,268 @@ static void test_find_latest_index_created(void) {
     g_assert_cmpint(sqlite3_column_int(stmt, 0), ==, 2);
     sqlite3_finalize(stmt);
     sqlite3_close(db); teardown_db();
+}
+
+void pcv_job_queue_fail_scope_alter_for_test(gboolean fail);
+guint pcv_job_queue_scope_warns_for_test(void);
+gboolean pcv_job_recovery_record_roundtrip_for_test(const PcvJobRef *ref, PcvJobStatus status, gchar **encoded_out);
+
+static gboolean scope_fake_decide(gint role, const gchar *subject, const gchar *tenant, const gchar *actor,
+                                  const gchar *actor_tenant) {
+    if (role >= 2) return TRUE;
+    if (!actor) return FALSE;
+    return g_strcmp0(actor, subject) == 0 || (tenant && actor_tenant && g_strcmp0(tenant, actor_tenant) == 0);
+}
+
+static const PcvJobScope SCOPE_TA = { FALSE, 0, "zed", "ta", scope_fake_decide };
+static const PcvJobScope SCOPE_ADMIN = { TRUE, 2, "root", NULL, scope_fake_decide };
+
+static void insert_actor_row(sqlite3 *db, gint64 rowid, const gchar *id, const gchar *target, gint64 created,
+                             const gchar *actor, const gchar *actor_tenant) {
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "INSERT INTO jobs(rowid,job_id,type,target,status,progress,created_at,updated_at,generation,method,outcome_known,actor,actor_tenant)"
+        " VALUES(?,?,'vm.delete',?,2,100,?,?,'g','vm.delete',1,?,?)", -1, &stmt, NULL), ==, SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, rowid);
+    sqlite3_bind_text(stmt, 2, id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, target, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, created);
+    sqlite3_bind_int64(stmt, 5, created);
+    sqlite3_bind_text(stmt, 6, actor, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, actor_tenant, -1, SQLITE_TRANSIENT);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_DONE);
+    sqlite3_finalize(stmt);
+}
+
+static gboolean has_column(sqlite3 *db, const gchar *name) {
+    sqlite3_stmt *stmt = NULL;
+    gboolean found = FALSE;
+    g_assert_cmpint(sqlite3_prepare_v2(db, "PRAGMA table_info(jobs)", -1, &stmt, NULL), ==, SQLITE_OK);
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+        found |= g_strcmp0((const gchar *)sqlite3_column_text(stmt, 1), name) == 0;
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+static gint user_version(sqlite3 *db) {
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    gint v = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return v;
+}
+
+static void test_scope_columns_migrate(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    g_assert_true(has_column(db, "actor") && has_column(db, "actor_tenant"));
+    g_assert_cmpint(user_version(db), ==, 2);
+    sqlite3_close(db);
+    teardown_db();
+
+    g_tmpdir = g_dir_make_tmp("pcv-jobq-XXXXXX", NULL);
+    g_dbpath = g_build_filename(g_tmpdir, "jobs.db", NULL);
+    g_assert_cmpint(sqlite3_open(g_dbpath, &db), ==, SQLITE_OK);
+    external_sql(db, "CREATE TABLE jobs (job_id TEXT PRIMARY KEY,type TEXT NOT NULL,target TEXT,status INTEGER DEFAULT 0,"
+                     "progress INTEGER DEFAULT 0,detail TEXT,params TEXT,result TEXT,created_at INTEGER,updated_at INTEGER,"
+                     "generation TEXT NOT NULL DEFAULT '',method TEXT NOT NULL DEFAULT '',recovery_reason TEXT,"
+                     "outcome_known INTEGER NOT NULL DEFAULT 0)");
+    external_sql(db, "INSERT INTO jobs(job_id,type,target,status,created_at,updated_at,generation,method) "
+                     "VALUES('job-0000beef','vm.delete','web',2,100,100,'g','vm.delete')");
+    external_sql(db, "PRAGMA user_version=2");
+    g_assert_false(has_column(db, "actor"));
+    sqlite3_close(db);
+    g_setenv("PCV_JOBS_DB_PATH", g_dbpath, TRUE);
+    pcv_job_queue_init();
+    db = external_db();
+    g_assert_true(has_column(db, "actor") && has_column(db, "actor_tenant"));
+    g_assert_cmpint(user_version(db), ==, 2);
+    sqlite3_close(db);
+    JsonObject *old = pcv_job_get("job-0000beef", NULL);
+    g_assert_nonnull(old);
+    json_object_unref(old);
+    pcv_job_queue_shutdown();
+    pcv_job_queue_init();
+    db = external_db();
+    g_assert_true(has_column(db, "actor") && has_column(db, "actor_tenant"));
+    g_assert_cmpint(user_version(db), ==, 2);
+    sqlite3_close(db);
+    teardown_db();
+}
+
+static void test_old_sql_on_new_db(void) {
+    static const gchar *const OLD[] = {
+        "SELECT job_id,type,target,status,progress,detail,params,result,created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs LIMIT 0",
+        "INSERT INTO jobs(job_id,type,target,params,method,generation,status,progress,created_at,updated_at) VALUES('job-0000a001','vm.delete','web',NULL,'vm.delete','gen-1',0,0,100,100)",
+        "INSERT INTO jobs (job_id, type, target, status, progress, params, created_at, updated_at) VALUES ('job-0000a002', 'ova_export', 'web', 0, 0, NULL, 100, 100)",
+        "SELECT job_id,type,target,status,progress,detail,params,result,created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs ORDER BY created_at DESC LIMIT 50",
+        "SELECT job_id,type,target,status,progress,detail,params,result,created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs WHERE job_id='job-0000a001'",
+        "SELECT job_id,type,target,status,progress,detail,params,result,created_at,updated_at,generation,method,recovery_reason,outcome_known FROM jobs WHERE method='vm.delete' AND target='web' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        "UPDATE jobs SET status=1, progress=5, detail='d', updated_at=101 WHERE job_id='job-0000a002' AND generation='' AND status<2",
+        "UPDATE jobs SET status=2, progress=100, result='{}', outcome_known=1, updated_at=102 WHERE job_id='job-0000a002' AND generation=''",
+        "UPDATE jobs SET status=4, outcome_known=0, recovery_reason='cancel_requested', detail='Cancellation requested; worker outcome unconfirmed', updated_at=103 WHERE job_id='job-0000a001' AND status < 2",
+        "UPDATE jobs SET status=1,progress=7,detail='d',updated_at=104 WHERE job_id='job-0000a001' AND generation='gen-1' AND method='vm.delete' AND target IS 'web' AND status<2",
+        "UPDATE jobs SET status=2,progress=100,result='{}',outcome_known=1,recovery_reason=NULL,updated_at=105 WHERE job_id='job-0000a001' AND generation='gen-1' AND status<2",
+        "UPDATE jobs SET status=5,outcome_known=0,recovery_reason='restart_without_durable_result',detail='Execution interrupted; actual outcome unknown',updated_at=106 WHERE job_id='job-0000a001' AND status<2",
+        "SELECT job_id FROM jobs WHERE status IN (2,3,4) AND outcome_known=1 AND updated_at<1000",
+        "SELECT generation,method,target,status,result FROM jobs WHERE job_id='job-0000a001'",
+    };
+    setup_db();
+    sqlite3 *db = external_db();
+    for (guint i = 0; i < G_N_ELEMENTS(OLD); i++) {
+        gchar *err = NULL;
+        gint rc = sqlite3_exec(db, OLD[i], NULL, NULL, &err);
+        if (rc != SQLITE_OK) g_error("old SQL %u failed: %s", i, err ? err : "?");
+    }
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db, "SELECT count(*) FROM jobs WHERE actor IS NULL AND actor_tenant IS NULL", -1, &stmt, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_cmpint(sqlite3_column_int(stmt, 0), ==, 2);
+    sqlite3_finalize(stmt);
+    g_assert_cmpint(user_version(db), ==, 2);
+    sqlite3_close(db);
+    teardown_db();
+}
+
+static void test_alter_fail_scope_off(void) {
+    pcv_job_queue_fail_scope_alter_for_test(TRUE);
+    guint warns = pcv_job_queue_scope_warns_for_test();
+    setup_db();
+    pcv_job_queue_fail_scope_alter_for_test(FALSE);
+    g_assert_cmpuint(pcv_job_queue_scope_warns_for_test() - warns, ==, 1);
+    gchar *id = pcv_job_create("test", "web", NULL);
+    g_assert_nonnull(id);
+    JsonArray *all = pcv_job_list(10, &SCOPE_ADMIN);
+    g_assert_cmpuint(json_array_get_length(all), ==, 1);
+    json_array_unref(all);
+    JsonArray *none = pcv_job_list(10, &SCOPE_TA);
+    g_assert_cmpuint(json_array_get_length(none), ==, 0);
+    json_array_unref(none);
+    g_assert_null(pcv_job_get(id, &SCOPE_TA));
+    JsonObject *job = json_object_new(), *keep = job;
+    g_assert_true(pcv_job_find_latest("test", "web", &SCOPE_TA, &job));
+    g_assert_null(job);
+    json_object_unref(keep);
+    g_free(id);
+    teardown_db();
+}
+
+static void test_list_where_before_limit(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    for (gint i = 0; i < 3; i++) {
+        gchar *id = g_strdup_printf("job-0000b%03d", i);
+        insert_actor_row(db, 1 + i, id, "mine", 100 + i, "bob", "ta");
+        g_free(id);
+    }
+    for (gint i = 0; i < 60; i++) {
+        gchar *id = g_strdup_printf("job-0000c%03d", i);
+        insert_actor_row(db, 10 + i, id, "other", 1000 + i, "carol", "tb");
+        g_free(id);
+    }
+    JsonArray *list = pcv_job_list(50, &SCOPE_TA);
+    g_assert_cmpuint(json_array_get_length(list), ==, 3);
+    json_array_unref(list);
+    list = pcv_job_list(50, &SCOPE_ADMIN);
+    g_assert_cmpuint(json_array_get_length(list), ==, 50);
+    json_array_unref(list);
+    sqlite3_close(db);
+    teardown_db();
+}
+
+static void test_get_invisible_is_null(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    insert_actor_row(db, 1, "job-0000d001", "web", 100, "carol", "tb");
+    insert_actor_row(db, 2, "job-0000d002", "web", 100, "zed", NULL);
+    g_assert_null(pcv_job_get("job-0000d001", &SCOPE_TA));
+    g_assert_null(pcv_job_get("job-0000dfff", &SCOPE_TA));
+    JsonObject *own = pcv_job_get("job-0000d002", &SCOPE_TA);
+    g_assert_nonnull(own);
+    json_object_unref(own);
+    JsonObject *adm = pcv_job_get("job-0000d001", &SCOPE_ADMIN);
+    g_assert_nonnull(adm);
+    json_object_unref(adm);
+    sqlite3_close(db);
+    teardown_db();
+}
+
+static void test_find_latest_visible(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    insert_actor_row(db, 1, "job-0000e001", "web", 100, "bob", "ta");
+    insert_actor_row(db, 2, "job-0000e002", "web", 200, "carol", "tb");
+    insert_actor_row(db, 3, "job-0000e003", "db", 300, "carol", "tb");
+    JsonObject *job = NULL;
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", &SCOPE_TA, &job));
+    g_assert_cmpstr(json_object_get_string_member(job, "job_id"), ==, "job-0000e001");
+    json_object_unref(job);
+    job = NULL;
+    g_assert_true(pcv_job_find_latest("vm.delete", "db", &SCOPE_TA, &job));
+    g_assert_null(job);
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", &SCOPE_ADMIN, &job));
+    g_assert_cmpstr(json_object_get_string_member(job, "job_id"), ==, "job-0000e002");
+    json_object_unref(job);
+    sqlite3_close(db);
+    teardown_db();
+}
+
+static void test_legacy_rows_admin_only(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    insert_actor_row(db, 1, "job-0000f001", "web", 100, NULL, NULL);
+    PcvJobScope self = { FALSE, 1, "zed", NULL, scope_fake_decide };
+    g_assert_null(pcv_job_get("job-0000f001", &self));
+    JsonObject *adm = pcv_job_get("job-0000f001", &SCOPE_ADMIN);
+    g_assert_nonnull(adm);
+    json_object_unref(adm);
+    static const gchar *const RESERVED[] = { "local-admin", "system" };
+    for (guint i = 0; i < G_N_ELEMENTS(RESERVED); i++) {
+        pcv_rpc_completion_begin("vm.delete");
+        pcv_rpc_completion_set_actor(RESERVED[i]);
+        pcv_rpc_completion_set_actor_tenant("ta");
+        PcvJobRef *ref = pcv_job_admit("vm.delete", "web", NULL, "vm.delete");
+        (void)pcv_rpc_completion_finish();
+        g_assert_nonnull(ref);
+        sqlite3_stmt *stmt = NULL;
+        g_assert_cmpint(sqlite3_prepare_v2(db, "SELECT actor IS NULL, actor_tenant IS NULL FROM jobs WHERE job_id=?", -1, &stmt, NULL), ==, SQLITE_OK);
+        sqlite3_bind_text(stmt, 1, pcv_job_id(ref), -1, SQLITE_TRANSIENT);
+        g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+        g_assert_cmpint(sqlite3_column_int(stmt, 0), ==, 1);
+        g_assert_cmpint(sqlite3_column_int(stmt, 1), ==, 1);
+        sqlite3_finalize(stmt);
+        pcv_job_unref(ref);
+    }
+    sqlite3_close(db);
+    teardown_db();
+}
+
+static void test_journal_record_unchanged(void) {
+    setup_db();
+    pcv_rpc_completion_begin("vm.delete");
+    pcv_rpc_completion_set_actor("zed");
+    pcv_rpc_completion_set_actor_tenant("ta");
+    PcvJobRef *ref = pcv_job_admit("vm.delete", "web", NULL, "vm.delete");
+    (void)pcv_rpc_completion_finish();
+    g_assert_nonnull(ref);
+    gchar *encoded = NULL;
+    g_assert_true(pcv_job_recovery_record_roundtrip_for_test(ref, PCV_JOB_COMPLETED, &encoded));
+    JsonParser *outer = json_parser_new();
+    g_assert_true(json_parser_load_from_data(outer, encoded, -1, NULL));
+    const gchar *payload = json_object_get_string_member(json_node_get_object(json_parser_get_root(outer)), "payload");
+    JsonParser *inner = json_parser_new();
+    g_assert_true(json_parser_load_from_data(inner, payload, -1, NULL));
+    JsonObject *rec = json_node_get_object(json_parser_get_root(inner));
+    g_assert_cmpuint(json_object_get_size(rec), ==, 8);
+    g_assert_cmpint(json_object_get_int_member(rec, "version"), ==, 1);
+    g_assert_false(json_object_has_member(rec, "actor"));
+    g_assert_false(json_object_has_member(rec, "actor_tenant"));
+    g_object_unref(inner);
+    g_object_unref(outer);
+    g_free(encoded);
+    pcv_job_unref(ref);
+    teardown_db();
 }
 
 void test_job_queue_register(void) {
@@ -556,4 +820,12 @@ void test_job_queue_register(void) {
     g_test_add_func("/job_queue/find_latest_returns_interrupted", test_find_latest_returns_interrupted);
     g_test_add_func("/job_queue/find_latest_disabled_ledger", test_find_latest_disabled_ledger);
     g_test_add_func("/job_queue/find_latest_index_created", test_find_latest_index_created);
+    g_test_add_func("/job_queue/scope_columns_migrate", test_scope_columns_migrate);
+    g_test_add_func("/job_queue/old_sql_on_new_db", test_old_sql_on_new_db);
+    g_test_add_func("/job_queue/alter_fail_scope_off", test_alter_fail_scope_off);
+    g_test_add_func("/job_queue/list_where_before_limit", test_list_where_before_limit);
+    g_test_add_func("/job_queue/get_invisible_is_null", test_get_invisible_is_null);
+    g_test_add_func("/job_queue/find_latest_visible", test_find_latest_visible);
+    g_test_add_func("/job_queue/legacy_rows_admin_only", test_legacy_rows_admin_only);
+    g_test_add_func("/job_queue/journal_record_unchanged", test_journal_record_unchanged);
 }

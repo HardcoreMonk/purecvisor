@@ -135,7 +135,7 @@ static void finished(const PcvJobRef *ref, PcvJobStatus status, const gchar *err
 }
 static void dump(void)
 {
-    JsonArray *rows = pcv_job_list(1000);
+    JsonArray *rows = pcv_job_list(1000, NULL);
     JsonNode *node = json_node_new(JSON_NODE_ARRAY); json_node_take_array(node, rows);
     gchar *text = json_to_string(node, FALSE); puts(text); g_free(text); json_node_free(node);
 }
@@ -166,7 +166,7 @@ int main(int argc, char **argv)
         puts("STARTUP_WAIT"); fflush(stdout);
         gint64 stop_at = __real_g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
         while (__real_g_get_monotonic_time() < stop_at) {
-            JsonArray *rows = pcv_job_list(10);
+            JsonArray *rows = pcv_job_list(10, NULL);
             gboolean reconciled = json_array_get_length(rows) == 1 &&
                 g_str_equal(json_object_get_string_member(json_array_get_object_element(rows, 0), "status"), "interrupted");
             json_array_unref(rows);
@@ -178,7 +178,7 @@ int main(int argc, char **argv)
         g_assert_nonnull(current); puts("ADMISSION_RESUMED");
         stop_at = __real_g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
         while (__real_g_get_monotonic_time() < stop_at) g_main_context_iteration(NULL, TRUE);
-        JsonObject *row = pcv_job_get(pcv_job_id(current));
+        JsonObject *row = pcv_job_get(pcv_job_id(current), NULL);
         g_assert_cmpstr(json_object_get_string_member(row, "status"), ==, "pending");
         json_object_unref(row); pcv_job_unref(current); puts("CURRENT_JOB_PENDING");
     } else if (g_str_equal(mode, "startup-reconcile-bind")) {

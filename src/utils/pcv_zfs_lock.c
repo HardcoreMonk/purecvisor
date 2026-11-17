@@ -50,7 +50,7 @@
                                                           
                                                                                      
    
-extern void pcv_prom_gauge_set_labels(const gchar *name, const gchar *labels, gdouble value);
+#include "modules/daemons/prometheus_exporter.h"
 
 #define ZFS_LOCK_DOM "zfs_lock"
                                                                      
@@ -160,11 +160,11 @@ _pool_entry_locked(gchar **head_inout)
 static void
 _pool_lock_acquired(PoolLock *entry, const gchar *head, gint64 waited_ms)
 {
-    gchar lbl[128];
-    g_snprintf(lbl, sizeof(lbl), "pool=\"%s\"", head);                                             
+    gchar lbl[PCV_PROM_LABELS_MAX];
+    gboolean lbl_ok = pcv_prom_labels_build(lbl, sizeof(lbl), "pool", head, NULL);
     entry->acquired++;
-    pcv_prom_gauge_set_labels("purecvisor_zfs_pool_lock_acquired_total", lbl, (gdouble)entry->acquired);
-    pcv_prom_gauge_set_labels("purecvisor_zfs_pool_lock_wait_ms", lbl, (gdouble)waited_ms);
+    if (lbl_ok) pcv_prom_source_counter_set_labels("purecvisor_zfs_pool_lock_acquired_total", lbl, (gdouble)entry->acquired);
+    if (lbl_ok) pcv_prom_gauge_set_labels("purecvisor_zfs_pool_lock_wait_ms", lbl, (gdouble)waited_ms);
 }
 
                                                                   
@@ -214,7 +214,7 @@ pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
                                                   
                                                              
     g_atomic_int_inc(&g_contentions);                                    
-    pcv_prom_gauge_set_labels("purecvisor_zfs_pool_lock_contentions_total",
+    pcv_prom_source_counter_set_labels("purecvisor_zfs_pool_lock_contentions_total",
                                 "", (gdouble)g_atomic_int_get(&g_contentions));
     PCV_LOG_WARN(ZFS_LOCK_DOM,
         "pool=%s op=%s timeout after %dms (another op holds the lock)",

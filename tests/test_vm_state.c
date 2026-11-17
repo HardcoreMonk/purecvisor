@@ -613,6 +613,46 @@ static void test_handle_resolver_unavailable_fails_closed(void) {
     teardown();
 }
 
+static void test_handle_contended_only_for_live_owner(void) {
+    setup();
+    gchar *err = NULL;
+    gboolean contended = TRUE;
+    PcvVmLock *lk = pcv_vm_lock_acquire_ex("vm-c1", VM_OP_STARTING, &err, &contended);
+    g_assert_nonnull(lk); g_assert_null(err);
+    g_assert_false(contended);
+    g_assert_null(pcv_vm_lock_acquire_ex("vm-c1", VM_OP_STARTING, &err, &contended));
+    g_assert_true(contended);
+    g_assert_nonnull(strstr(err, "is already locked"));
+    g_clear_pointer(&err, g_free);
+    g_assert_null(pcv_vm_lock_acquire_ex("vm-c1", VM_OP_STARTING, NULL, NULL));
+
+    contended = TRUE;
+    g_assert_null(pcv_vm_lock_acquire_ex("", VM_OP_STARTING, &err, &contended));
+    g_assert_false(contended);
+    g_clear_pointer(&err, g_free);
+
+    pcv_vm_state_set_key_resolver(fake_resolver); g_fake_resolves = TRUE; g_fake_unavailable = TRUE;
+    contended = TRUE;
+    g_assert_null(pcv_vm_lock_acquire_ex(TEST_UUID, VM_OP_STARTING, &err, &contended));
+    g_assert_false(contended);
+    g_assert_nonnull(strstr(err, "could not be resolved"));
+    g_clear_pointer(&err, g_free);
+    g_fake_unavailable = FALSE;
+    pcv_vm_state_set_key_resolver(NULL);
+
+    sqlite3 *other = NULL;
+    g_assert_cmpint(sqlite3_open(g_dbpath, &other), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(other, "DROP TABLE vm_locks;", NULL, NULL, NULL), ==, SQLITE_OK);
+    sqlite3_close(other);
+    contended = TRUE;
+    g_assert_null(pcv_vm_lock_acquire_ex("vm-c2", VM_OP_STARTING, &err, &contended));
+    g_assert_false(contended);
+    g_assert_nonnull(err);
+    g_clear_pointer(&err, g_free);
+    pcv_vm_lock_release(lk);
+    teardown();
+}
+
 void test_vm_state_register(void) {
     g_test_add_func("/vm_state/init_shutdown", test_init_shutdown);
     g_test_add_func("/vm_state/lock_unlock_basic", test_lock_unlock_basic);
@@ -647,4 +687,5 @@ void test_vm_state_register(void) {
     g_test_add_func("/vm_state/handle/uuid_noncanonical_forms_normalized", test_handle_uuid_noncanonical_forms_normalized);
     g_test_add_func("/vm_state/handle/uuid_like_negative", test_handle_uuid_like_negative);
     g_test_add_func("/vm_state/handle/resolver_unavailable_fails_closed", test_handle_resolver_unavailable_fails_closed);
+    g_test_add_func("/vm_state/handle/contended_only_for_live_owner", test_handle_contended_only_for_live_owner);
 }

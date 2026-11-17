@@ -399,6 +399,10 @@ PARAM_HELPERS = {
 
     "pcv_res_caller_init": {"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"},
     "pcv_res_request_can_see_usb": {"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"},
+
+    "pcv_res_actor_tenant": {"_pcv_caller_tenant"},
+
+    "pcv_vm_read_view_init": {"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"},
 }
 
 for _old, _new in rpc_extract.split_renames(ROOT).items():

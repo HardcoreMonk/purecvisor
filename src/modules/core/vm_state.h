@@ -172,6 +172,14 @@ typedef struct _PcvVmLock PcvVmLock;
 [[nodiscard]] PcvVmLock *pcv_vm_lock_acquire(const gchar *vm_id, gint op_type, gchar **err_msg);
 
    
+                                                                                               
+                                                                                         
+                                                                            
+                                                                     
+   
+[[nodiscard]] PcvVmLock *pcv_vm_lock_acquire_ex(const gchar *vm_id, gint op_type, gchar **err_msg, gboolean *contended);
+
+   
                                                                            
                                                                 
    

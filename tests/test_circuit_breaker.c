@@ -157,16 +157,6 @@ static void test_named_state_default(CbFixture *f, gconstpointer d) {
     g_assert_true(s == CB_STATE_CLOSED || s == CB_STATE_OPEN || s == CB_STATE_HALF_OPEN);
 }
 
-                                           
-static void test_prometheus_metrics(CbFixture *f, gconstpointer d) {
-    (void)f; (void)d;
-    gchar *m = cb_get_prometheus_metrics();
-    g_assert_nonnull(m);
-                                                
-    g_assert_cmpuint(strlen(m), >, 0);
-    g_free(m);
-}
-
 static void test_failure_count_resets_on_success(CbFixture *f, gconstpointer d) {
     (void)f; (void)d;
     cb_record_failure();
@@ -278,7 +268,6 @@ void test_circuit_breaker_register(void) {
     CB_TEST("set_get_threshold",      test_set_get_threshold);
     CB_TEST("threshold_zero_or_negative", test_threshold_zero_or_negative);
     CB_TEST("named_state_default",    test_named_state_default);
-    CB_TEST("prometheus_metrics",     test_prometheus_metrics);
     CB_TEST("failure_resets_on_success", test_failure_count_resets_on_success);
     CB_TEST("state_enum_to_str",      test_state_enum_to_str);
     CB_TEST("half_open_state_after_open", test_half_open_state_after_open);

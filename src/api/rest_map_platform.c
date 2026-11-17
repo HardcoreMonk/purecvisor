@@ -18,6 +18,7 @@
 #include "api/rest_auth.h"
 #include "api/rest_client_identity.h"
 #include "utils/pcv_crypto.h"
+#include "modules/auth/pcv_principal_names.h"
 #include "utils/pcv_jwt.h"
 #include "utils/pcv_totp.h"
 #include "utils/pcv_log.h"
@@ -430,7 +431,7 @@ pcv_rest_map_platform(PcvRestRequest *rq)
                 ? (PcvRole)key_role
                 : (PcvRole)rq->subject_role;                                                   
             const gchar *role_str = pcv_rbac_role_to_str(role);
-            const gchar *tenant = pcv_rbac_get_tenant(subject);
+            const gchar *tenant = pcv_principal_tenant_lookup_applies(key_role) ? pcv_rbac_get_tenant(subject) : NULL;
             gchar *resp = g_strdup_printf(
                 "{\"data\":{\"username\":\"%s\",\"role\":\"%s\",\"tenant\":\"%s\"}}",
                 subject, role_str, tenant ? tenant : "---");

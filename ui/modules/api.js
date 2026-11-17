@@ -1218,13 +1218,13 @@ var _pollingTimers = {};
                                                             
                                                            
                                                                    
-function startAdaptivePolling(id, fn, intervalMs) {
+function startAdaptivePolling(id, fn, intervalMs, skipImmediate) {
   stopAdaptivePolling(id);
   var run = function() {
     if (document.hidden) return;                  
     fn();
   };
-  run();
+  if (!skipImmediate) run();
   _pollingTimers[id] = setInterval(run, intervalMs);
                                                                 
   var _vc = function() {

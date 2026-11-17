@@ -107,6 +107,7 @@ typedef struct {
 static const PcvMethodPolicy g_method_policies[] = {
                                                                 
     { "vm.inspect",                2 },
+    { "vm.owner.set",              2 },
                                   
     { "vm.delete",                 1 },                                                   
     { "vm.snapshot.delete",        2 },
@@ -120,6 +121,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "auth.role.set",             2 },
     { "auth.user.create",          2 },
     { "auth.user.tenant.set",      2 },                                           
+    { "auth.deleted_name.add",     2 },
     { "resource.register",         2 },                                                   
     { "resource.unregister",       2 },
     { "resource.grant",            2 },
@@ -504,6 +506,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "monitor.fleet",             0 },
     { "monitor.metrics",           0 },
     { "monitor.processes",         0 },
+    { "monitor.vm.diag",           0 },
     { "network.info",              0 },
     { "network.list",              0 },
     { "network.qos.get",           0 },
@@ -629,10 +632,65 @@ gboolean pcv_dispatcher_check_rbac(const gchar *method, gint caller_role) {
                                                             
                                                    
                                                                     
+static const struct { const gchar *method; const gchar *target_key; } k_vm_read_methods[] = {
+    { "vm.snapshot.list",  NULL },
+    { "vm.blkio.get",      NULL },
+    { "vm.usb.list",       NULL },
+    { "vm.sla.report",     NULL },
+    { "vm.cpu.stats",      NULL },
+    { "vm.memory.stats",   NULL },
+    { "device.nic.list",   "vm_id" },
+    { "qos.vm.get",        "vm" },
+    { "backup.history",    "vm_name" },
+
+    { "vm.metrics",            NULL },
+    { "vm.guest.agent.status", NULL },
+    { "vm.guest.fsinfo",       NULL },
+    { "vm.guest.ping",         NULL },
+    { "monitor.metrics",       "vm_id" },
+    { NULL, NULL },
+};
+
+gboolean
+pcv_disp_vm_read_method_lookup(const gchar *method, const gchar **target_key_out)
+{
+    if (target_key_out)
+        *target_key_out = NULL;
+    for (guint i = 0; method && k_vm_read_methods[i].method; i++) {
+        if (g_strcmp0(method, k_vm_read_methods[i].method) == 0) {
+            if (target_key_out)
+                *target_key_out = k_vm_read_methods[i].target_key;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+gboolean
+pcv_disp_vm_read_needs_precheck(const gchar *method)
+{
+    static const gchar *const k_precheck[] = {
+        "vm.metrics", "vm.guest.agent.status", "vm.guest.fsinfo", "vm.guest.ping", "monitor.metrics", NULL
+    };
+    for (guint i = 0; method && k_precheck[i]; i++) {
+        if (g_strcmp0(method, k_precheck[i]) == 0)
+            return pcv_disp_vm_method_is_read(method);
+    }
+    return FALSE;
+}
+
+gboolean
+pcv_disp_vm_method_is_read(const gchar *method)
+{
+    return pcv_disp_vm_read_method_lookup(method, NULL);
+}
+
 gboolean
 pcv_disp_vm_method_requires_owner_scope(const gchar *method)
 {
     if (!method)
+        return FALSE;
+    if (pcv_disp_vm_method_is_read(method))
         return FALSE;
 
     if (g_strcmp0(method, "get_vnc_info") == 0)                                  
@@ -657,7 +715,10 @@ pcv_disp_vm_method_requires_owner_scope(const gchar *method)
     if (g_strcmp0(method, "vm.list") == 0 ||
         g_strcmp0(method, "vm.event.webhook.list") == 0 ||
         g_strcmp0(method, "vm.delete.status") == 0 ||
-        g_strcmp0(method, "vm.snapshot.schedule.list") == 0)
+        g_strcmp0(method, "vm.snapshot.schedule.list") == 0 ||
+        g_strcmp0(method, "vm.numa.info") == 0 ||
+        g_strcmp0(method, "vm.billing.report") == 0 ||
+        g_strcmp0(method, "vm.schedule.list") == 0)
         return FALSE;
 
     return TRUE;
@@ -734,7 +795,8 @@ gboolean pcv_dispatcher_vm_target_aliases_valid(const gchar *method, JsonObject 
 {
     const gchar *reason = NULL;
     if (reason_out) *reason_out = NULL;
-    if (!params || !pcv_disp_vm_method_requires_owner_scope(method) ||
+    if (!params ||
+        !(pcv_disp_vm_method_requires_owner_scope(method) || pcv_disp_vm_method_is_read(method)) ||
         g_strcmp0(method, "vm.inspect") == 0 ||
         g_strcmp0(method, "vm.batch") == 0)
         return TRUE;

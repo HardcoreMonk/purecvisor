@@ -93,6 +93,7 @@
 #include <errno.h>
 #include "api/dispatcher_policy.h"
 #include "api/dispatcher_internal.h"
+#include "modules/resource/vm_read_scope.h"
 #include "modules/dispatcher/dispatcher_shared.h"
 #include "api/dispatcher_owner_scope.h"
 #include "modules/dispatcher/handler_vm_ova.h"
@@ -117,7 +118,15 @@ void handle_jobs_list(JsonObject *params, const gchar *rpc_id,
 {
     gint lim = (params && json_object_has_member(params, "limit"))
         ? (gint)json_object_get_int_member(params, "limit") : 50;
-    JsonArray *arr = pcv_job_list(lim);
+
+    PcvResCaller rc = { 0 };
+    pcv_res_caller_init(&rc, params, connection);
+    PcvVmReadScope *scope = pcv_vm_read_scope_new(&rc);
+    PcvJobScope js;
+    pcv_vm_read_job_scope(scope, &js);
+    JsonArray *arr = pcv_job_list(lim, &js);
+    pcv_vm_read_scope_free(scope);
+    pcv_res_caller_clear(&rc);
     gint pg_off = 0, pg_lim = 0;
     pcv_disp_get_pagination_params(params, &pg_off, &pg_lim);
     JsonNode *node = pcv_disp_paginate_array(arr, pg_off, pg_lim > 0 ? pg_lim : lim);
@@ -138,7 +147,15 @@ void handle_jobs_get(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
-    JsonObject *obj = pcv_job_get(job_id);
+
+    PcvResCaller rc = { 0 };
+    pcv_res_caller_init(&rc, params, connection);
+    PcvVmReadScope *scope = pcv_vm_read_scope_new(&rc);
+    PcvJobScope js;
+    pcv_vm_read_job_scope(scope, &js);
+    JsonObject *obj = pcv_job_get(job_id, &js);
+    pcv_vm_read_scope_free(scope);
+    pcv_res_caller_clear(&rc);
     if (!obj) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "Job not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);

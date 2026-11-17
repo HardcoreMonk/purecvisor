@@ -140,6 +140,10 @@ empty, error 상태를 구분해야 한다.
 - 행 action은 우측 끝에 icon 또는 짧은 button group으로 묶는다.
 - 모바일에서 카드형 전환이 필요한 표는 `table.card-mobile`을 사용한다.
 - 빈 표는 empty state 한 줄과 primary next action만 둔다.
+- 서버가 권한 범위로 거른 목록(비ADMIN VM 목록·대시보드 워크로드·VM 진단 표 등)의 빈 상태는 "없음"이 아니라 범위를 말한다
+  ("볼 수 있는 VM이 없습니다"). 문구 선택은 `ui/modules/vm.js`의 `PCV.vmScope` 한 곳이다.
+- 모니터 VM 진단의 품질·신호 배지는 `HN.statusPill`에 `.vmdiag-pill`을 더해 네 테마에서 글자 대비 4.5:1 이상을
+  맞춘다(`ui/style.css`의 대비 변형). 값이 없으면 0 대신 `—`와 이유를 보이는 글자·`title`·`.sr-only`로 함께 낸다.
 
 ### 6.1 알림 severity lane
 

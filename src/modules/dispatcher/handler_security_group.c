@@ -107,6 +107,7 @@
 #include "modules/dispatcher/handler_push.h"
 #include "modules/dispatcher/handler_security_group.h"
 #include "api/dispatcher_internal.h"
+#include "modules/resource/vm_read_filter.h"
 
 
                                                                          
@@ -163,9 +164,12 @@ void handle_security_group_create(JsonObject *params, const gchar *rpc_id,
 void handle_security_group_list(JsonObject *params, const gchar *rpc_id,
                                          UdsServer *server, GSocketConnection *connection)
 {
-    (void)params;
     extern JsonArray *pcv_security_group_list(void);
     JsonArray *arr = pcv_security_group_list();
+    PcvVmReadView view;
+    pcv_vm_read_view_init(&view, params, connection);
+    pcv_vm_read_filter_sg_vms(view.scope, view.map, arr);
+    pcv_vm_read_view_clear(&view);
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);

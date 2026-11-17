@@ -1214,18 +1214,17 @@ _on_provider_done(GObject *source, GAsyncResult *res, gpointer user_data)
         gchar safe_model[64];
         _sanitize_label(result->model, safe_model, sizeof(safe_model));
 
-        gchar lbl[128];
-        g_snprintf(lbl, sizeof(lbl), "provider=\"%s\",model=\"%s\"",
-            pcv_ai_provider_name(result->provider), safe_model);
-        pcv_prom_gauge_set_labels("purecvisor_agent_latency_ms", lbl, result->latency_ms);
-        pcv_prom_gauge_set_labels("purecvisor_agent_confidence", lbl, result->confidence);
+        gchar lbl[PCV_PROM_LABELS_MAX];
+        gboolean lbl_ok = pcv_prom_labels_build(lbl, sizeof(lbl), "provider", pcv_ai_provider_name(result->provider), "model", safe_model, NULL);
+        if (lbl_ok) pcv_prom_gauge_set_labels("purecvisor_agent_latency_ms", lbl, result->latency_ms);
+        if (lbl_ok) pcv_prom_gauge_set_labels("purecvisor_agent_confidence", lbl, result->confidence);
 
-        gchar lbl2[160];
-        g_snprintf(lbl2, sizeof(lbl2), "provider=\"%s\",model=\"%s\",status=\"%s\"",
-            pcv_ai_provider_name(result->provider), safe_model,
-            result->success ? "ok" : "error");
-        pcv_prom_gauge_set_labels("purecvisor_agent_requests_total", lbl2,
-            (gdouble)(++G.total_queries));
+        gchar lbl2[PCV_PROM_LABELS_MAX];
+        gboolean lbl2_ok = pcv_prom_labels_build(lbl2, sizeof(lbl2), "provider", pcv_ai_provider_name(result->provider),
+            "model", safe_model,
+            "status", result->success ? "ok" : "error", NULL);
+        G.total_queries++;
+        if (lbl2_ok) pcv_prom_inc_labels("purecvisor_agent_requests_total", lbl2);
 
         PCV_LOG_INFO(AGENT_LOG_DOM, "[%s] action=%s conf=%.2f lat=%.0fms %s",
             pcv_ai_provider_name(result->provider),

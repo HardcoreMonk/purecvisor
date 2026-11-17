@@ -5,7 +5,7 @@
 > **2026-10-02 역사 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **기준 시점:** 2026-11-11 공개 소스 2.2.0 (SQLite 9개 파일·28개 영구 테이블)
+> **기준 시점:** 2026-11-18 공개 소스 2.2.1 (SQLite 9개 파일·29개 영구 테이블)
 >
 > **대상:** `purecvisor-single`의 SQLite 기반 영속 상태
 >
@@ -25,13 +25,13 @@ PureCVisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 ## 1. 아키텍처 개요
 
 `purecvisor-single`은 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 9개로 상태를 나눠
-저장한다. 이 9개 파일에는 영구 테이블 28개가 있으며, 모두 한 Single Edge 노드 안에서만
+저장한다. 이 9개 파일에는 영구 테이블 29개가 있으며, 모두 한 Single Edge 노드 안에서만
 사용한다. 노드 간 복제·합의·분산 트랜잭션은 제공하지 않는다. 각 모듈이 자기 DB의 연결과
 스키마를 소유하고 대부분 WAL 모드로 연다.
 
 <div class="pcv-database-summary pcv-technical-wide" role="list" aria-label="데이터베이스 아키텍처 핵심 수치">
   <div class="pcv-database-summary-item" role="listitem"><strong>9</strong><span>로컬 SQLite 파일</span></div>
-  <div class="pcv-database-summary-item" role="listitem"><strong>28</strong><span>영구 테이블</span></div>
+  <div class="pcv-database-summary-item" role="listitem"><strong>29</strong><span>영구 테이블</span></div>
   <div class="pcv-database-summary-item" role="listitem"><strong>0</strong><span>외부 DBMS</span></div>
   <div class="pcv-database-summary-item" role="listitem"><strong>0</strong><span>DB 간 원자 트랜잭션</span></div>
 </div>
@@ -42,7 +42,7 @@ PureCVisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
   <div class="pcv-map-bar">
     <strong id="pcv-database-architecture-title">Single Edge · 로컬 데이터 흐름</strong>
     <div class="pcv-map-meta">
-      <span class="pcv-status"><i aria-hidden="true"></i>9 DB · 28 TABLES</span>
+      <span class="pcv-status"><i aria-hidden="true"></i>9 DB · 29 TABLES</span>
       <a class="pcv-architecture-source-open" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener">SVG 원본 열기 <span aria-hidden="true">↗</span></a>
     </div>
   </div>
@@ -189,6 +189,13 @@ example.db-shm
 저장 role 마이그레이션의 1회성 표식으로만 사용한다(1 = 실효 role 동결, 2 = 저장 role 하향, §6).
 Local VPC는 `PRAGMA user_version=2`, 자원 등록은 `PRAGMA user_version=2`(§11)를 사용하며 지원
 버전보다 높은 DB를 변경하지 않고 거부한다. Job 상태 DB도 `PRAGMA user_version=2`를 쓴다(§5).
+
+2.2.0 대비 2.2.1의 스키마 변화는 둘이고 둘 다 `user_version`을 올리지 않는다 — 이전 판 바이너리가 같은 DB를 그대로 쓰게
+하려는 것이다. Job 상태 DB `jobs`에 행위자 열 `actor`·`actor_tenant`(없을 때만 `ALTER TABLE … ADD COLUMN`, §5)와
+RBAC DB의 지운 이름 표 `deleted_user_names`(`CREATE TABLE IF NOT EXISTS`, §6)다. 새 인덱스와 새 DB 파일은 없다.
+부팅 뒤 자동 시작 판정 표지(`/var/lib/purecvisor/vm_boot_autostart.json`), VM 진단 표본(프로세스 메모리 캐시)과
+Prometheus 누적 계수기 체크포인트(`/var/lib/purecvisor/prom_counters.json`)는 DB 밖이다. VM 소유자는 DB가 아니라 libvirt
+정의 XML의 `pcv:owner`가 정본이다(`vm.owner.set`이 바꾼다).
 
 2.1.0 대비 2.2.0의 스키마 변화는 없다. USB 영구 할당은 libvirt 도메인 정의가 정본이고 `host.device.list`는 sysfs와
 libvirt 정의를 읽기만 한다.
@@ -483,6 +490,10 @@ record 64KiB, 미완료/대기 결과 128개, 대기 결과 직렬화 크기 8Mi
 | `method` | `TEXT` | `NOT NULL`, 기본 빈 문자열 | 접수한 RPC method |
 | `recovery_reason` | `TEXT` | nullable | restart/cancel 사유; 조회에서 메모리 journal 사유를 보완 |
 | `outcome_known` | `INTEGER` | `NOT NULL`, 기본 0 | 실제 결과 확증 여부 |
+| `actor` | `TEXT` | nullable, 기본값 없음 | 접수 요청의 행위자(REST 주체·`grpc`·`local-admin`·`system`). 2.2.1부터 없을 때만 `ALTER TABLE`로 더하고 `user_version`은 2 그대로 |
+| `actor_tenant` | `TEXT` | nullable, 기본값 없음 | 접수 때 요청 범위의 행위자 테넌트(ADMIN·API 키 = NULL). 같은 시점·같은 방식으로 추가 |
+
+ADMIN이 아닌 계정의 `jobs.list`·`jobs.get`·`vm.delete.status`는 행위자 본인과 같은 테넌트(저장된 `actor_tenant`)의 행만 본다. `LIMIT` 앞에서 거르므로 쪽 수가 거른 결과 기준이다. `actor`가 NULL·빈 옛 행과 UDS·데몬 행은 ADMIN만 본다. 결과 journal에는 행위자를 넣지 않는다. 행위자 열 추가만 실패하면 장부는 켜고(경고 `Job scope columns unavailable`) 비ADMIN Job 읽기만 빈 결과다.
 
 `status` 값은 `PcvJobStatus` 열거형을 따른다.
 
@@ -625,6 +636,19 @@ rewrite로 행을 보존하면서 `username -> client_name`, 초기 role `OPERAT
 한 번만 반환하며 DB에는 SHA-256 hash만 저장한다. 생성·검증·조회·폐기는 모두
 `g_rbac_mutex` 안에서 직렬화한다. 같은 키를 `X-API-Key`뿐 아니라 `Authorization: Bearer pcv_…`로도
 받는다(검증 경로·스키마는 같다).
+
+#### 테이블: `deleted_user_names`
+
+2.2.1의 지운 이름(묘비) 표다. 기동 때 `CREATE TABLE IF NOT EXISTS`로 보장하며 `user_version`은 바꾸지 않는다.
+
+| 컬럼 | 타입/제약 | 의미 |
+|---|---|---|
+| `username` | `TEXT PRIMARY KEY NOT NULL` | 지운 사용자 이름(저장값 원형) |
+| `deleted_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | 묘비를 남긴 시각 |
+
+- 사용자 삭제는 같은 트랜잭션에서 묘비 한 행을 남긴다. 계정 없이 이름만 올리는 것은 ADMIN `auth.deleted_name.add`다.
+- 사용자·API 키 생성은 예약 이름(`grpc`·`local-admin`·`system`·`ai-agent`·`ai-ops`·`-`)을 SQL 앞에서 거르고, 다른 종류 이름(`users.username` ↔ `api_keys.client_name`, 폐기 키 포함)과 묘비를 한 문장으로 본다. 지운 이름의 재생성은 ADMIN의 `reuse_deleted_name:true`만 묘비 삭제와 INSERT를 한 트랜잭션으로 묶어 허용한다.
+- 기동 때 사용자와 같은 이름의 묘비를 지우고, 이름 겹침 수를 이름 없이 로그 한 줄로 남긴다. 옛 겹침 행은 지우거나 바꾸지 않는다.
 
 ---
 
@@ -1059,7 +1083,7 @@ engine이 경보를 만든 뒤 endpoint별 암호화·VAPID 서명 POST를 fan-o
 | 컬럼 | 타입/제약 | 의미 |
 |---|---|---|
 | `id` | `INTEGER PRIMARY KEY` | 내부 구독 ID |
-| `username` | `TEXT NOT NULL` | 구독 소유 사용자 |
+| `username` | `TEXT NOT NULL` | 구독 소유 사용자. 주체 없는 UDS 요청은 2.2.1부터 `admin`이 아니라 예약 행위자 `local-admin`으로 적는다 |
 | `endpoint` | `TEXT NOT NULL UNIQUE` | Push service HTTPS endpoint; 재등록 upsert 기준 |
 | `p256dh` | `TEXT NOT NULL` | 브라우저의 ECDH 공개키 |
 | `auth` | `TEXT NOT NULL` | Web Push auth secret |

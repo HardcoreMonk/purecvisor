@@ -71,6 +71,7 @@
 #include "../network/network_manager.h"                                     
 #include "../network/dpdk_manager.h"                                                           
 #include "../network/pcv_qos.h"                                                                
+#include "modules/dispatcher/rpc_completion.h"                             
 #include "utils/pcv_validate.h"                                                                     
                                                                                               
 
@@ -960,9 +961,9 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
                                                               
     {
         gchar *job_id = g_strdup_printf("vm.start:%s", ctx->vm_id);
-        pcv_ws_broadcast_job_complete(job_id, "vm.start",
+        pcv_ws_broadcast_job_complete_scoped(job_id, "vm.start",
                                        success ? "ok" : "fail",
-                                       (success || !error) ? NULL : error->message);
+                                       (success || !error) ? NULL : error->message, pcv_drain_task_actor(res), pcv_drain_task_actor_tenant(res));
         g_free(job_id);
     }
 
@@ -990,7 +991,7 @@ void pcv_vm_start_report_rejected(const gchar *vm_id, const gchar *origin, const
     const gchar *why = (reason && *reason) ? reason : "start rejected";
     pcv_audit_log(actor, "vm.start", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     gchar *job_id = g_strdup_printf("vm.start:%s", vm_id);
-    pcv_ws_broadcast_job_complete(job_id, "vm.start", "fail", why);
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.start", "fail", why, actor, (actor && g_strcmp0(actor, pcv_rpc_completion_actor()) == 0) ? pcv_rpc_completion_actor_tenant() : NULL);             
     g_free(job_id);
     g_warning("[vm.start] submit rejected for '%s' (origin=%s): %s", vm_id, origin ? origin : "vm.start", why);
 }
@@ -1014,13 +1015,14 @@ void pcv_vm_start_report_rejected(const gchar *vm_id, const gchar *origin, const
                                                                                     
                                                                                         
                                                                                   
+                                                                                                         
                                                                                       
                                                              
                                                                                           
    
 static PcvVmStartSubmit _vm_start_prepare(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
                                            gpointer user_data, GTask **task_out, gchar **err_msg,
-                                           gint *reject_code)
+                                           gint *reject_code, gboolean *lock_busy)
 {
     *task_out = NULL;
     if (!req || !req->vm_id) {
@@ -1039,7 +1041,8 @@ static PcvVmStartSubmit _vm_start_prepare(const PcvVmStartRequest *req, PcvVmSta
        
                                                           
                                                               
-    PcvVmLock *op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_STARTING, err_msg);
+                                                                                            
+    PcvVmLock *op_lock = pcv_vm_lock_acquire_ex(vm_id, VM_OP_STARTING, err_msg, lock_busy);
     if (!op_lock)
         return PCV_VM_START_REJECTED;
     g_message("[vm.start] submit '%s' (origin=%s)", vm_id, origin);
@@ -1188,17 +1191,26 @@ static PcvVmStartSubmit _vm_start_prepare(const PcvVmStartRequest *req, PcvVmSta
     return PCV_VM_START_SUBMITTED;
 }
 
-PcvVmStartSubmit pcv_vm_start_submit(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
-                                     gpointer user_data, gchar **err_msg)
+PcvVmStartSubmit pcv_vm_start_submit_ex(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
+                                        gpointer user_data, gchar **err_msg, gboolean *lock_busy)
 {
     GTask *task = NULL;
-    PcvVmStartSubmit r = _vm_start_prepare(req, done, user_data, &task, err_msg, NULL);
+    if (lock_busy) *lock_busy = FALSE;
+    PcvVmStartSubmit r = _vm_start_prepare(req, done, user_data, &task, err_msg, NULL, lock_busy);
     if (r != PCV_VM_START_SUBMITTED)
         return r;
                                                  
     g_task_run_in_thread(task, vm_start_worker_thread);
     g_object_unref(task);                                     
     return PCV_VM_START_SUBMITTED;
+}
+
+                                                                    
+                                                  
+PcvVmStartSubmit pcv_vm_start_submit(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
+                                     gpointer user_data, gchar **err_msg)
+{
+    return pcv_vm_start_submit_ex(req, done, user_data, err_msg, NULL);
 }
 
    
@@ -1264,7 +1276,7 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     gchar *err_msg = NULL;
     GTask *task = NULL;
     gint reject_code = PURE_RPC_ERR_ZFS_OPERATION;                                              
-    if (_vm_start_prepare(&req, NULL, NULL, &task, &err_msg, &reject_code) != PCV_VM_START_SUBMITTED) {
+    if (_vm_start_prepare(&req, NULL, NULL, &task, &err_msg, &reject_code, NULL) != PCV_VM_START_SUBMITTED) {
         gchar *err_resp = pure_rpc_build_error_response(rpc_id, reject_code, err_msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);

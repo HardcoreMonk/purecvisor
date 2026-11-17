@@ -2174,6 +2174,10 @@ _alert_thread(gpointer data)
                     g_snprintf(esc_msg, sizeof(esc_msg),
                                "[ESCALATION] Unacknowledged CRIT (id=%" G_GINT64_FORMAT "): %s",
                                r->alert_id, r->message);
+                    gchar push_msg[512];
+                    if (g_strcmp0(r->metric, "Security") == 0)
+                        g_snprintf(push_msg, sizeof(push_msg), "[ESCALATION] Unacknowledged CRIT (id=%" G_GINT64_FORMAT "): [crit] Security event: details hidden", r->alert_id);
+                    else g_strlcpy(push_msg, esc_msg, sizeof(push_msg));
                                                        
                                                        
                     g_mutex_unlock(&G.mu);
@@ -2208,9 +2212,7 @@ _alert_thread(gpointer data)
                         ? loop_config.webhook_crit_url : loop_config.webhook_url;
                     _webhook_post_async(esc_url, esc_payload, &loop_config);                        
                                                               
-                                                                  
-                                                                    
-                    pcv_webpush_notify("escalation", TRUE, esc_msg);
+                    pcv_webpush_notify("escalation", TRUE, push_msg);
                     PCV_LOG_WARN(ALERT_LOG_DOM, "%s", esc_msg);
                     g_mutex_lock(&G.mu);                          
                 }

@@ -19,6 +19,9 @@
                                                  
                                                                 
                                       
+                                                                       
+                                                                       
+                                     
   
                   
                                                            
@@ -33,6 +36,7 @@
    
 #include <glib.h>
 #include <glib/gstdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "modules/daemons/cgroup_psi.h"
@@ -64,6 +68,29 @@ _make_guest(const gchar *root, const gchar *rel)
         g_assert_true(g_file_set_contents(p, FILES[i].body, -1, NULL));
         g_free(p);
     }
+    g_free(dir);
+}
+
+                                                                   
+                                                                
+                                                                         
+static void
+_make_cpu_stat(const gchar *root, const gchar *rel, guint64 nr_periods,
+               guint64 nr_throttled, guint64 throttled_usec)
+{
+    gchar *dir = g_build_filename(root, rel, NULL);
+    g_assert_cmpint(g_mkdir_with_parents(dir, 0755), ==, 0);
+    gchar *body = g_strdup_printf(
+        "usage_usec 1000\nuser_usec 600\nsystem_usec 400\n"
+        "nr_periods %" G_GUINT64_FORMAT "\n"
+        "nr_throttled %" G_GUINT64_FORMAT "\n"
+        "throttled_usec %" G_GUINT64_FORMAT "\n"
+        "nr_bursts 0\nburst_usec 0\n",
+        nr_periods, nr_throttled, throttled_usec);
+    gchar *p = g_build_filename(dir, "cpu.stat", NULL);
+    g_assert_true(g_file_set_contents(p, body, -1, NULL));
+    g_free(p);
+    g_free(body);
     g_free(dir);
 }
 
@@ -444,12 +471,12 @@ test_collect_cycle_counts_samples(void)
                                                      
                                                               
                                                                     
-    g_assert_cmpint(pcv_cgroup_psi_collect(root), ==, 6);
+    g_assert_cmpint(pcv_cgroup_psi_collect(root, NULL), ==, 6);
 
                                                       
     gchar *empty = g_dir_make_tmp("pcv-cgpsi-empty-XXXXXX", NULL);
     g_assert_nonnull(empty);
-    g_assert_cmpint(pcv_cgroup_psi_collect(empty), ==, 0);
+    g_assert_cmpint(pcv_cgroup_psi_collect(empty, NULL), ==, 0);
 
     _rm_rf(empty);
     g_free(empty);
@@ -493,6 +520,280 @@ test_real_sysfs_format_gated(void)
     g_assert_cmpfloat(s.some_total_sec, >=, 0.0);
 }
 
+                                                                         
+
+                                                               
+static void
+test_domain_id_from_scope(void)
+{
+                                                   
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d4\\x2dspecreviewx1.scope"), ==, 4);
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d12\\x2dweb\\x2d01.scope"), ==, 12);
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d0\\x2da.scope"), ==, 0);
+
+                                                                        
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-lxc\\x2d7\\x2dct\\x2done.scope"), ==, -1);
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope("machine-nspawnbox.scope"), ==, -1);
+                    
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2dx\\x2dweb.scope"), ==, -1);
+                         
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d12web.scope"), ==, -1);
+               
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d12\\x2d.scope"), ==, -1);
+                   
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d99999999999\\x2dvm.scope"), ==, -1);
+                         
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(
+        "machine-qemu\\x2d3\\x2dvm"), ==, -1);
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope("cgroup.procs"), ==, -1);
+    g_assert_cmpint(pcv_cgroup_psi_domain_id_from_scope(NULL), ==, -1);
+
+                                       
+    PcvCgroupPsiRef r;
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(
+        "machine-qemu\\x2d3\\x2dweb\\x2dprod.scope", &r));
+    g_assert_cmpint(r.domain_id, ==, 3);
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(
+        "machine-lxc\\x2d7\\x2dct\\x2done.scope", &r));
+    g_assert_cmpint(r.domain_id, ==, -1);
+    g_assert_true(pcv_cgroup_psi_ref_from_lxc_dir(NULL, "lxc.payload.ct1", &r));
+    g_assert_cmpint(r.domain_id, ==, -1);
+}
+
+                                                                  
+                                                
+static void
+test_normalize_vm_name_underscore(void)
+{
+    gchar out[PCV_CGROUP_PSI_NAME_MAX];
+
+    pcv_cgroup_psi_normalize_vm_name("spec_review_x1", out, sizeof(out));
+    g_assert_cmpstr(out, ==, "specreviewx1");
+    pcv_cgroup_psi_normalize_vm_name("web-01", out, sizeof(out));
+    g_assert_cmpstr(out, ==, "web-01");
+
+                                                     
+    PcvCgroupPsiRef r;
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(
+        "machine-qemu\\x2d4\\x2dspecreviewx1.scope", &r));
+    g_assert_cmpstr(r.name, ==, "specreviewx1");
+    pcv_cgroup_psi_normalize_vm_name("spec_review_x1", out, sizeof(out));
+    g_assert_cmpstr(out, ==, r.norm_name);
+    g_assert_true(pcv_cgroup_psi_ref_from_lxc_dir(NULL, "lxc.payload.ct_1", &r));
+    g_assert_cmpstr(r.norm_name, ==, "ct_1");                     
+
+                                               
+    pcv_cgroup_psi_normalize_vm_name(NULL, out, sizeof(out));
+    g_assert_cmpstr(out, ==, "");
+    gchar small[4];
+    pcv_cgroup_psi_normalize_vm_name("abcdef", small, sizeof(small));
+    g_assert_cmpstr(small, ==, "abc");
+    pcv_cgroup_psi_normalize_vm_name("abc", small, 0);                          
+}
+
+static void
+test_cpu_stat_parse(void)
+{
+    PcvCgroupCpuStat s;
+
+                                                   
+    g_assert_true(pcv_cgroup_cpu_stat_parse(
+        "usage_usec 5000\nuser_usec 3000\nsystem_usec 2000\n"
+        "nr_periods 10\nnr_throttled 2\nthrottled_usec 345\n"
+        "nr_bursts 0\nburst_usec 0\n", &s));
+    g_assert_true(s.have);
+    g_assert_cmpuint(s.nr_periods, ==, 10);
+    g_assert_cmpuint(s.nr_throttled, ==, 2);
+    g_assert_cmpuint(s.throttled_usec, ==, 345);
+
+                                                         
+    g_assert_false(pcv_cgroup_cpu_stat_parse(
+        "usage_usec 5\nuser_usec 3\nsystem_usec 2\n", &s));
+    g_assert_false(s.have);
+                                                    
+    g_assert_false(pcv_cgroup_cpu_stat_parse("nr_periods 10\nnr_throttled 2\n", &s));
+    g_assert_false(s.have);
+
+                                            
+    g_assert_true(pcv_cgroup_cpu_stat_parse(
+        "garbage\n\nnr_periods_extra 99\nnr_periods 7\nnr_throttled x\n"
+        "throttled_usec 9\nnr_throttled 1\n", &s));
+    g_assert_cmpuint(s.nr_periods, ==, 7);
+    g_assert_cmpuint(s.nr_throttled, ==, 1);
+    g_assert_cmpuint(s.throttled_usec, ==, 9);
+
+                    
+    g_assert_false(pcv_cgroup_cpu_stat_parse("", &s));
+    g_assert_false(s.have);
+    g_assert_false(pcv_cgroup_cpu_stat_parse(NULL, &s));
+    g_assert_false(s.have);
+}
+
+static const PcvCgroupVmStat *
+_find_vm_stat(GPtrArray *arr, const gchar *name)
+{
+    for (guint i = 0; i < arr->len; i++) {
+        const PcvCgroupVmStat *st = g_ptr_array_index(arr, i);
+        if (strcmp(st->ref.name, name) == 0) return st;
+    }
+    return NULL;
+}
+
+                                                                            
+                                
+static void
+test_scan_reads_cpu_stat_children(void)
+{
+    gchar *root = g_dir_make_tmp("pcv-cgpsi-cpu-XXXXXX", NULL);
+    g_assert_nonnull(root);
+
+    static const gchar SCOPE[] = "machine.slice/machine-qemu\\x2d9\\x2dweb\\x2d01.scope";
+    _make_guest(root, SCOPE);
+    _make_cpu_stat(root, SCOPE, 100, 1, 10);
+    gchar *c0 = g_strdup_printf("%s/libvirt/vcpu0", SCOPE);
+    gchar *c1 = g_strdup_printf("%s/libvirt/vcpu1", SCOPE);
+    gchar *ce = g_strdup_printf("%s/libvirt/emulator", SCOPE);
+    gchar *lv = g_strdup_printf("%s/libvirt", SCOPE);
+    _make_cpu_stat(root, c0, 50, 5, 100);
+    _make_cpu_stat(root, c1, 50, 6, 300);
+    _make_cpu_stat(root, ce, 10, 1, 5);
+                                                   
+    _make_cpu_stat(root, lv, 999, 999, 99999);
+                                    
+    gchar *ctl = g_build_filename(root, lv, "cgroup.procs", NULL);
+    g_assert_true(g_file_set_contents(ctl, "", -1, NULL));
+    g_free(ctl);
+
+                                                    
+    _make_guest(root, "machine.slice/machine-qemu\\x2d10\\x2dnostat.scope");
+                                       
+    _make_guest(root, "lxc.payload.ct1");
+
+    GPtrArray *arr = g_ptr_array_new_with_free_func(pcv_cgroup_vm_stat_free);
+    g_assert_cmpint(pcv_cgroup_psi_collect(root, arr), ==, 9);                      
+    g_assert_cmpuint(arr->len, ==, 2);
+
+    const PcvCgroupVmStat *st = _find_vm_stat(arr, "web-01");
+    g_assert_nonnull(st);
+    g_assert_cmpint(st->ref.domain_id, ==, 9);
+    g_assert_cmpint(st->ref.kind, ==, PCV_CGROUP_PSI_KIND_VM);
+    g_assert_true(st->sum.have);
+    g_assert_cmpuint(st->sum.throttled_usec, ==, 415);                           
+    g_assert_cmpuint(st->sum.nr_periods, ==, 210);                               
+    g_assert_cmpuint(st->sum.nr_throttled, ==, 13);                         
+    g_assert_nonnull(st->children);
+    g_assert_cmpuint(st->children->len, ==, 3);
+                  
+    g_assert_cmpstr(g_array_index(st->children, PcvCgroupCpuChild, 0).name, ==, "emulator");
+    g_assert_cmpstr(g_array_index(st->children, PcvCgroupCpuChild, 1).name, ==, "vcpu0");
+    g_assert_cmpstr(g_array_index(st->children, PcvCgroupCpuChild, 2).name, ==, "vcpu1");
+    g_assert_cmpuint(g_array_index(st->children, PcvCgroupCpuChild, 0).throttled_usec, ==, 5);
+    g_assert_cmpuint(g_array_index(st->children, PcvCgroupCpuChild, 1).throttled_usec, ==, 100);
+    g_assert_cmpuint(g_array_index(st->children, PcvCgroupCpuChild, 2).throttled_usec, ==, 300);
+                                                    
+    for (gint r = 0; r < PCV_CGROUP_PSI_RES_COUNT; r++) g_assert_true(st->have_psi[r]);
+    g_assert_cmpfloat(st->psi[PCV_CGROUP_PSI_RES_CPU].some_avg10, ==, 1.25);
+    g_assert_cmpfloat(st->psi[PCV_CGROUP_PSI_RES_MEMORY].full_avg10, ==, 1.50);
+    g_assert_cmpfloat(st->psi[PCV_CGROUP_PSI_RES_IO].full_avg10, ==, 1.00);
+
+    const PcvCgroupVmStat *ns = _find_vm_stat(arr, "nostat");
+    g_assert_nonnull(ns);
+    g_assert_cmpint(ns->ref.domain_id, ==, 10);
+    g_assert_false(ns->sum.have);
+    g_assert_nonnull(ns->children);
+    g_assert_cmpuint(ns->children->len, ==, 0);
+
+    g_ptr_array_unref(arr);
+    g_free(c0); g_free(c1); g_free(ce); g_free(lv);
+    _rm_rf(root);
+    g_free(root);
+}
+
+                                                                   
+static void
+test_cap_equals_diag_cap(void)
+{
+    g_assert_cmpint(PCV_CGROUP_PSI_MAX_ENTRIES, ==, 256);
+
+    gchar *root = g_dir_make_tmp("pcv-cgpsi-cap256-XXXXXX", NULL);
+    g_assert_nonnull(root);
+    for (int i = 0; i < 270; i++) {
+        gchar *rel = g_strdup_printf(
+            "machine.slice/machine-qemu\\x2d%d\\x2dvm%03d.scope", i + 1, i);
+        _make_guest(root, rel);
+        g_free(rel);
+    }
+
+    PcvCgroupPsiRef *refs = g_new0(PcvCgroupPsiRef, PCV_CGROUP_PSI_MAX_ENTRIES);
+    gboolean truncated = FALSE;
+    g_assert_cmpint(pcv_cgroup_psi_scan(root, refs, PCV_CGROUP_PSI_MAX_ENTRIES, &truncated),
+                    ==, 256);
+    g_assert_true(truncated);
+    g_free(refs);
+
+                                                   
+    GPtrArray *arr = g_ptr_array_new_with_free_func(pcv_cgroup_vm_stat_free);
+    pcv_cgroup_psi_collect(root, arr);
+    g_assert_cmpuint(arr->len, ==, 256);
+    g_ptr_array_unref(arr);
+
+    _rm_rf(root);
+    g_free(root);
+}
+
+                                                                  
+                                 
+static void
+test_prom_export_selection(void)
+{
+    enum { NV = 70, NC = 70, N = NV + NC };
+    PcvCgroupPsiRef *refs = g_new0(PcvCgroupPsiRef, N);
+                                             
+    for (gint i = 0; i < NV; i++) {
+        gint k = (i * 37) % NV;
+        PcvCgroupPsiRef *r = &refs[2 * i];
+        g_snprintf(r->name, sizeof(r->name), "vm%03d", k);
+        r->kind = PCV_CGROUP_PSI_KIND_VM;
+        PcvCgroupPsiRef *c = &refs[2 * i + 1];
+        g_snprintf(c->name, sizeof(c->name), "ct%03d", (k * 3 + 1) % NC);
+        c->kind = PCV_CGROUP_PSI_KIND_CONTAINER;
+    }
+
+    gboolean *sel = g_new0(gboolean, N);
+    g_assert_true(pcv_cgroup_psi_prom_selected(refs, N, PCV_PROM_VM_SERIES_MAX,
+                                               PCV_CGROUP_PSI_PROM_CONTAINER_MAX, sel));
+    gint nv = 0, nc = 0;
+    for (gint i = 0; i < N; i++) {
+        gint num = atoi(refs[i].name + 2);
+        gboolean want = num < 64;
+        g_assert_cmpint(sel[i], ==, want);
+        if (sel[i]) {
+            if (refs[i].kind == PCV_CGROUP_PSI_KIND_VM) nv++; else nc++;
+        }
+    }
+    g_assert_cmpint(nv, ==, PCV_PROM_VM_SERIES_MAX);
+    g_assert_cmpint(nc, ==, PCV_CGROUP_PSI_PROM_CONTAINER_MAX);
+
+                             
+    g_assert_false(pcv_cgroup_psi_prom_selected(refs, 3, 64, 64, sel));
+    for (gint i = 0; i < 3; i++) g_assert_true(sel[i]);
+                                   
+    g_assert_true(pcv_cgroup_psi_prom_selected(refs, 4, 0, 64, sel));
+    for (gint i = 0; i < 4; i++)
+        g_assert_cmpint(sel[i], ==, refs[i].kind == PCV_CGROUP_PSI_KIND_CONTAINER);
+
+    g_free(sel);
+    g_free(refs);
+}
+
                                                                            
 
 void
@@ -514,4 +815,11 @@ test_cgroup_psi_register(void)
     g_test_add_func("/cgroup_psi/scan_respects_cap", test_scan_respects_cap);
     g_test_add_func("/cgroup_psi/collect_cycle_counts_samples", test_collect_cycle_counts_samples);
     g_test_add_func("/cgroup_psi/real_sysfs_format_gated", test_real_sysfs_format_gated);
+                                
+    g_test_add_func("/cgroup_psi/domain_id_from_scope", test_domain_id_from_scope);
+    g_test_add_func("/cgroup_psi/normalize_vm_name_underscore", test_normalize_vm_name_underscore);
+    g_test_add_func("/cgroup_psi/cpu_stat_parse", test_cpu_stat_parse);
+    g_test_add_func("/cgroup_psi/scan_reads_cpu_stat_children", test_scan_reads_cpu_stat_children);
+    g_test_add_func("/cgroup_psi/cap_equals_diag_cap", test_cap_equals_diag_cap);
+    g_test_add_func("/cgroup_psi/prom_export_selection", test_prom_export_selection);
 }

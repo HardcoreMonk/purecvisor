@@ -222,18 +222,17 @@ async function _refreshMonNodes() {
   window.MON_NODES = MON_NODES;
 }
 window._refreshMonNodes = _refreshMonNodes;
-                                                                        
+                                                                                           
                                                                  
                                                              
                                                        
 var monHist = {};
 window.monHist = monHist;
 
-                                                                          
-                                                            
-                                                          
-                                       
-function _parseLabels(raw) { const o = {}; raw.replace(/(\w+)="([^"]*)"/g, (_, k, v) => { o[k] = v; }); return o; }
+                                                                                                      
+                                                                                              
+                                                                                 
+function _parseLabels(raw) { const o = {}; raw.replace(/(\w+)="((?:[^"\\]|\\.)*)"/g, (_, k, v) => { o[k] = v.replace(/\\(.)/g, (x, c) => (c === 'n' ? '\n' : c)); }); return o; }
 window._parseLabels = _parseLabels;
 
 function _newZfsLocks() {
@@ -330,10 +329,10 @@ async function _fetchMetricsText(url) {
                                                        
                                                    
                                                                   
-                                                             
-                                                        
-                                                          
-                                                  
+                                                                             
+                                                                                           
+                                                                   
+                                                                             
   
                                                 
                                                                   
@@ -351,7 +350,7 @@ async function fetchAllMetrics() {
       const vms = [];
       txt.split('\n').forEach(l => {
         if (l.startsWith('#') || !l.trim()) return;
-        const sp = l.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(\{[^}]*\})?\s+(.+)$/);
+        const sp = l.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(\{(?:[^}"]|"(?:[^"\\]|\\.)*")*\})?\s+(.+)$/);
         if (!sp) return;
         const k = sp[1], labels = sp[2] || '', v = parseFloat(sp[3]), lb = labels ? _parseLabels(labels) : {};
         if (k === 'purecvisor_host_cpu_percent') m.cpu = v;
@@ -360,8 +359,6 @@ async function fetchAllMetrics() {
         if (k === 'purecvisor_host_memory_total_bytes') m.ram_total = v;
         if (k === 'purecvisor_host_cpu_temp_celsius') m.temp = v;
         if (k === 'purecvisor_host_load1') m.load = v;
-        const vmM = k.match(/^purecvisor_vm_(\w+)$/);
-        if (vmM && lb.vm) { let vm = vms.find(x => x.name === lb.vm); if (!vm) { vm = { name: lb.vm, node: nd.name }; vms.push(vm); } vm[vmM[1]] = v; }
         if (k === 'node_cpu_seconds_total' && lb.cpu && lb.mode) { const c = lb.cpu; if (!m.cores[c]) m.cores[c] = {}; m.cores[c][lb.mode] = v; }
         if (k.startsWith('node_memory_') && k.endsWith('_bytes')) { m.memInfo[k.slice(12, -6)] = v; }
         if (k.startsWith('node_filesystem_') && lb.mountpoint) { let fs = m.filesystems.find(f => f.mount === lb.mountpoint); if (!fs) { fs = { mount: lb.mountpoint, dev: lb.device || '', fstype: lb.fstype || '' }; m.filesystems.push(fs); } fs[k.slice(16)] = v; }
@@ -388,7 +385,7 @@ async function fetchAllMetrics() {
         if (k === 'purecvisor_predict_trend_cpu') m.cpu_trend = v;
         if (k === 'purecvisor_predict_trend_mem') m.mem_trend = v;
         if (k === 'purecvisor_healing_pending_approvals') m.healing_pending = v;
-        if (k === 'purecvisor_healing_actions_total') m.healing_total = v;
+        if (k === 'purecvisor_healing_actions_total') m.healing_total = (m.healing_total || 0) + v;
         if (k === 'purecvisor_agent_consensus_confidence') m.agent_conf = v;
         if (k === 'purecvisor_agent_latency_ms' && lb.provider) { if (!m.agent_prov) m.agent_prov = {}; if (!m.agent_prov[lb.provider]) m.agent_prov[lb.provider] = {}; m.agent_prov[lb.provider].latency = v; m.agent_prov[lb.provider].model = lb.model || ''; }
         if (k === 'purecvisor_agent_confidence' && lb.provider) { if (!m.agent_prov) m.agent_prov = {}; if (!m.agent_prov[lb.provider]) m.agent_prov[lb.provider] = {}; m.agent_prov[lb.provider].confidence = v; }
@@ -403,12 +400,12 @@ async function fetchAllMetrics() {
         }
       });
       m.vms = vms;
-      if (!monHist[nd.ip]) monHist[nd.ip] = { cpu: [], mem: [], disk: [], netRx: [], netTx: [] };
-      const hi = monHist[nd.ip]; hi.cpu.push(m.cpu || 0); hi.mem.push(m.mem || 0); hi.disk.push(m.disk || 0);
+      if (!monHist[nd.ip]) monHist[nd.ip] = { cpu: [], mem: [], disk: [], netRx: [], netTx: [], ts: [] };
+      const hi = monHist[nd.ip]; hi.cpu.push(m.cpu || 0); hi.mem.push(m.mem || 0); hi.disk.push(m.disk || 0); hi.ts.push(Date.now());
       const phys = Object.entries(m.netdevs).filter(([d]) => !['lo', 'ovs-system', 'br-int'].includes(d));
       hi.netRx.push(phys.reduce((s, [, d]) => s + (d.receive_bytes_total || 0), 0));
       hi.netTx.push(phys.reduce((s, [, d]) => s + (d.transmit_bytes_total || 0), 0));
-      [hi.cpu, hi.mem, hi.disk, hi.netRx, hi.netTx].forEach(a => { while (a.length > 60) a.shift(); });
+      [hi.cpu, hi.mem, hi.disk, hi.netRx, hi.netTx, hi.ts].forEach(a => { while (a.length > 60) a.shift(); });
       return m;
     } catch (e) {
       return { node: nd.name, ip: nd.ip, cpu: 0, mem: 0, disk: 0, error: true, vms: [], cores: {}, memInfo: {}, filesystems: [], disks: {}, netdevs: {}, hwmon: [], sockstat: {}, vmstat: {}, pressure: {}, zfsLocks: _newZfsLocks() };
@@ -422,13 +419,10 @@ window.fetchAllMetrics = fetchAllMetrics;
 function fmtBytes(b) { if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB'; if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB'; if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB'; if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB'; return b + ' B'; }
 window.fmtBytes = fmtBytes;
 
-                                          
-                                                        
-                                                          
-                                      
-                                                        
-                                 
-function fmtRate(arr, i) { if (i < 1 || !arr[i] || !arr[i - 1]) return '0 B/s'; const d = arr[i] - arr[i - 1]; return d > 0 ? fmtBytes(d / 5) + '/s' : '0 B/s'; }
+                                                                                   
+                                                                                   
+                                                                                            
+function fmtRate(arr, i, ts) { return PCV.vmdiag ? PCV.vmdiag.rateText(arr, ts, i) : '\u2014'; }
 window.fmtRate = fmtRate;
 
 function fmtUptime(s) { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mi = Math.floor(s % 3600 / 60); return d + 'd ' + h + 'h ' + mi + 'm'; }
@@ -536,6 +530,21 @@ window.gauge = gauge;
                                                                        
                                                     
    
+                                                                                    
+function _monAgg(all, diag) {
+  const allVms = PCV.vmdiag ? PCV.vmdiag.legacyVms(diag) : [];
+  const avg = k => all.reduce((s, n) => s + (n[k] || 0), 0) / Math.max(all.length, 1);
+  return { all, diag, allVms, running: allVms.filter(v => v.running === 1).length, avgCpu: avg('cpu'), avgMem: avg('mem'),
+           avgDisk: avg('disk'), totalRam: all.reduce((s, n) => s + (n.ram_total || 0), 0) };
+}
+                                                                                
+function _monPaint(b, tab, g) {
+  if (tab === 'overview') renderMonOverview(b, g.all, g.allVms, g.running, g.avgCpu, g.avgMem, g.avgDisk, g.totalRam, g.diag);
+  else if (tab === 'hosts') renderMonHosts(b, g.all);
+  else if (tab === 'vms') renderMonVms(b, g.allVms, g.running, g.diag);
+  else if (tab === 'storage') renderMonStorage(b, g.all, g.allVms, g.totalRam, g.diag);
+}
+function _monNeedsDiag(tab) { return tab === 'overview' || tab === 'vms' || tab === 'storage'; }
 async function renderMonitoring(b, tab) {
                                                         
                                                                       
@@ -543,43 +552,23 @@ async function renderMonitoring(b, tab) {
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   showSkeleton(b);
-  const all = await fetchAllMetrics();
-  const allVms = all.flatMap(n => n.vms.map(v => ({ ...v, nodeIP: n.ip })));
-  const running = allVms.filter(v => v.running === 1).length;
-  const avgCpu = all.reduce((s, n) => s + (n.cpu || 0), 0) / Math.max(all.length, 1);
-  const avgMem = all.reduce((s, n) => s + (n.mem || 0), 0) / Math.max(all.length, 1);
-  const avgDisk = all.reduce((s, n) => s + (n.disk || 0), 0) / Math.max(all.length, 1);
-  const totalRam = all.reduce((s, n) => s + (n.ram_total || 0), 0);
+                                                                                
+  const [all, diag] = await Promise.all([fetchAllMetrics(), _monNeedsDiag(tab) && PCV.vmdiag ? PCV.vmdiag.refresh(tab) : null]);
+  _monPaint(b, tab, _monAgg(all, diag));
 
-  if (tab === 'overview') renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, totalRam);
-  else if (tab === 'hosts') renderMonHosts(b, all);
-  else if (tab === 'vms') renderMonVms(b, allVms, running);
-  else if (tab === 'storage') renderMonStorage(b, all, allVms, totalRam);
-
-                                        
+                                                                         
   if (typeof startAdaptivePolling === 'function') {
     startAdaptivePolling('mon-refresh', function() {
       if (window.currentTab && window.currentTab.startsWith('mon-')) {
         var cb = PCV.ui.renderTarget();                                                  
-        var _navGen = PCV.ui.navGen();
-        if (cb) fetchAllMetrics().then(function(fresh) {
-          var freshVms = fresh.flatMap(function(n) { return n.vms.map(function(v) { return Object.assign({}, v, { nodeIP: n.ip }); }); });
-          var r = freshVms.filter(function(v) { return v.running === 1; }).length;
-          var ac = fresh.reduce(function(s, n) { return s + (n.cpu || 0); }, 0) / Math.max(fresh.length, 1);
-          var am = fresh.reduce(function(s, n) { return s + (n.mem || 0); }, 0) / Math.max(fresh.length, 1);
-          var ad = fresh.reduce(function(s, n) { return s + (n.disk || 0); }, 0) / Math.max(fresh.length, 1);
-          var tr = fresh.reduce(function(s, n) { return s + (n.ram_total || 0); }, 0);
-          if (PCV.ui.navGen() === _navGen) {
-            if (window.currentTab === 'mon-overview') renderMonOverview(cb, fresh, freshVms, r, ac, am, ad, tr);
-            else if (window.currentTab === 'mon-hosts') renderMonHosts(cb, fresh);
-            else if (window.currentTab === 'mon-vms') renderMonVms(cb, freshVms, r);
-            else if (window.currentTab === 'mon-storage') renderMonStorage(cb, fresh, freshVms, tr);
-          }
+        var _navGen = PCV.ui.navGen(), sub = window.currentTab.slice(4);
+        if (cb) Promise.all([fetchAllMetrics(), _monNeedsDiag(sub) && PCV.vmdiag ? PCV.vmdiag.refresh(sub) : null]).then(function(res) {
+          if (PCV.ui.navGen() === _navGen) _monPaint(cb, sub, _monAgg(res[0], res[1]));
         }).catch(function() {                  });
       } else {
         if (typeof stopAdaptivePolling === 'function') stopAdaptivePolling('mon-refresh');
       }
-    }, 10000);
+    }, 10000, true);
   }
 }
 window.renderMonitoring = renderMonitoring;
@@ -645,7 +634,7 @@ function _opsVmRows(sourceVms, emptyText) {
       role: v.role || (v.node ? '호스트 ' + v.node : 'VM 자산'),
       ip: v.ip_addr || v.ip || v.addr || '-',
       cpu: cpuPct,
-      mem: memPct,
+      mem: memPct, memDiag: v._mem || null,
       state: v.state || (v.running === 1 ? 'running' : 'unknown'),
       running: v.running
     };
@@ -663,7 +652,7 @@ function _opsVmRows(sourceVms, emptyText) {
       el('td', null, v.role),
       el('td', { class: 'ops-mono' }, v.ip),
       el('td', null, _opsBar(v.cpu)),
-      el('td', null, _opsBar(v.mem)),
+      el('td', null, v.memDiag && PCV.vmdiag ? PCV.vmdiag.opsMemCell(v.memDiag, _opsBar) : _opsBar(v.mem)),
       el('td', null, _opsVmStatus(v)));
   });
 }
@@ -699,7 +688,7 @@ function _opsAuditRows() {
   
                                               
   
-                                               
+                                                                                         
                                                          
                                                        
                                                    
@@ -714,17 +703,17 @@ async function renderOpsTriage(b) {
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   showSkeleton(b);
-  var all;
-  var apiVms;
+  var all, apiVms, diag = null;
   var haveVmData = false;
   try {
     var result = await Promise.all([
       fetchAllMetrics().catch(function() { return []; }),
-      fetchGet(EP.VM_LIST()).catch(function() { return { error: true }; })
+      fetchGet(EP.VM_LIST()).catch(function() { return { error: true }; }),
+      PCV.vmdiag ? PCV.vmdiag.fetch() : null                                                               
     ]);
     all = Array.isArray(result[0]) ? result[0] : [];
     apiVms = unwrapList(result[1]);
-    haveVmData = !!result[1] && !result[1].error;
+    haveVmData = !!result[1] && !result[1].error; diag = result[2];
   } catch (e) {
     all = [];
     apiVms = [];
@@ -736,7 +725,7 @@ async function renderOpsTriage(b) {
     });
   });
   var sourceVms = metricVms.length ? metricVms : apiVms;
-  var displayVms = sourceVms;
+  var displayVms = PCV.vmdiag ? PCV.vmdiag.opsRows(sourceVms, diag) : sourceVms;
   haveVmData = haveVmData || metricVms.length > 0;
   var usableMetrics = all.filter(function(n) { return !n.error; });
   function averageMetric(key) {
@@ -951,7 +940,7 @@ function _healthBadgeColor(sc) {
                                                     
                                                        
    
-function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, totalRam) {
+function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, totalRam, diag) {
                                                         
                                                                       
                                
@@ -980,7 +969,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
   var tSwapTotal = all.reduce((s, n) => s + (n.memInfo.SwapTotal || 0), 0);
   var statGrid = HN.grid(8,
     HN.card('호스트', el('div', { class: 'stat-xl color-green' }, all.length), 'text-center'),
-    HN.card('VM', el('div', { class: 'stat-xl color-accent' }, allVms.length), 'text-center'),
+    HN.card('VM', el('div', { class: 'stat-xl color-accent' }, PCV.vmdiag ? PCV.vmdiag.countText(diag, allVms.length) : allVms.length), 'text-center'),
     HN.card('실행 중', el('div', { class: 'stat-xl color-green' }, running), 'text-center'),
     HN.card('평균 CPU', [el('div', { class: 'stat-sm' }, avgCpu.toFixed(1) + '%'), HN.gauge({ value: +avgCpu.toFixed(1), warn: 80, crit: 95, inline: true })], 'text-center'),
     HN.card('평균 메모리', [el('div', { class: 'stat-sm' }, avgMem.toFixed(1) + '%'), HN.gauge({ value: +avgMem.toFixed(1), warn: 80, crit: 95, inline: true })], 'text-center'),
@@ -994,7 +983,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
 
   var nodeCards = el('div', { class: 'sg grid-3 mb-12' },
     all.map(function(n) {
-      var hi = monHist[n.ip] || { cpu: [], mem: [], netRx: [], netTx: [] };
+      var hi = monHist[n.ip] || { cpu: [], mem: [], netRx: [], netTx: [], ts: [] };
       return el('div', { class: 'hc' },
         el('h4', { role: 'heading', 'aria-level': '3' }, n.node, ' ', el('span', { class: 'stat-label' }, n.ip),
           n.uptime ? [' ', el('span', { class: 'stat-label' }, 'up ' + fmtUptime(n.uptime))] : null),
@@ -1008,7 +997,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
         HN.row('Temp', (n.temp || 0).toFixed(1) + '°C'),
         HN.row('Load', (n.load1 || n.load || 0).toFixed(2) + ' / ' + (n.load5 || 0).toFixed(2) + ' / ' + (n.load15 || 0).toFixed(2)),
         HN.row('RAM', ((n.ram_total || 0) / 1073741824).toFixed(1) + ' GB'),
-        HN.row('Net I/O', el('span', { class: 'color-cyan' }, '▲ ' + fmtRate(hi.netRx, hi.netRx.length - 1) + ' ▼ ' + fmtRate(hi.netTx, hi.netTx.length - 1))),
+        HN.row('Net I/O', el('span', { class: 'color-cyan' }, '▲ ' + fmtRate(hi.netRx, hi.netRx.length - 1, hi.ts) + ' ▼ ' + fmtRate(hi.netTx, hi.netTx.length - 1, hi.ts))),
         HN.row('Sockets', (n.sockstat.sockets_used || 0) + ' (TCP:' + (n.sockstat.TCP_inuse || 0) + ' UDP:' + (n.sockstat.UDP_inuse || 0) + ')'));
     }));
 
@@ -1110,48 +1099,21 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     el('tbody', null, kaRows));
   var keepalived = el('div', { class: 'sg grid-1 mb-12' }, HN.card('☍ keepalived VRRP Status', keepalivedTable));
 
-             
-  var runVms = allVms.filter(v => v.running === 1);
-  function top5Tbl(title, items, valFn, unit) {
-    var rows = items.map(function(v, i) {
-      return el('tr', null,
-        el('td', { class: 'w-16 color-muted' }, i + 1),
-        el('td', null, el('b', null, v.name)),
-        el('td', { class: 'color-muted' }, v.node),
-        el('td', { class: 'text-right font-bold color-accent' }, valFn(v) + unit));
-    });
-    if (items.length === 0) rows.push(el('tr', null, el('td', { colspan: '4', class: 'color-muted' }, 'No running VMs')));
-    return el('div', { class: 'hc' },
-      el('h4', { role: 'heading', 'aria-level': '3' }, title),
-      el('table', { class: 'text-11' }, el('tbody', null, rows)));
-  }
-                                                       
-                                                   
-                                              
-                                                          
-  var top5Grid = HN.grid(4,
-    top5Tbl('Top 5 Memory', runVms.toSorted((a, b) => (b.memory_used_mb || 0) - (a.memory_used_mb || 0)).slice(0, 5), v => (v.memory_used_mb || 0).toLocaleString(), ' MB'),
-    top5Tbl('Top 5 vCPU', runVms.toSorted((a, b) => (b.vcpu || 0) - (a.vcpu || 0)).slice(0, 5), v => v.vcpu || 0, ''),
-    top5Tbl('Top 5 Disk I/O', runVms.toSorted((a, b) => (b.disk_rd_bytes || 0) - (a.disk_rd_bytes || 0)).slice(0, 5), v => fmtBytes(v.disk_rd_bytes || 0), ''),
-    top5Tbl('Top 5 Network', runVms.toSorted((a, b) => ((b.net_rx_bytes || 0) + (b.net_tx_bytes || 0)) - ((a.net_rx_bytes || 0) + (a.net_tx_bytes || 0))).slice(0, 5), v => fmtBytes((v.net_rx_bytes || 0) + (v.net_tx_bytes || 0)), ''));
-  top5Grid.classList.add('mon-overview-top5');
+                                                                                              
+  var vmResource = PCV.vmdiag ? PCV.vmdiag.overviewSection(diag, { onRetry: function () { renderMonitoring(b, 'overview'); } }) : null;
 
-                                                                    
-                                                  
-                                                        
-                 
+                                                                                                           
   var vmRows = allVms.map(function(v) {
     return el('tr', null,
       el('td', null, el('b', null, v.name)),
-      el('td', null, HN.statusDot(v.running === 1 ? 'ok' : 'idle', v.running === 1 ? { glow: true } : null), ' ' + (v.running === 1 ? 'running' : 'off')),
-      el('td', null, v.node),
-      el('td', null, v.vcpu || '-'),
-      el('td', null, v.memory_max_mb || '-'),
-      el('td', null, v.memory_used_mb > 0 ? v.memory_used_mb : '-'));
+      el('td', null, HN.statusDot(v.running === 1 ? 'ok' : 'idle', v.running === 1 ? { glow: true } : null), ' ' + (v.state || (v.running === 1 ? '실행' : '정지'))),
+      el('td', { class: 'text-right' }, v.vcpu || '\u2014'),
+      el('td', { class: 'text-right' }, PCV.vmdiag ? PCV.vmdiag.fmtMiB(v.memory_max_mb) : v.memory_max_mb),
+      el('td', { class: 'text-right' }, PCV.vmdiag ? PCV.vmdiag.fmtMiB(v.memory_rss_mb) : '\u2014'));
   });
-  var allVmsCard = HN.card('All VMs (' + allVms.length + ')',
+  var allVmsCard = HN.card('All VMs (' + (PCV.vmdiag ? PCV.vmdiag.countText(diag, allVms.length) : allVms.length) + ')',
     el('table', { class: 'table-sticky' },
-      el('thead', null, el('tr', null, el('th', null, 'Name'), el('th', null, 'State'), el('th', null, 'Node'), el('th', null, 'vCPU'), el('th', null, 'Max MB'), el('th', null, 'Used MB'))),
+      el('thead', null, el('tr', null, el('th', { scope: 'col' }, 'Name'), el('th', { scope: 'col' }, 'State'), el('th', { scope: 'col' }, 'vCPU'), el('th', { scope: 'col' }, '최대 메모리'), el('th', { scope: 'col' }, '호스트 RSS'))),
       el('tbody', null, vmRows)));
 
                                                                     
@@ -1162,17 +1124,17 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
   var healingPending = all.reduce(function (s, n) { return s + (n.healing_pending || 0); }, 0);
   var rollupBar = HN.statusBar([
     { count: hostUp, label: '호스트 UP', status: hostUp === all.length ? 'ok' : 'crit', sub: '/ ' + all.length, key: 'hosts' },
-    { count: running, label: 'VM 실행', status: allVms.length === 0 ? 'idle' : (running === allVms.length ? 'ok' : 'warn'), sub: '/ ' + allVms.length, key: 'vms' },
+    PCV.vmdiag ? PCV.vmdiag.vmRunSegment(diag, running, allVms.length) : { count: running, label: 'VM 실행', status: 'idle', sub: '/ ' + allVms.length, key: 'vms' },
     { count: totalAnom, label: '이상 징후', status: totalAnom > 0 ? 'crit' : 'ok', sub: '활성', key: 'anomaly' },
     { count: healingPending, label: '복구 대기', status: healingPending > 0 ? 'warn' : 'ok', sub: '대기', key: 'healing' }
-  ], { onNavigate: function (s) {
+  ].concat(PCV.vmdiag ? [PCV.vmdiag.rollupSegment(diag)] : []), { onNavigate: function (s) {
     if (s.key === 'hosts' || s.key === 'anomaly') navigateTo('mon-hosts');
-    else if (s.key === 'vms') navigateTo('mon-vms');
+    else if (s.key === 'vms' || s.key === 'vmsignal') navigateTo('mon-vms');
     else if (s.key === 'healing') navigateTo('selfhealing');
   } });
   clearEl(b);
   b.appendChild(frag(HN.pagehead({ title: _L('모니터링 개요', 'Monitoring overview') }),
-    rollupBar, deepHealthSection, clusterTimeline, overviewSection, statGrid, nodeCards, aiOps, selfHealingSection, keepalived, top5Grid, allVmsCard, selfhealingPanel));
+    rollupBar, deepHealthSection, clusterTimeline, overviewSection, statGrid, nodeCards, vmResource, aiOps, selfHealingSection, keepalived, allVmsCard, selfhealingPanel));
                                                                  
                                                                
                           
@@ -1198,9 +1160,9 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     });
     var netSeries = [];
     all.forEach(function(n, i) {
-      var hi = monHist[n.ip] || { netRx: [], netTx: [] };
-      var rxMb = hi.netRx.slice(-60).map(function(v){ return (v || 0) / 1048576; });
-      var txMb = hi.netTx.slice(-60).map(function(v){ return (v || 0) / 1048576; });
+      var hi = monHist[n.ip] || { netRx: [], netTx: [], ts: [] };                                                  
+      var rxMb = PCV.vmdiag ? PCV.vmdiag.rateSeries(hi.netRx, hi.ts).slice(-60) : [];
+      var txMb = PCV.vmdiag ? PCV.vmdiag.rateSeries(hi.netTx, hi.ts).slice(-60) : [];
       netSeries.push({ label: (n.node || n.ip) + ' RX', data: rxMb });
       netSeries.push({ label: (n.node || n.ip) + ' TX', data: txMb });
     });
@@ -1409,7 +1371,7 @@ function _onMonVmsFilterChange() {
     if (_monVmsUnsub) { _monVmsUnsub(); _monVmsUnsub = null; }
     return;
   }
-  if (_monVmsData) renderMonVms(PCV.ui.renderTarget(), _monVmsData.allVms, _monVmsData.running);
+  if (_monVmsData) renderMonVms(PCV.ui.renderTarget(), _monVmsData.allVms, _monVmsData.running, _monVmsData.diag);
 }
 
    
@@ -1425,47 +1387,34 @@ function _onMonVmsFilterChange() {
                                                  
                                           
    
-function renderMonVms(b, allVms, running) {
+function renderMonVms(b, allVms, running, diag) {
                                                         
                                                                       
                                
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
-  _monVmsData = { allVms: allVms, running: running };
+  _monVmsData = { allVms: allVms, running: running, diag: diag };
                                                        
   if (!_monVmsUnsub && PCV.ui && PCV.ui.filterState && PCV.ui.filterState.subscribe) {
     _monVmsUnsub = PCV.ui.filterState.subscribe(_onMonVmsFilterChange);
   }
-  var statGrid = HN.grid(4,
-    HN.card('Total', el('div', { class: 'stat-xl' }, allVms.length), 'text-center'),
-    HN.card('Running', el('div', { class: 'stat-xl color-green' }, running), 'text-center'),
-    HN.card('Total vCPU', el('div', { class: 'stat-xl color-accent' }, allVms.reduce((s, v) => s + (v.vcpu || 0), 0)), 'text-center'),
-    HN.card('Total Memory', el('div', { class: 'stat-xl' }, (allVms.reduce((s, v) => s + (v.memory_max_mb || 0), 0) / 1024).toFixed(1) + ' GB'), 'text-center'));
+  var statGrid = HN.grid(2,
+    HN.card('Total', el('div', { class: 'stat-xl' }, PCV.vmdiag ? PCV.vmdiag.countText(diag, allVms.length) : allVms.length), 'text-center'),
+    HN.card('Running', el('div', { class: 'stat-xl color-green' }, PCV.vmdiag ? PCV.vmdiag.countText(diag, running) : running), 'text-center'));
+                                                                                 
+  var allocCard = PCV.vmdiag ? PCV.vmdiag.allocationCard(diag) : null;
                                                                        
   var nStopped = allVms.length - running;
   var vmFilterBar = HN.filterBar([{ key: 'vmstate', options: [
-    { value: 'running', label: 'Running', count: running, sw: 'ok' },
-    { value: 'stopped', label: 'Stopped', count: nStopped, sw: 'idle' }
+    { value: 'running', label: 'Running', count: PCV.vmdiag ? PCV.vmdiag.countOrNull(diag, running) : running, sw: 'ok' },
+    { value: 'stopped', label: 'Stopped', count: PCV.vmdiag ? PCV.vmdiag.countOrNull(diag, nStopped) : nStopped, sw: 'idle' }
   ] }]);
-  var shownVms = _monVmsShown(allVms);
-  var vmGrid = el('div', { class: 'sg grid-2' },
-    shownVms.map(function(v) {
-      var on = v.running === 1;
-      var memPct = v.memory_max_mb > 0 && v.memory_used_mb > 0 ? v.memory_used_mb / v.memory_max_mb * 100 : 0;
-      var mp = on ? memPct : 0;
-      return el('div', { class: 'hc' },
-        el('div', { class: 'justify-between mb-8' }, el('h4', null, v.name), HN.statusPill(on ? 'ok' : 'idle', on ? 'RUNNING' : 'OFF')),
-        el('div', { class: 'sg grid-3' },
-          el('div', { class: 'text-center' },
-            el('div', { class: 'stat-sm' }, mp.toFixed(1) + '%'),
-            HN.gauge({ value: +mp.toFixed(1), warn: 80, crit: 95, inline: true }),
-            el('div', { class: 'stat-label' }, 'Memory')),
-          el('div', null, HN.row('vCPU', v.vcpu || '-'), HN.row('Max RAM', (v.memory_max_mb || '-') + ' MB')),
-          el('div', null, HN.row('Used RAM', v.memory_used_mb > 0 ? v.memory_used_mb + ' MB' : '-'), HN.row('Node', v.node))));
-    }));
+                                           
+  var shown = {}; _monVmsShown(allVms).forEach(function (v) { shown[v.name] = true; });
+  var vmGrid = PCV.vmdiag ? PCV.vmdiag.vmTable(diag, function (r) { return !!shown[r.name]; }, { onRetry: function () { renderMonitoring(b, 'vms'); } }) : null;
   clearEl(b);
-  b.appendChild(frag(HN.pagehead({ title: 'Virtual Machines' }), statGrid, vmFilterBar, vmGrid));
+  b.appendChild(frag(HN.pagehead({ title: 'Virtual Machines' }), statGrid, allocCard, vmFilterBar, vmGrid));
 }
 window.renderMonVms = renderMonVms;
 
@@ -1551,7 +1500,7 @@ function _zfsLockPanel(all) {
                                                       
                                              
    
-function renderMonStorage(b, all, allVms, totalRam) {
+function renderMonStorage(b, all, allVms, totalRam, diag) {
                                                         
                                                                       
                                
@@ -1567,11 +1516,9 @@ function renderMonStorage(b, all, allVms, totalRam) {
           el('span', null, pct.toFixed(1) + '%')),
         HN.gauge({ value: pct, warn: 80, crit: 90, inline: true }));
     }), 'mb-12');
-  var vmMem = allVms.reduce((s, v) => s + (v.memory_max_mb || 0), 0);
-  var capGrid = HN.grid(3,
-    HN.card('Total Cluster RAM', el('div', { class: 'stat-xl color-accent' }, (totalRam / 1073741824).toFixed(1) + ' GB'), 'text-center'),
-    HN.card('VM Provisioned', el('div', { class: 'stat-xl color-yellow' }, (vmMem / 1024).toFixed(1) + ' GB'), 'text-center'),
-    HN.card('Overcommit', HN.gauge({ value: +(totalRam > 0 ? vmMem * 1048576 / totalRam * 100 : 0).toFixed(1), warn: 80, crit: 100, unit: '%', label: 'RAM' }), 'text-center'));
+                                                                       
+  var capGrid = HN.grid.apply(null, [3, HN.card('Total Cluster RAM', el('div', { class: 'stat-xl color-accent' }, (totalRam / 1073741824).toFixed(1) + ' GB'), 'text-center')]
+    .concat(PCV.vmdiag ? PCV.vmdiag.storageMemCards(diag) : []));
   var capSpacer = el('div', { class: 'mb-12' });
   var trendsGrid = el('div', { class: 'sg grid-2 mb-12' },
     el('div', { class: 'hc' },

@@ -94,6 +94,7 @@
 #include "../modules/dispatcher/handler_snapshot.h"
 #include "../modules/dispatcher/rpc_utils.h"
 #include "../modules/dispatcher/rpc_completion.h"                                  
+#include "modules/resource/resource_gate.h"
 #include "../utils/pcv_mainloop_guard.h"                                   
 #include "modules/dispatcher/handler_vnc.h"
 #include "modules/dispatcher/handler_vm_start.h"
@@ -111,6 +112,7 @@
 #include "modules/security/pcv_suricata_ips_rules.h"                                        
 #include "modules/dispatcher/handler_storage.h"
 #include "modules/dispatcher/handler_monitor.h"
+#include "modules/dispatcher/handler_monitor_diag.h"
 #include "modules/dispatcher/handler_container.h"
 #include "modules/dispatcher/handler_container_health.h"                                        
 #include "modules/dispatcher/handler_overlay.h"
@@ -118,7 +120,9 @@
 #include "modules/accel/gpu_manager.h"
 #include "modules/dispatcher/handler_template.h"
 #include "modules/dispatcher/handler_auth.h"
+#include "modules/dispatcher/handler_auth_names.h"
 #include "modules/dispatcher/handler_resource.h"                                            
+#include "modules/dispatcher/handler_vm_owner.h"
 #include "modules/dispatcher/handler_host_device.h"
 #include "modules/dispatcher/handler_backup.h"
 #include "modules/dispatcher/handler_replication_hostkey.h"
@@ -450,6 +454,25 @@ void dispatcher_shutdown_routes(void)
    
                                                                                    
                                                                                     
+static void
+_dispatch_route(const gchar *method, JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                GSocketConnection *connection)
+{
+
+    PcvDispatchHandler handler = (PcvDispatchHandler)g_hash_table_lookup(g_rpc_routes, method);
+    if (handler) {
+        handler(params, rpc_id, server, connection);
+    } else if (pcv_plugin_has_handler(method)) {
+
+        pcv_plugin_dispatch(method, params, rpc_id, server, connection);
+    } else {
+
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_METHOD_NOT_FOUND, "Method not found");
+        pure_uds_server_send_response(server, connection, err);
+        g_free(err);
+    }
+}
+
 static const gchar *
 _dispatch_deny_audit_target(const gchar *method, JsonObject *params)
 {
@@ -508,11 +531,16 @@ _dispatch_owner_check(const gchar *method, JsonObject *params, const gchar *rpc_
                       GSocketConnection *connection, const gchar *actor)
 {
     gint caller_role = pcv_disp_dispatcher_caller_role(params, connection);
-    if (caller_role != PCV_ROLE_OPERATOR)
+    if (caller_role >= PCV_ROLE_ADMIN)
         return TRUE;
     gchar *deny_message = NULL;
     gboolean allowed = TRUE;
-    if (pcv_disp_vm_method_requires_owner_scope(method)) {
+    if (pcv_disp_vm_method_is_read(method)) {
+
+        allowed = pcv_disp_vm_read_allowed(method, params, connection, &deny_message);
+    } else if (caller_role != PCV_ROLE_OPERATOR) {
+        return TRUE;
+    } else if (pcv_disp_vm_method_requires_owner_scope(method)) {
         allowed = pcv_disp_vm_owner_scoped_method_allowed(method, params, connection, caller_role, &deny_message);
     } else if (pcv_disp_container_method_requires_owner_scope(method)) {
                                                                                         
@@ -547,6 +575,20 @@ _rpc_finish(const gchar *method, const gchar *rpc_id, const gchar *actor, const 
                                                             
     if (dur_ms > 1000.0)
         g_warning("[dispatcher] SLOW RPC: method=%s id=%s took %.0fms", method, rpc_id ? rpc_id : "(null)", dur_ms);
+}
+
+static void
+_dispatch_continue_main(const PcvRpcOffloadRequest *req)
+{
+    pcv_log_req_id_set(req->req_id);
+    pcv_rpc_completion_begin(req->method);
+    pcv_rpc_completion_set_actor(req->actor);
+    pcv_rpc_completion_set_actor_tenant(req->actor_tenant);
+    pcv_mainloop_guard_rpc_enter(req->method);
+    _dispatch_route(req->method, req->params, req->rpc_id, req->server, req->connection);
+    _rpc_finish(req->method, req->rpc_id, req->actor, req->target, req->start_us, pcv_rpc_completion_finish());
+    pcv_mainloop_guard_rpc_leave();
+    pcv_log_req_id_set(NULL);
 }
 
    
@@ -714,6 +756,9 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     pcv_rpc_completion_set_actor(audit_username);
                                                                                   
                                                                          
+    const gint caller_role = pcv_disp_dispatcher_caller_role(params, connection);
+    const gchar *actor_tenant = pcv_res_actor_tenant(params, caller_role);
+    pcv_rpc_completion_set_actor_tenant(actor_tenant);
                                                                  
     pcv_mainloop_guard_rpc_enter(method);
 
@@ -743,13 +788,33 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         dispatcher_request_context_free(ctx);
         goto rpc_done;
     }
+
+    if (caller_role < PCV_ROLE_ADMIN && pcv_disp_vm_read_needs_precheck(method)) {
+        const PcvRpcOffloadRequest preq = {
+            .method = method, .rpc_id = rpc_id_str, .req_id = pcv_log_req_id_get(), .actor = audit_username,
+            .actor_tenant = actor_tenant, .target = audit_target, .start_us = _rpc_start_us,
+            .handler = (PcvDispatchHandler)g_hash_table_lookup(g_rpc_routes, method), .owner_check = _dispatch_owner_check,
+            .finish = _rpc_finish, .parser = parser, .params = params, .server = server, .connection = connection };
+        if (!pcv_rpc_offload_submit_precheck(&preq, PCV_OFFLOAD_LANE_LIBVIRT_READ, _dispatch_continue_main)) {
+            gchar *busy = g_strdup_printf("%s: server busy", method);
+            gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_BUSY, busy);
+            pure_uds_server_send_response(server, connection, err);
+            g_free(err);
+            g_free(busy);
+            dispatcher_request_context_free(ctx);
+            goto rpc_done;
+        }
+        dispatcher_request_context_free(ctx);
+        (void)pcv_rpc_completion_finish();
+        goto rpc_cleanup;
+    }
     {
         PcvDispatchHandler offload = pcv_rpc_offload_lane_of(method) >= 0
             ? (PcvDispatchHandler)g_hash_table_lookup(g_rpc_routes, method) : NULL;
         if (offload) {
             const PcvRpcOffloadRequest oreq = {
                 .method = method, .rpc_id = rpc_id_str, .req_id = pcv_log_req_id_get(), .actor = audit_username,
-                .target = audit_target, .start_us = _rpc_start_us, .handler = offload,
+                .actor_tenant = actor_tenant, .target = audit_target, .start_us = _rpc_start_us, .handler = offload,
                 .owner_check = _dispatch_owner_check, .finish = _rpc_finish, .parser = parser, .params = params,
                 .server = server, .connection = connection };
             if (!pcv_rpc_offload_submit(&oreq)) {
@@ -798,25 +863,8 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         handle_vm_create(self, params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
     } else {
-                                                                  
-                                        
-                                                            
-        PcvDispatchHandler handler = (PcvDispatchHandler)g_hash_table_lookup(g_rpc_routes, method);
-        if (handler) {
-            handler(params, rpc_id_str, server, connection);
-            dispatcher_request_context_free(ctx);
-        } else if (pcv_plugin_has_handler(method)) {
-                                                    
-            pcv_plugin_dispatch(method, params, rpc_id_str, server, connection);
-            dispatcher_request_context_free(ctx);
-        } else {
-                                                          
-            gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND,
-                "Method not found");
-            pure_uds_server_send_response(server, connection, err);
-            g_free(err);
-            dispatcher_request_context_free(ctx);
-        }
+        _dispatch_route(method, params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
     }
     
     
@@ -992,6 +1040,7 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "vm.limit",           (gpointer)handle_vm_limit_request);
     g_hash_table_insert(g_rpc_routes, "vm.metrics",         (gpointer)handle_vm_metrics_request);
     g_hash_table_insert(g_rpc_routes, "vm.inspect",         (gpointer)handle_vm_inspect_request);
+    g_hash_table_insert(g_rpc_routes, "vm.owner.set",       (gpointer)handle_vm_owner_set);
     g_hash_table_insert(g_rpc_routes, "vm.rename",          (gpointer)handle_vm_rename_request);
     g_hash_table_insert(g_rpc_routes, "vm.vnc",             (gpointer)handle_vm_vnc_request);
     g_hash_table_insert(g_rpc_routes, "get_vnc_info",       (gpointer)handle_vnc_request);
@@ -1088,6 +1137,7 @@ static void dispatcher_init_routes(void)
                                                              
     g_hash_table_insert(g_rpc_routes, "monitor.metrics",     (gpointer)handle_monitor_metrics);
     g_hash_table_insert(g_rpc_routes, "monitor.fleet",       (gpointer)handle_monitor_fleet_rpc);
+    g_hash_table_insert(g_rpc_routes, "monitor.vm.diag",     (gpointer)handle_monitor_vm_diag);
     g_hash_table_insert(g_rpc_routes, "monitor.processes",   (gpointer)handle_monitor_processes);
     g_hash_table_insert(g_rpc_routes, "alert.history",       (gpointer)handle_alert_history);
     g_hash_table_insert(g_rpc_routes, "alert.ack",           (gpointer)handle_alert_ack);              
@@ -1177,6 +1227,7 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "auth.user.delete",    (gpointer)handle_auth_user_delete);
     g_hash_table_insert(g_rpc_routes, "auth.role.set",       (gpointer)handle_auth_role_set);
     g_hash_table_insert(g_rpc_routes, "auth.user.tenant.set", (gpointer)handle_auth_user_tenant_set);                    
+    g_hash_table_insert(g_rpc_routes, "auth.deleted_name.add", (gpointer)handle_auth_deleted_name_add);
     g_hash_table_insert(g_rpc_routes, "resource.register",          (gpointer)handle_resource_register);                    
     g_hash_table_insert(g_rpc_routes, "resource.unregister",        (gpointer)handle_resource_unregister);
     g_hash_table_insert(g_rpc_routes, "resource.grant",             (gpointer)handle_resource_grant);

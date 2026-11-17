@@ -689,62 +689,72 @@ pcv_audit_get_chain_health(void)
                                                           
                                                 
                                                   
+                                                                                                             
+static JsonObject *
+_failure_row_json(sqlite3_stmt *stmt)
+{
+    JsonObject *obj = json_object_new();
+    const gchar *col_ts       = (const gchar *)sqlite3_column_text(stmt, 0);
+    const gchar *col_method   = (const gchar *)sqlite3_column_text(stmt, 1);
+    const gchar *col_target   = (const gchar *)sqlite3_column_text(stmt, 2);
+    const gchar *col_result   = (const gchar *)sqlite3_column_text(stmt, 3);
+    const gchar *col_event_ts = (const gchar *)sqlite3_column_text(stmt, 6);
+    json_object_set_string_member(obj, "ts",       col_ts     ? col_ts     : "");
+    json_object_set_string_member(obj, "event_ts", col_event_ts ? col_event_ts : "");
+    json_object_set_string_member(obj, "method",   col_method ? col_method : "");
+    json_object_set_string_member(obj, "target",   col_target ? col_target : "");
+    json_object_set_string_member(obj, "result",   col_result ? col_result : "");
+    json_object_set_int_member(obj, "error_code",  sqlite3_column_int(stmt, 4));
+    json_object_set_int_member(obj, "duration_ms", sqlite3_column_int(stmt, 5));
+                                                                        
+    gchar *msg = g_strdup_printf("%s failed (code=%d, dur=%dms)", col_method ? col_method : "unknown",
+                                 sqlite3_column_int(stmt, 4), sqlite3_column_int(stmt, 5));
+    json_object_set_string_member(obj, "message", msg);
+    g_free(msg);
+    return obj;
+}
+
 JsonArray *
-pcv_audit_recent_failures(const gchar *target_filter, gint limit)
+pcv_audit_recent_failures(gboolean (*row_visible)(const gchar *username, gpointer ud), gpointer ud,
+                          const gchar *target_filter, gint limit)
 {
     JsonArray *arr = json_array_new();                                               
     if (!G.db) return arr;                                           
 
-                                             
+                                                                             
     const gchar *sql_with_target =
-        "SELECT ts, method, target, result, error_code, duration_ms, event_ts "
+        "SELECT ts, method, target, result, error_code, duration_ms, event_ts, username "
         "FROM audit_log WHERE result='fail' AND target=? "
-        "ORDER BY id DESC LIMIT ?";
+        "ORDER BY id DESC LIMIT ? OFFSET ?";
     const gchar *sql_all =
-        "SELECT ts, method, target, result, error_code, duration_ms, event_ts "
+        "SELECT ts, method, target, result, error_code, duration_ms, event_ts, username "
         "FROM audit_log WHERE result='fail' "
-        "ORDER BY id DESC LIMIT ?";
-
-    sqlite3_stmt *stmt = NULL;
-    gint use_limit = limit > 0 ? limit : 5;                                           
-
-                                                           
-                                                        
-    if (target_filter && *target_filter) {                                    
-        if (sqlite3_prepare_v2(G.db, sql_with_target, -1, &stmt, NULL) != SQLITE_OK) return arr;                          
-        sqlite3_bind_text(stmt, 1, target_filter, -1, SQLITE_TRANSIENT);                                    
-        sqlite3_bind_int(stmt, 2, use_limit);
-    } else {
-        if (sqlite3_prepare_v2(G.db, sql_all, -1, &stmt, NULL) != SQLITE_OK) return arr;
-        sqlite3_bind_int(stmt, 1, use_limit);
+        "ORDER BY id DESC LIMIT ? OFFSET ?";
+    const gint use_limit = limit > 0 ? limit : 5;                                           
+    const gboolean has_target = target_filter && *target_filter;                                    
+    gint offset = 0;
+    for (;;) {
+                                                                                 
+        const gint batch = row_visible ? 50 : use_limit;
+        sqlite3_stmt *stmt = NULL;
+        if (sqlite3_prepare_v2(G.db, has_target ? sql_with_target : sql_all, -1, &stmt, NULL) != SQLITE_OK) return arr;
+        gint idx = 1;
+        if (has_target) sqlite3_bind_text(stmt, idx++, target_filter, -1, SQLITE_TRANSIENT);                                    
+        sqlite3_bind_int(stmt, idx++, batch);
+        sqlite3_bind_int(stmt, idx, offset);
+        gint got = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            got++;
+            if (row_visible && !row_visible((const gchar *)sqlite3_column_text(stmt, 7), ud))
+                continue;
+            json_array_add_object_element(arr, _failure_row_json(stmt));
+            if ((gint)json_array_get_length(arr) >= use_limit) break;
+        }
+        sqlite3_finalize(stmt);
+        offset += got;
+        if (!row_visible || (gint)json_array_get_length(arr) >= use_limit || got < batch || offset >= 2000)
+            break;
     }
-
-                                        
-                                                                        
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        JsonObject *obj = json_object_new();
-        const gchar *col_ts       = (const gchar *)sqlite3_column_text(stmt, 0);                             
-        const gchar *col_method   = (const gchar *)sqlite3_column_text(stmt, 1);
-        const gchar *col_target   = (const gchar *)sqlite3_column_text(stmt, 2);
-        const gchar *col_result   = (const gchar *)sqlite3_column_text(stmt, 3);
-        const gchar *col_event_ts = (const gchar *)sqlite3_column_text(stmt, 6);
-        json_object_set_string_member(obj, "ts",       col_ts     ? col_ts     : "");
-        json_object_set_string_member(obj, "event_ts", col_event_ts ? col_event_ts : "");
-        json_object_set_string_member(obj, "method",   col_method ? col_method : "");
-        json_object_set_string_member(obj, "target",   col_target ? col_target : "");
-        json_object_set_string_member(obj, "result",   col_result ? col_result : "");
-        json_object_set_int_member(obj, "error_code",  sqlite3_column_int(stmt, 4));
-        json_object_set_int_member(obj, "duration_ms", sqlite3_column_int(stmt, 5));
-                                                                            
-        gchar *msg = g_strdup_printf("%s failed (code=%d, dur=%dms)",
-                                      col_method ? col_method : "unknown",
-                                      sqlite3_column_int(stmt, 4),
-                                      sqlite3_column_int(stmt, 5));
-        json_object_set_string_member(obj, "message", msg);
-        g_free(msg);
-        json_array_add_object_element(arr, obj);
-    }
-    sqlite3_finalize(stmt);
     return arr;
 }
 

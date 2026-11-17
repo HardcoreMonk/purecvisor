@@ -513,36 +513,6 @@ cb_get_named_state(const gchar *name)
 
    
                                                               
-  
-                                  
-                                                    
-  
-                                        
-   
-gchar *
-cb_get_prometheus_metrics(void)
-{
-    GString *buf = g_string_new("");
-    g_string_append_printf(buf,
-        "# HELP purecvisor_cb_state Circuit breaker state (0=CLOSED,1=OPEN,2=HALF_OPEN)\n"
-        "# TYPE purecvisor_cb_state gauge\n"
-        "purecvisor_cb_state{subsystem=\"libvirt\"} %d\n"
-        "# HELP purecvisor_cb_failures Current consecutive failure count\n"
-        "# TYPE purecvisor_cb_failures gauge\n"
-        "purecvisor_cb_failures{subsystem=\"libvirt\"} %d\n"
-        "# HELP purecvisor_cb_failure_threshold Failure threshold for OPEN transition\n"
-        "# TYPE purecvisor_cb_failure_threshold gauge\n"
-        "purecvisor_cb_failure_threshold{subsystem=\"libvirt\"} %d\n",
-        (gint)g_cb.state,
-        g_cb.failure_count,
-        g_cb.failure_threshold);
-    return g_string_free(buf, FALSE);
-}
-
-   
-                                                       
-                                                    
-   
 void
 cb_shutdown(void)
 {

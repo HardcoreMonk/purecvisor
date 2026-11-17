@@ -72,7 +72,8 @@ class JobPersistenceContract(unittest.TestCase):
         result = subprocess.run([str(self.unit_binary)], cwd=ROOT,
                                 capture_output=True, text=True, timeout=20, preexec_fn=_no_core_dump)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(re.findall(r"^ok \d+ /job_queue/", result.stdout, re.M)), 30)
+
+        self.assertEqual(len(re.findall(r"^ok \d+ /job_queue/", result.stdout, re.M)), 38)
 
     def test_all_admission_callers_guard_before_accepted(self):
 

@@ -160,6 +160,7 @@
 #include "modules/virt/pcv_virt_open.h"                           
 #include "modules/virt/cancellable_map.h"                                        
 
+#include "modules/dispatcher/vm_boot_autostart_run.h"
                                                                
 #include "bootstrap/pcv_bootstrap.h"                                 
 
@@ -2135,6 +2136,7 @@ int main(int argc, char *argv[]) {
                                              
     pcv_qos_restore();
 
+    pcv_vm_boot_autostart_run();
     STAGE_END("overlay-provision");
 
                                                               
@@ -2365,6 +2367,7 @@ int main(int argc, char *argv[]) {
     g_object_unref(server);                                    
     g_object_unref(dispatcher);                                                          
     g_main_loop_unref(loop);                                    
+    pcv_plugin_manager_shutdown();
 
                                                  
     pcv_bootstrap_shutdown_cluster_stack();                   
@@ -2442,6 +2445,7 @@ int main(int argc, char *argv[]) {
        
     pcv_job_queue_shutdown();                         
     pcv_audit_shutdown();                                                
+    pcv_prom_flush();
     pcv_config_shutdown();                                      
     pcv_spawn_launcher_shutdown();                                
     pcv_log_shutdown();                                

@@ -73,7 +73,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "modules/daemons/prometheus_exporter.h"
-#include "modules/daemons/cgroup_psi.h"                                                            
+#include "modules/daemons/cgroup_psi.h"                                                     
 #include "modules/audit/pcv_audit.h"
 #include "modules/ai/self_healing.h"                                   
 #include "utils/pcv_log.h"
@@ -122,10 +122,15 @@ constexpr int MAX_RECENT_EVENTS = 20;
                                                            
   
              
-                                                                           
-                                                   
-                                                    
-                                         
+                                                       
+                                                                   
+                                                         
+                                  
+                                                                               
+                                                             
+                                                                 
+                                                          
+                                                      
   
                                                                
                                                        
@@ -137,7 +142,7 @@ constexpr int MAX_RECENT_EVENTS = 20;
   
                                                             
    
-constexpr int MAX_AUTO_WATCHED      = PCV_CGROUP_PSI_MAX_ENTRIES;                     
+constexpr int MAX_AUTO_WATCHED      = PCV_PROM_VM_SERIES_MAX;                         
 constexpr int ANOMALY_FIXED_RESERVE = 16;                                
 constexpr int MAX_WATCHED           = MAX_AUTO_WATCHED + ANOMALY_FIXED_RESERVE;                     
 
@@ -817,10 +822,14 @@ pcv_anomaly_watch_count(void)
 static void
 _score_labels(const AnomalyMetric *m, gchar *out, gsize out_sz)
 {
-    if (m->auto_registered && m->labels[0])
-        g_snprintf(out, out_sz, "metric=\"%s\",%s", m->name, m->labels);
-    else
-        g_snprintf(out, out_sz, "metric=\"%s\"", m->name);
+                                                                                        
+                                                    
+    if (!pcv_prom_labels_build(out, out_sz, "metric", m->name, NULL)) return;
+    if (m->auto_registered && m->labels[0]) {
+        gsize n = strlen(out);
+        if (n + 1 + strlen(m->labels) < out_sz) { out[n] = ','; g_strlcpy(out + n + 1, m->labels, out_sz - n - 1); }
+        else out[0] = '\0';
+    }
 }
 
                                                
@@ -1221,7 +1230,7 @@ _evaluate_render_locked(const gchar *last_render)
 
                                                                         
     pcv_prom_gauge_set_labels("purecvisor_anomaly_active", "", (gdouble)active);
-    pcv_prom_gauge_set_labels("purecvisor_anomaly_alerts_total", "", (gdouble)G.total_alerts);
+    pcv_prom_source_counter_set_labels("purecvisor_anomaly_alerts_total", "", (gdouble)G.total_alerts);
 }
 
    

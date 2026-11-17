@@ -42,6 +42,27 @@ static const struct { const gchar *method; PcvOffloadLane lane; } g_table[] = {
     { "resource.unregistered.list", PCV_OFFLOAD_LANE_LIBVIRT_READ },
     { "host.device.list", PCV_OFFLOAD_LANE_LIBVIRT_READ },
                                                                 
+    { "vm.sla.report", PCV_OFFLOAD_LANE_LIBVIRT_READ },
+
+    { "monitor.vm.diag", PCV_OFFLOAD_LANE_SCOPE_READ },
+
+    { "monitor.processes", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "vm.numa.info", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "backup.policy.list", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "vm.snapshot.schedule.list", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "security_group.list", PCV_OFFLOAD_LANE_SCOPE_READ },
+
+    { "healing.history", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "security.event.list", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "security.event.get", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "security.action.pending", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "alert.history", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "agent.history", PCV_OFFLOAD_LANE_SCOPE_READ },
+
+    { "jobs.list", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "jobs.get", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "vm.delete.status", PCV_OFFLOAD_LANE_SCOPE_READ },
+
     { "dpdk.list", PCV_OFFLOAD_LANE_HOST_READ },
     { "dpdk.status", PCV_OFFLOAD_LANE_HOST_READ },
     { "gpu.list", PCV_OFFLOAD_LANE_HOST_READ },
@@ -79,6 +100,8 @@ static const struct { const gchar *method; PcvOffloadLane lane; } g_table[] = {
 
     { "vm.usb.attach", PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE },
     { "vm.usb.detach", PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE },
+
+    { "vm.owner.set", PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE },
     { NULL, 0 },
 };
 
@@ -86,6 +109,7 @@ static const struct { const gchar *method; PcvOffloadLane lane; } g_table[] = {
 static const struct { gint threads; guint queue_cap; gboolean stale_reject; } g_lane_conf[PCV_OFFLOAD_LANE_COUNT] = {
     [PCV_OFFLOAD_LANE_LIBVIRT_READ]   = { 2, 32, FALSE },
     [PCV_OFFLOAD_LANE_HOST_READ]      = { 2, 32, FALSE },
+    [PCV_OFFLOAD_LANE_SCOPE_READ]     = { 2, 32, FALSE },
     [PCV_OFFLOAD_LANE_NET_MUTATE]     = { 1, 8, TRUE },
     [PCV_OFFLOAD_LANE_STORAGE_MUTATE] = { 1, 8, TRUE },
     [PCV_OFFLOAD_LANE_VM_DEVICE_MUTATE] = { 1, 8, TRUE },
@@ -94,7 +118,7 @@ static const struct { gint threads; guint queue_cap; gboolean stale_reject; } g_
 
                                                                 
 typedef struct {
-    gchar                   *method, *rpc_id, *req_id, *actor, *target;
+    gchar                   *method, *rpc_id, *req_id, *actor, *actor_tenant, *target;
     gchar                   *response;                                  
     gint64                   start_us;
     gint64                   queued_us;                           
@@ -102,6 +126,8 @@ typedef struct {
     PcvRpcOffloadHandler     handler;
     PcvRpcOffloadOwnerCheck  owner_check;
     PcvRpcOffloadFinish      finish;
+    PcvRpcOffloadContinue    cont;
+    gboolean                 precheck_passed;
     JsonParser              *parser;                                      
     JsonObject              *params;
     UdsServer               *server;
@@ -125,6 +151,7 @@ _req_free(gpointer data)
     g_free(r->rpc_id);
     g_free(r->req_id);
     g_free(r->actor);
+    g_free(r->actor_tenant);
     g_free(r->target);
     g_free(r->response);
     g_clear_object(&r->parser);
@@ -222,6 +249,7 @@ _lane_worker(gpointer data, gpointer unused)
     pcv_log_req_id_set(r->req_id);
     pcv_rpc_completion_begin(r->method);
     pcv_rpc_completion_set_actor(r->actor);
+    pcv_rpc_completion_set_actor_tenant(r->actor_tenant);
     g_private_set(&g_capture, r);
 
     if (g_terminating_fn ? g_terminating_fn() : pcv_drain_is_terminating()) {
@@ -237,7 +265,9 @@ _lane_worker(gpointer data, gpointer unused)
             pcv_spawn_set_thread_override(pcv_poll_guard_spawn_override, guard);
         gboolean permitted = !r->owner_check ||
             r->owner_check(r->method, r->params, r->rpc_id, r->server, r->connection, r->actor);
-        if (permitted)
+        if (permitted && r->cont)
+            r->precheck_passed = TRUE;
+        else if (permitted)
             r->handler(r->params, r->rpc_id, r->server, r->connection);
         if (guard) {
             pcv_spawn_set_thread_override(NULL, NULL);
@@ -263,17 +293,24 @@ _offload_done(GObject *source, GAsyncResult *res, gpointer user_data)
 {
     (void)source; (void)user_data;
     OffloadReq *r = g_task_get_task_data(G_TASK(res));
+    if (r->cont && r->precheck_passed && !r->response) {
+
+        const PcvRpcOffloadRequest view = {
+            .method = r->method, .rpc_id = r->rpc_id, .req_id = r->req_id, .actor = r->actor, .actor_tenant = r->actor_tenant,
+            .target = r->target, .start_us = r->start_us, .handler = r->handler, .owner_check = NULL, .finish = r->finish,
+            .parser = r->parser, .params = r->params, .server = r->server, .connection = r->connection };
+        r->cont(&view);
+        return;
+    }
     if (r->response)
         pure_uds_server_send_response(r->server, r->connection, r->response);
     r->finish(r->method, r->rpc_id, r->actor, r->target, r->start_us, r->completion);
 }
 
                                                                      
-gboolean
-pcv_rpc_offload_submit(const PcvRpcOffloadRequest *req)
+static gboolean
+_submit_to_lane(const PcvRpcOffloadRequest *req, gint lane, PcvRpcOffloadContinue cont)
 {
-    g_return_val_if_fail(req && req->method && req->handler && req->finish, FALSE);
-    gint lane = pcv_rpc_offload_lane_of(req->method);
     if (lane < 0 || lane >= PCV_OFFLOAD_LANE_COUNT)
         return FALSE;
     if (!g_lanes[lane]) {
@@ -289,6 +326,7 @@ pcv_rpc_offload_submit(const PcvRpcOffloadRequest *req)
     r->rpc_id = g_strdup(req->rpc_id);
     r->req_id = g_strdup(req->req_id);
     r->actor = g_strdup(req->actor);
+    r->actor_tenant = g_strdup(req->actor_tenant);
     r->target = g_strdup(req->target);
     r->start_us = req->start_us;
     r->queued_us = g_now_fn ? g_now_fn() : g_get_monotonic_time();
@@ -296,6 +334,7 @@ pcv_rpc_offload_submit(const PcvRpcOffloadRequest *req)
     r->handler = req->handler;
     r->owner_check = req->owner_check;
     r->finish = req->finish;
+    r->cont = cont;
     r->parser = req->parser ? g_object_ref(req->parser) : NULL;
     r->params = req->params;
     r->server = req->server ? g_object_ref(req->server) : NULL;
@@ -305,6 +344,20 @@ pcv_rpc_offload_submit(const PcvRpcOffloadRequest *req)
     g_task_set_task_data(task, r, _req_free);
     g_thread_pool_push(g_lanes[lane], task, NULL);
     return TRUE;
+}
+
+gboolean
+pcv_rpc_offload_submit(const PcvRpcOffloadRequest *req)
+{
+    g_return_val_if_fail(req && req->method && req->handler && req->finish, FALSE);
+    return _submit_to_lane(req, pcv_rpc_offload_lane_of(req->method), NULL);
+}
+
+gboolean
+pcv_rpc_offload_submit_precheck(const PcvRpcOffloadRequest *req, PcvOffloadLane lane, PcvRpcOffloadContinue cont)
+{
+    g_return_val_if_fail(req && req->method && req->owner_check && req->finish && cont, FALSE);
+    return _submit_to_lane(req, (gint)lane, cont);
 }
 
                                                                                                    

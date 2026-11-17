@@ -1,5 +1,4 @@
 # mainloop reach baseline — --tighten(감소만), 이름 변경은 --rebaseline '<사유>'
-main	dispatch	libvirt	_lookup_vm_owner	virDomainGetMetadata
 main	dispatch	libvirt	_lookup_vm_owner	virDomainGetXMLDesc
 main	dispatch	libvirt	_lookup_vm_owner	virDomainLookupByName
 main	dispatch	libvirt	_lookup_vm_owner	virDomainLookupByUUIDString
@@ -278,7 +277,6 @@ main	source:_healing_restart_on_main	libvirt	_vm_start_prepare	virDomainGetInfo
 main	source:_healing_restart_on_main	libvirt	pure_virt_get_domain	virDomainLookupByName
 main	source:_healing_restart_on_main	libvirt	pure_virt_get_domain	virDomainLookupByUUIDString
 main	source:_healing_restart_on_main	pool	_vm_start_prepare	virt_conn_pool_acquire
-main	source:_uring_reaccept_retry	libvirt	_lookup_vm_owner	virDomainGetMetadata
 main	source:_uring_reaccept_retry	libvirt	_lookup_vm_owner	virDomainGetXMLDesc
 main	source:_uring_reaccept_retry	libvirt	_lookup_vm_owner	virDomainLookupByName
 main	source:_uring_reaccept_retry	libvirt	_lookup_vm_owner	virDomainLookupByUUIDString

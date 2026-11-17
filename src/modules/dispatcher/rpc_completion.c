@@ -25,6 +25,7 @@
 typedef struct {
     gchar *method;
     gchar *actor;                                                     
+    gchar *actor_tenant;                                                                               
     PcvRpcCompletionResult result;
 } PcvRpcCompletionScope;
 
@@ -35,6 +36,7 @@ _completion_scope_free(gpointer data)
     if (!scope) return;
     g_free(scope->method);
     g_free(scope->actor);
+    g_free(scope->actor_tenant);
     g_free(scope);
 }
 
@@ -69,6 +71,26 @@ pcv_rpc_completion_set_actor(const gchar *actor)
     if (!scope) return;
     g_free(scope->actor);
     scope->actor = g_strdup(actor);
+}
+
+                                                               
+                                                    
+void
+pcv_rpc_completion_set_actor_tenant(const gchar *actor_tenant)
+{
+    PcvRpcCompletionScope *scope = g_private_get(&completion_scope_key);
+    if (!scope) return;
+    g_free(scope->actor_tenant);
+    scope->actor_tenant = g_strdup(actor_tenant);
+}
+
+                                                                                     
+                              
+const gchar *
+pcv_rpc_completion_actor_tenant(void)
+{
+    PcvRpcCompletionScope *scope = g_private_get(&completion_scope_key);
+    return scope ? scope->actor_tenant : NULL;
 }
 
                                                              

@@ -248,8 +248,11 @@ JsonArray *pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
   
                                                     
                                                      
+                                                                                                  
+                                                                      
    
-JsonArray *pcv_audit_recent_failures(const gchar *target_filter, gint limit);
+JsonArray *pcv_audit_recent_failures(gboolean (*row_visible)(const gchar *username, gpointer ud), gpointer ud,
+                                     const gchar *target_filter, gint limit);
 
 G_END_DECLS
 

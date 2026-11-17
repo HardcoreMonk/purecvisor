@@ -44,6 +44,9 @@ default_bridge = pcvnat0
 default_subnet = 10.78.0.1/24
 default_ensure = 1
                                                      
+
+vm_autostart_after_bootstrap = 1
+
 firewall_integration = auto
 
 [security_group]

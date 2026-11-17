@@ -24,7 +24,7 @@ class FlowTests(unittest.TestCase):
         flags=shlex.split(subprocess.check_output(['pkg-config','--cflags','--libs','libsoup-3.0','gio-2.0','json-glib-1.0','libvirt','libxml-2.0'],text=True))
         source=os.environ.get('PCV_VNC_SOURCE','src/api/ws_server.c')
         cmd=['gcc-14','-std=gnu23','-D_GNU_SOURCE','-DPCV_CLUSTER_ENABLED=0','-Wall','-Wextra','-Werror','-Wno-unused-parameter','-Wno-misleading-indentation','-g','-O1','-ffunction-sections','-fdata-sections','-I.','-Isrc','-Isrc/api','-Iinclude','-Iinclude/purecvisor',f'-DPCV_VNC_SOURCE="{source}"','tests/fixtures/vnc_flow_control.c','-Wl,--gc-sections','-o',str(cls.binary),*flags,*shlex.split(os.environ.get('PCV_VNC_FLAGS',''))]
-        cmd[cmd.index('-Wl,--gc-sections'):cmd.index('-Wl,--gc-sections')] = ['src/modules/dispatcher/rpc_utils.c', 'src/api/drain.c', 'src/modules/dispatcher/rpc_completion.c', 'src/api/rest_shutdown.c', 'src/utils/pcv_worker_pool.c']
+        cmd[cmd.index('-Wl,--gc-sections'):cmd.index('-Wl,--gc-sections')] = ['src/modules/dispatcher/rpc_utils.c', 'src/api/drain.c', 'src/modules/dispatcher/rpc_completion.c', 'src/api/rest_shutdown.c', 'src/utils/pcv_worker_pool.c', 'src/modules/virt/vm_owner.c', 'src/modules/resource/vm_read_filter.c', 'src/modules/resource/vm_read_scope.c']
         r=subprocess.run(cmd,cwd=ROOT,capture_output=True,text=True,timeout=90)
         if r.returncode:raise RuntimeError(r.stdout+r.stderr)
     def run_mode(self,mode):
@@ -76,7 +76,9 @@ def mutations():
       'blocking-socket':('SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);', 'SOCK_STREAM | SOCK_CLOEXEC, 0);', 'partial-write'),
                                                                   
       'broadcast-inline':('if (!pcv_ws_dispatch_on_owner(owner, _ws_broadcast_fanout, msg, queued ? _ws_fanout_queued_free : g_free)) {', 'GDestroyNotify keep = _ws_fanout_queued_free; (void)keep; _ws_broadcast_fanout(msg); if (TRUE) {', 'broadcast-affinity'),
-      'no-broadcast-queue-cap':('if (queued && !_ws_fanout_slot_take()) {', 'if (queued && !_ws_fanout_slot_take() && FALSE) {', 'broadcast-flood'),
+
+      'no-broadcast-queue-cap':('if (queued && !_ws_fanout_slot_take()) {\n        _ws_scoped_free(sc);', 'if (queued && !_ws_fanout_slot_take() && FALSE) {\n        _ws_scoped_free(sc);', 'broadcast-flood'),
+      'broadcast-inline-scoped':('if (!pcv_ws_dispatch_on_owner(owner, _ws_broadcast_scoped_fanout, sc, queued ? _ws_scoped_queued_free : _ws_scoped_free)) {', 'GDestroyNotify keep = _ws_scoped_queued_free; (void)keep; _ws_broadcast_scoped_fanout(sc); _ws_scoped_free(sc); if (FALSE) {', 'broadcast-affinity'),
     }
     with tempfile.TemporaryDirectory(prefix='pcv-vnc-flow-mutants-') as directory:
       for name,(old,new,mode) in variants.items():

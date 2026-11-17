@@ -90,11 +90,15 @@
 #include "modules/virt/vm_manager.h"                                                       
 #include "utils/pcv_spawn.h"
 #include "modules/dispatcher/vm_limit_policy.h"
+#include "modules/daemons/vm_diag.h"                                                       
 #include "utils/pcv_validate.h"
 #include "modules/virt/virt_conn_pool.h"
 #include "purecvisor/pcv_handler_util.h"
 #include "../network/security_group.h"
 #include "modules/dispatcher/handler_vm_internal.h"
+#include "modules/resource/resource_gate.h"                                                 
+#include "modules/dispatcher/dispatcher_shared.h"                                    
+#include "modules/resource/vm_read_filter.h"                                
 
    
                                
@@ -114,6 +118,8 @@ void pcv_disp_free_lifecycle_ctx(gpointer data) {
     g_free(ctx->vm_id);
     g_free(ctx->action);
     g_free(ctx->rpc_id);
+    g_free(ctx->caller_sub);
+    g_free(ctx->caller_tenant);
     if (ctx->server) g_object_unref(ctx->server);                                      
     if (ctx->connection) g_object_unref(ctx->connection);
     g_free(ctx);                                                           
@@ -154,7 +160,8 @@ static gboolean _cancel_source_cb(gpointer c) {
                                          
    
 static void vm_list_worker(GTask *task, gpointer source_obj, gpointer task_data, GCancellable *cancellable) {
-    (void)source_obj; (void)task_data;
+    (void)source_obj;
+    const VmLifecycleCtx *lctx = task_data;
                     
     if (cancellable && g_cancellable_is_cancelled(cancellable)) {
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
@@ -177,6 +184,10 @@ static void vm_list_worker(GTask *task, gpointer source_obj, gpointer task_data,
         return;
     }
 
+                                                                                         
+                                                               
+    PcvVmReadScope *scope = pcv_vm_read_scope_new_parts(lctx->caller_role, lctx->caller_sub, lctx->caller_tenant_known,
+                                                        lctx->caller_tenant);
                                      
     JsonArray *array = json_array_new();
     for (int i = 0; i < ret; i++) {
@@ -207,6 +218,18 @@ static void vm_list_worker(GTask *task, gpointer source_obj, gpointer task_data,
 
                                                  
         char *xml = virDomainGetXMLDesc(domains[i], VIR_DOMAIN_XML_INACTIVE);
+        gchar *owner = NULL;
+        if (!pcv_vm_read_xml_visible(scope, xml, &owner)) {                                  
+            free(xml);
+            virDomainFree(domains[i]);
+            json_object_unref(vm_obj);
+            continue;
+        }
+        if (pcv_vm_read_scope_all(scope)) {                                                    
+            if (owner) json_object_set_string_member(vm_obj, "owner", owner);
+            else json_object_set_null_member(vm_obj, "owner");
+        }
+        g_free(owner);
         if (xml) {
                                                               
             const char *storage_type = "unknown";
@@ -286,6 +309,7 @@ static void vm_list_worker(GTask *task, gpointer source_obj, gpointer task_data,
         json_array_add_object_element(array, vm_obj);
         virDomainFree(domains[i]);                            
     }
+    pcv_vm_read_scope_free(scope);
     free(domains);                                                        
                                                                          
                                                                                                      
@@ -388,6 +412,13 @@ void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     ctx->rpc_id = g_strdup(rpc_id);
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
+                                                                                       
+    ctx->caller_role = pcv_disp_dispatcher_caller_role(params, connection);
+    const gchar *caller_sub = pcv_disp_dispatcher_caller_subject(params, connection);
+    const gchar *caller_tenant = pcv_res_actor_tenant(params, ctx->caller_role);                                     
+    ctx->caller_sub = g_strdup(caller_sub);
+    ctx->caller_tenant_known = params && json_object_has_member(params, "_pcv_caller_tenant");
+    ctx->caller_tenant = g_strdup(caller_tenant);
 
                                                
     ctx->page_offset = (params && json_object_has_member(params, "offset"))
@@ -403,8 +434,7 @@ void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *
             "Pagination out of range: offset 0-100000, limit 1-10000");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
-        g_free(ctx->rpc_id); g_object_unref(ctx->server);
-        g_object_unref(ctx->connection); g_free(ctx);
+        pcv_disp_free_lifecycle_ctx(ctx);
         return;
     }
 
@@ -1000,6 +1030,8 @@ static void vm_metrics_callback(GObject *source_object, GAsyncResult *res, gpoin
         JsonObject *result_obj = json_object_new();
         json_object_set_int_member(result_obj, "cpu", ctx->out_cpu_pct);
         json_object_set_int_member(result_obj, "mem", ctx->out_mem_pct);
+        if (ctx->out_mem_source) json_object_set_string_member(result_obj, "mem_source", ctx->out_mem_source);
+        else json_object_set_null_member(result_obj, "mem_source");
         json_object_set_int_member(result_obj, "vcpu", ctx->out_vcpu);
         json_object_set_int_member(result_obj, "memory_mb", ctx->out_memory_mb);
         json_object_set_int_member(result_obj, "disk_rd", ctx->out_disk_rd);
@@ -1071,12 +1103,14 @@ static void vm_metrics_worker(GTask *task, gpointer source_obj, gpointer task_da
                              
            
         if (virDomainGetInfo(dom, &info1) < 0) {
-            ctx->out_cpu_pct = 0; ctx->out_mem_pct = 0;
+            ctx->out_cpu_pct = 0; ctx->out_mem_pct = -1;                                   
+            ctx->out_mem_source = pcv_vm_diag_mem_source_name(PCV_VM_DIAG_MEM_UNAVAILABLE);
             goto metrics_cleanup;
         }
         g_usleep(100000);                                   
         if (virDomainGetInfo(dom, &info2) < 0) {
-            ctx->out_cpu_pct = 0; ctx->out_mem_pct = 0;
+            ctx->out_cpu_pct = 0; ctx->out_mem_pct = -1;
+            ctx->out_mem_source = pcv_vm_diag_mem_source_name(PCV_VM_DIAG_MEM_UNAVAILABLE);
             goto metrics_cleanup;
         }
 
@@ -1097,72 +1131,68 @@ static void vm_metrics_worker(GTask *task, gpointer source_obj, gpointer task_da
         unsigned long long mem_usable = 0;
         unsigned long long mem_unused = 0;
         unsigned long long mem_rss = 0;
+        gboolean have_usable = FALSE, have_unused = FALSE, have_rss = FALSE;
         for (int i = 0; i < nr_stats; i++) {
             switch (mem_stats[i].tag) {
             case VIR_DOMAIN_MEMORY_STAT_ACTUAL_BALLOON:
                 mem_actual = mem_stats[i].val;
                 break;
             case VIR_DOMAIN_MEMORY_STAT_USABLE:
-                mem_usable = mem_stats[i].val;
+                mem_usable = mem_stats[i].val; have_usable = TRUE;
                 break;
             case VIR_DOMAIN_MEMORY_STAT_UNUSED:
-                mem_unused = mem_stats[i].val;
+                mem_unused = mem_stats[i].val; have_unused = TRUE;
                 break;
             case VIR_DOMAIN_MEMORY_STAT_RSS:
-                mem_rss = mem_stats[i].val;
+                mem_rss = mem_stats[i].val; have_rss = TRUE;
                 break;
             default:
                 break;
             }
         }
 
-        unsigned long long mem_used = info2.memory / 5;                         
-                                                              
-                                                           
-        if (mem_actual > 0 && mem_usable > 0 && mem_actual > mem_usable)
-            mem_used = mem_actual - mem_usable;                                    
-        else if (mem_actual > 0 && mem_unused > 0 && mem_actual > mem_unused)
-            mem_used = mem_actual - mem_unused;                                   
-        else if (mem_actual > 0 && mem_rss > 0)
-            mem_used = mem_rss < mem_actual ? mem_rss : mem_actual;                              
-
-        ctx->out_mem_pct = (mem_actual > 0) ? (int)((mem_used * 100) / mem_actual) : 0;
+                                                                            
+                                                             
+        guint64 mem_used = 0;
+        PcvVmDiagMemSource msrc = pcv_vm_diag_mem_ladder(mem_actual, have_usable, mem_usable, have_unused,
+                                                         mem_unused, have_rss, mem_rss, &mem_used);
+        ctx->out_mem_source = pcv_vm_diag_mem_source_name(msrc);
+        ctx->out_mem_pct = (msrc != PCV_VM_DIAG_MEM_UNAVAILABLE && mem_actual > 0)
+            ? (int)((mem_used * 100) / mem_actual) : -1;
         if (ctx->out_mem_pct > 100) ctx->out_mem_pct = 100;                         
 
                                 
         ctx->out_vcpu = (gint)info2.nrVirtCpu;
         ctx->out_memory_mb = (gint64)(info2.maxMem / 1024);
 
-                                          
-        virDomainBlockStatsStruct blk_stats;
-        if (virDomainBlockStats(dom, "vda", &blk_stats, sizeof(blk_stats)) == 0) {
-            ctx->out_disk_rd = blk_stats.rd_bytes;
-            ctx->out_disk_wr = blk_stats.wr_bytes;
-            ctx->out_disk_rd_req = blk_stats.rd_req;
-            ctx->out_disk_wr_req = blk_stats.wr_req;
-        }
-
-                                                  
-        gchar *xml = virDomainGetXMLDesc(dom, 0);
-        if (xml) {
-                                                        
-            gchar *tgt = strstr(xml, "<target dev='");
-            if (tgt) {
-                tgt += 13;                              
-                gchar *end = strchr(tgt, '\'');
-                if (end) {
-                    gchar *iface = g_strndup(tgt, end - tgt);
-                    virDomainInterfaceStatsStruct if_stats;
-                    if (virDomainInterfaceStats(dom, iface, &if_stats, sizeof(if_stats)) == 0) {
-                        ctx->out_net_rx = if_stats.rx_bytes;
-                        ctx->out_net_tx = if_stats.tx_bytes;
-                        ctx->out_net_rx_pkts = if_stats.rx_packets;
-                        ctx->out_net_tx_pkts = if_stats.tx_packets;
-                    }
-                    g_free(iface);
+                                                                                
+                                                                                           
+                                                                         
+        {
+            virDomainPtr one[2] = { dom, NULL };
+            virDomainStatsRecordPtr *recs = NULL;
+            int nrec = virDomainListGetStats(one, VIR_DOMAIN_STATS_STATE | VIR_DOMAIN_STATS_BLOCK |
+                                                  VIR_DOMAIN_STATS_INTERFACE, &recs, 0);
+            char sample_uuid[VIR_UUID_STRING_BUFLEN];
+            PcvVmDiagSample s = { 0 };
+            if (nrec >= 1 && virDomainGetUUIDString(dom, sample_uuid) == 0 &&
+                pcv_vm_diag_parse(recs[0]->params, recs[0]->nparams, ctx->vm_id, sample_uuid, -1,
+                                  FALSE, TRUE, &s)) {
+                if (s.present & PCV_VM_DIAG_B_DISK) {
+                    ctx->out_disk_rd = (gint64)s.rd_bytes;
+                    ctx->out_disk_wr = (gint64)s.wr_bytes;
+                    ctx->out_disk_rd_req = (gint64)s.rd_reqs;
+                    ctx->out_disk_wr_req = (gint64)s.wr_reqs;
+                }
+                if (s.present & PCV_VM_DIAG_B_NET) {
+                    ctx->out_net_rx = (gint64)s.rx_bytes;
+                    ctx->out_net_tx = (gint64)s.tx_bytes;
+                    ctx->out_net_rx_pkts = (gint64)s.rx_pkts;
+                    ctx->out_net_tx_pkts = (gint64)s.tx_pkts;
                 }
             }
-            free(xml);
+            pcv_vm_diag_sample_clear(&s);
+            if (recs) virDomainStatsRecordListFree(recs);
         }
     }
 

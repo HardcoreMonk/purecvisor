@@ -12,6 +12,10 @@
                                                                                                
                                                                                                    
                                                                                          
+                                                                                                           
+                                                                                                        
+                                                                                                   
+                                                                             
                                          
   
                                                                             
@@ -20,6 +24,7 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
+#include <sqlite3.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -40,6 +45,9 @@ gint pcv_test_audit_last_error_code(void);
 const gchar *pcv_test_audit_last_source(void);
 void pcv_test_uds_response_reset(void);
 const gchar *pcv_test_last_uds_response(void);
+
+                                                                                 
+guint pcv_res_rbac_tenant_lookups_for_test(void);
 
                                                               
 static JsonObject *
@@ -67,6 +75,23 @@ assert_caller(const gchar *json, gint want_role, const gchar *want_tenant)
     json_object_unref(params);
 }
 
+                                                                                               
+                                                               
+static void
+seed_old_grpc_user(const gchar *db, const gchar *tenant)
+{
+    sqlite3 *raw = NULL;
+    g_assert_cmpint(sqlite3_open(db, &raw), ==, SQLITE_OK);
+    sqlite3_stmt *st = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(raw, "INSERT INTO users (username, password_hash, salt, role, tenant) "
+                                            "VALUES (?1, 'h', 's', 1, ?2);", -1, &st, NULL), ==, SQLITE_OK);
+    sqlite3_bind_text(st, 1, PCV_GRPC_CALLER_SUBJECT, -1, SQLITE_STATIC);
+    sqlite3_bind_text(st, 2, tenant, -1, SQLITE_STATIC);
+    g_assert_cmpint(sqlite3_step(st), ==, SQLITE_DONE);
+    sqlite3_finalize(st);
+    sqlite3_close(raw);
+}
+
                                                                             
 static void
 test_caller_tenant_sources(void)
@@ -76,13 +101,14 @@ test_caller_tenant_sources(void)
     g_autofree gchar *db = g_build_filename(dir, "rbac.db", NULL);
     pcv_rbac_init(db);
     static const struct { const gchar *user; const gchar *tenant; } users[] = {
-        { "u2", "ta" }, { "u3", "" }, { "grpc", "ta" }, { "ubad", "bad name!" }, { "unull", NULL },
+        { "u2", "ta" }, { "u3", "" }, { "ubad", "bad name!" }, { "unull", NULL },
     };
     for (guint i = 0; i < G_N_ELEMENTS(users); i++) {
         g_autoptr(GError) error = NULL;
         g_assert_true(pcv_rbac_user_create(users[i].user, "pw", PCV_ROLE_OPERATOR, users[i].tenant, &error));
         g_assert_no_error(error);
     }
+    seed_old_grpc_user(db, "ta");                             
 
     assert_caller("{\"_pcv_caller_sub\":\"u2\",\"_pcv_caller_role\":1}", PCV_ROLE_OPERATOR, "ta");
                                          
@@ -152,14 +178,10 @@ test_owner_tenant_sources(void)
     g_assert_nonnull(dir);
     g_autofree gchar *db = g_build_filename(dir, "rbac.db", NULL);
     pcv_rbac_init(db);
-    static const struct { const gchar *user; const gchar *tenant; } users[] = {
-        { "u2", "ta" }, { PCV_GRPC_CALLER_SUBJECT, "tb" },
-    };
-    for (guint i = 0; i < G_N_ELEMENTS(users); i++) {
-        g_autoptr(GError) error = NULL;
-        g_assert_true(pcv_rbac_user_create(users[i].user, "pw", PCV_ROLE_OPERATOR, users[i].tenant, &error));
-        g_assert_no_error(error);
-    }
+    g_autoptr(GError) error = NULL;
+    g_assert_true(pcv_rbac_user_create("u2", "pw", PCV_ROLE_OPERATOR, "ta", &error));
+    g_assert_no_error(error);
+    seed_old_grpc_user(db, "tb");                             
 
     g_free(owner_cfg_load(dir, "[grpc]\ntenant = ta\n"));
     g_assert_cmpstr(pcv_res_owner_tenant(PCV_GRPC_CALLER_SUBJECT), ==, "ta");
@@ -490,6 +512,128 @@ test_filter_array_and_template_view(void)
     gfx_free(f);
 }
 
+                                                                                               
+                                   
+static void
+test_inject_tenant_non_admin(void)
+{
+    static const struct { gint role; const gchar *tenant; const gchar *want_json; } rows[] = {
+        { PCV_ROLE_VIEWER,   "ta", "{\"_pcv_caller_tenant\":\"ta\"}" },
+        { PCV_ROLE_OPERATOR, "ta", "{\"_pcv_caller_tenant\":\"ta\"}" },
+        { PCV_ROLE_VIEWER,   NULL, "{\"_pcv_caller_tenant\":null}" },
+        { PCV_ROLE_OPERATOR, "",   "{\"_pcv_caller_tenant\":null}" },
+        { PCV_ROLE_ADMIN,    "ta", "{}" },
+        { PCV_ROLE_ADMIN,    NULL, "{}" },
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(rows); i++) {
+        JsonObject *params = json_object_new();
+        pcv_res_inject_caller_tenant(params, rows[i].role, rows[i].tenant);
+        JsonNode *n = json_node_new(JSON_NODE_OBJECT);
+        json_node_set_object(n, params);
+        g_autofree gchar *got = json_to_string(n, FALSE);
+        g_assert_cmpstr(got, ==, rows[i].want_json);
+        json_node_unref(n);
+        json_object_unref(params);
+    }
+                                                  
+    JsonObject *params = params_from("{\"_pcv_caller_tenant\":\"forged\",\"x\":1}");
+    pcv_res_inject_caller_tenant(params, PCV_ROLE_VIEWER, "ta");
+    g_assert_cmpstr(json_object_get_string_member(params, "_pcv_caller_tenant"), ==, "ta");
+    pcv_res_inject_caller_tenant(params, PCV_ROLE_ADMIN, "tb");
+    g_assert_false(json_object_has_member(params, "_pcv_caller_tenant"));
+    g_assert_true(json_object_has_member(params, "x"));
+    json_object_unref(params);
+    pcv_res_inject_caller_tenant(NULL, PCV_ROLE_VIEWER, "ta");                
+}
+
+                                                                                                
+                                   
+static void
+test_actor_tenant_rule(void)
+{
+    static const struct { const gchar *json; gint role; const gchar *want; } rows[] = {
+        { "{\"_pcv_caller_sub\":\"grpc\",\"_pcv_caller_tenant\":\"ta\"}", PCV_ROLE_ADMIN, NULL },                             
+        { "{\"_pcv_caller_tenant\":\"ta\"}", PCV_ROLE_VIEWER, "ta" },
+        { "{\"_pcv_caller_tenant\":\"ta\"}", PCV_ROLE_OPERATOR, "ta" },
+        { "{\"_pcv_caller_tenant\":null}", PCV_ROLE_OPERATOR, NULL },
+        { "{\"_pcv_caller_tenant\":\"bad name!\"}", PCV_ROLE_OPERATOR, NULL },
+        { "{\"_pcv_caller_tenant\":\"\"}", PCV_ROLE_VIEWER, NULL },
+        { "{\"_pcv_caller_tenant\":7}", PCV_ROLE_VIEWER, NULL },
+        { "{\"_pcv_caller_sub\":\"u2\"}", PCV_ROLE_OPERATOR, NULL },                               
+    };
+    guint before = pcv_res_rbac_tenant_lookups_for_test();
+    for (guint i = 0; i < G_N_ELEMENTS(rows); i++) {
+        JsonObject *params = params_from(rows[i].json);
+        g_assert_cmpstr(pcv_res_actor_tenant(params, rows[i].role), ==, rows[i].want);
+        json_object_unref(params);
+    }
+    g_assert_null(pcv_res_actor_tenant(NULL, PCV_ROLE_VIEWER));
+    g_assert_cmpuint(pcv_res_rbac_tenant_lookups_for_test() - before, ==, 0);
+}
+
+                                                                                   
+                                                                                         
+static void
+test_caller_init_injected_no_rbac(void)
+{
+    g_autofree gchar *dir = g_dir_make_tmp("pcv-resgate-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    g_autofree gchar *db = g_build_filename(dir, "rbac.db", NULL);
+    pcv_rbac_init(db);
+    g_autoptr(GError) error = NULL;
+    g_assert_true(pcv_rbac_user_create("u2", "pw", PCV_ROLE_OPERATOR, "ta", &error));
+    g_assert_no_error(error);
+
+    guint before = pcv_res_rbac_tenant_lookups_for_test();
+    assert_caller("{\"_pcv_caller_sub\":\"u2\",\"_pcv_caller_role\":1,\"_pcv_caller_tenant\":\"tz\"}",
+                  PCV_ROLE_OPERATOR, "tz");
+    assert_caller("{\"_pcv_caller_sub\":\"u2\",\"_pcv_caller_role\":0,\"_pcv_caller_tenant\":null}",
+                  PCV_ROLE_VIEWER, NULL);
+    assert_caller("{\"_pcv_caller_sub\":\"u2\",\"_pcv_caller_role\":2}", PCV_ROLE_ADMIN, NULL);
+    g_assert_cmpuint(pcv_res_rbac_tenant_lookups_for_test() - before, ==, 0);
+    assert_caller("{\"_pcv_caller_sub\":\"u2\",\"_pcv_caller_role\":1}", PCV_ROLE_OPERATOR, "ta");                    
+    g_assert_cmpuint(pcv_res_rbac_tenant_lookups_for_test() - before, ==, 1);
+
+    pcv_rbac_shutdown();
+    g_autofree gchar *wal = g_strconcat(db, "-wal", NULL);
+    g_autofree gchar *shm = g_strconcat(db, "-shm", NULL);
+    g_remove(wal);
+    g_remove(shm);
+    g_remove(db);
+    g_rmdir(dir);
+}
+
+                                                                                                           
+                                                                                          
+                                                                                                
+               
+static void
+test_principal_key_no_tenant(void)
+{
+    for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++) {
+        for (gint key = 0; key <= 1; key++) {
+            const gchar *who = pcv_res_rest_tenant_subject(role, key == 1, "alice");
+            const gchar *want_who = (role < PCV_ROLE_ADMIN && key == 0) ? "alice" : NULL;
+            g_assert_cmpstr(who, ==, want_who);
+                                                                        
+            JsonObject *params = json_object_new();
+            pcv_res_inject_caller_tenant(params, role, who ? "ta" : NULL);
+            if (role >= PCV_ROLE_ADMIN) {
+                g_assert_false(json_object_has_member(params, "_pcv_caller_tenant"));
+            } else if (key == 1) {
+                g_assert_true(json_object_has_member(params, "_pcv_caller_tenant"));
+                g_assert_true(JSON_NODE_HOLDS_NULL(json_object_get_member(params, "_pcv_caller_tenant")));
+            } else {
+                g_assert_cmpstr(json_object_get_string_member(params, "_pcv_caller_tenant"), ==, "ta");
+            }
+            json_object_unref(params);
+        }
+    }
+    g_assert_null(pcv_res_rest_tenant_subject(PCV_ROLE_VIEWER, FALSE, NULL));
+    g_assert_null(pcv_res_rest_tenant_subject(PCV_ROLE_OPERATOR, FALSE, ""));
+    g_assert_null(pcv_res_rest_tenant_subject(PCV_ROLE_OPERATOR, TRUE, NULL));
+}
+
 void test_resource_gate_register(void);
 
                                                  
@@ -506,4 +650,8 @@ test_resource_gate_register(void)
     g_test_add_func("/resource_gate/gate_sends_forbidden_and_audits", test_gate_sends_forbidden_and_audits);
     g_test_add_func("/resource_gate/audit_denied_truncates_utf8", test_audit_denied_truncates_utf8);
     g_test_add_func("/resource_gate/filter_array_and_template_view", test_filter_array_and_template_view);
+    g_test_add_func("/resource_gate/inject_tenant_non_admin", test_inject_tenant_non_admin);
+    g_test_add_func("/resource_gate/actor_tenant_rule", test_actor_tenant_rule);
+    g_test_add_func("/resource_gate/caller_init_injected_no_rbac", test_caller_init_injected_no_rbac);
+    g_test_add_func("/resource_gate/principal_key_no_tenant", test_principal_key_no_tenant);
 }

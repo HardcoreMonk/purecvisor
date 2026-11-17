@@ -875,14 +875,6 @@ async function sdaExec(vm) {
 var perfLayout = 'auto';
 
                                                                     
-function _vmcProgressBar(p, c) {
-  var el = PCV.uxlib.el;
-  var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
-  var anim = p > 85 ? ' pulse-anim' : '';
-  return el('div', { class: 'pb' + anim },
-    el('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
-    el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
-}
 
    
                                                             
@@ -897,25 +889,19 @@ function _vmcProgressBar(p, c) {
                                                              
                                                           
   
-                                                        
-                                                                     
-                          
-   
-async function renderPerformance(b, v) {
+async function renderPerformance(b, v, fromTick) {
   if (!v) { PCV.vm.renderNoSelection(b); return; }
-                  
-  var metrics = {};
-  if (v.state === 'running') {
-    try { var mr = await fetchGet(EP.VM_DETAIL(v.name)); metrics = unwrapData(mr) || mr || {}; } catch(e) {}
-  }
-  var cpuPct = metrics.cpu || v.live_cpu_pct || 0;
-  var memPct = metrics.mem || v.mem_percent || 0;
-  v.live_cpu_pct = cpuPct;
-  v.mem_percent = memPct;
-
-  cpuHistory.push(cpuPct); cpuHistory.shift();
-  memHistory.push(memPct); memHistory.shift();
+  var name = v.name;
+  var diag = PCV.vmdiag ? await PCV.vmdiag.fetch(name) : { ok: false, data: null, err: 'unsupported' };
+  var cur = (typeof vmList !== 'undefined' && vmList) ? vmList[selectedVmIndex] : v;
+  if (fromTick && (!cur || cur.name !== name)) return;
   var chartH = perfLayout === 'manual' ? '120px' : '80px';
+  var view = PCV.vmdiag ? PCV.vmdiag.perfView(diag, name, { chartH: chartH, onRetry: function () { renderPerformance(b, v); } })
+    : { rec: null, lead: [], cards: [], cpuPct: null, guestPct: null };
+  if (view.cpuPct !== null) v.live_cpu_pct = view.cpuPct;
+  if (view.guestPct !== null) v.mem_percent = view.guestPct;
+  cpuHistory.push(view.cpuPct); cpuHistory.shift();
+  memHistory.push(view.guestPct); memHistory.shift();
   var gridCls = perfLayout === 'auto' ? 'sg grid-2' : '';
   var gridStyle = perfLayout === 'auto' ? '' : 'display:flex;flex-direction:column;gap:12px';
   var el = PCV.uxlib.el;
@@ -925,33 +911,24 @@ async function renderPerformance(b, v) {
 
       el('button', { class: 'tb ' + (perfLayout === 'auto' ? '' : 'btn'), onClick: function() { perfLayout = 'auto'; renderPerformance(b, v); } }, '▦ Auto'),
       el('button', { class: 'tb ' + (perfLayout === 'manual' ? '' : 'btn'), onClick: function() { perfLayout = 'manual'; renderPerformance(b, v); } }, '☰ Stack')));
-  var perfGrid = el('div', { class: gridCls },
-    HN.card('CPU Usage (60s) — ' + cpuPct.toFixed(1) + '%', [
-      _vmcProgressBar(cpuPct),
-      el('div', { style: 'position:relative;height:' + chartH + ';width:100%;margin-top:6px' }, el('canvas', { id: 'cg' }))
-    ]),
-    HN.card('Memory Usage (60s) — ' + memPct.toFixed(1) + '%', [
-      _vmcProgressBar(memPct),
-      el('div', { style: 'position:relative;height:' + chartH + ';width:100%;margin-top:6px' }, el('canvas', { id: 'mg' }))
-    ]),
-    HN.card('Disk IOPS', [
-      HN.row(_L('읽기', 'Read'), el('span', { class: 'color-cyan' }, (metrics.disk_rd_req || 0).toLocaleString() + ' ops')),
-      HN.row(_L('쓰기', 'Write'), el('span', { class: 'color-peach' }, (metrics.disk_wr_req || 0).toLocaleString() + ' ops')),
-      HN.row('I/O Read', el('span', { class: 'color-cyan' }, formatBytes(metrics.disk_rd || 0))),
-      HN.row('I/O Write', el('span', { class: 'color-peach' }, formatBytes(metrics.disk_wr || 0)))
-    ]),
-    HN.card('Network Packets', [
-      HN.row('RX', [el('span', { class: 'color-yellow' }, formatBytes(metrics.net_rx || 0)), ' (' + (metrics.net_rx_pkts || 0).toLocaleString() + ' pps)']),
-      HN.row('TX', [el('span', { class: 'color-yellow' }, formatBytes(metrics.net_tx || 0)), ' (' + (metrics.net_tx_pkts || 0).toLocaleString() + ' pps)'])
-    ]));
+
+  var perfGrid = el('div', { class: gridCls }, view.lead.length ? el('div', { style: 'grid-column:1 / -1' }, view.lead) : null, view.cards);
   perfGrid.setAttribute('style', gridStyle);
   PCV.uxlib.clearEl(b);
   b.appendChild(header);
   b.appendChild(perfGrid);
   setTimeout(function() {
+    if (!document.getElementById('cg')) return;
     createLineChart('cg', cpuHistory, 'CPU %', getChartColor('cpu'));
     createLineChart('mg', memHistory, 'MEM %', getChartColor('mem'));
   }, 30);
+  if (!fromTick && typeof startAdaptivePolling === 'function') {
+    startAdaptivePolling('vm-perf-refresh', function () {
+      if (window.currentTab !== 'performance') { if (typeof stopAdaptivePolling === 'function') stopAdaptivePolling('vm-perf-refresh'); return; }
+      var now = (typeof vmList !== 'undefined' && vmList) ? vmList[selectedVmIndex] : null;
+      if (now && b.isConnected) renderPerformance(b, now, true);
+    }, 10000, true);
+  }
 }
 
                          
@@ -1021,8 +998,8 @@ async function showVmCompare() {
       try {
         var mr = await fetchGet(EP.VM_DETAIL(v.name));
         var m = unwrapData(mr) || mr || {};
-        v.live_cpu_pct = m.cpu || v.live_cpu_pct || 0;
-        v.mem_percent = m.mem || v.mem_percent || 0;
+        if (typeof m.cpu === 'number' && m.cpu >= 0) v.live_cpu_pct = m.cpu;
+        if (typeof m.mem === 'number' && m.mem >= 0) v.mem_percent = m.mem;
         v.disk_rd = m.disk_rd || v.disk_rd || 0;
         v.disk_wr = m.disk_wr || v.disk_wr || 0;
         v.net_rx = m.net_rx || v.net_rx || 0;
@@ -1050,7 +1027,7 @@ async function showVmCompare() {
     selected.forEach(function(v) {
       var val = v[p.key];
       if (p.key === 'state') val = HN.statusPill(val === 'running' ? 'ok' : 'crit', String(val || '?').toUpperCase());
-      else if (p.key === 'live_cpu_pct' || p.key === 'mem_percent') val = (val || 0).toFixed(1) + '%';
+      else if (p.key === 'live_cpu_pct' || p.key === 'mem_percent') val = typeof val === 'number' && val >= 0 ? val.toFixed(1) + '%' : '\u2014';
       else if (p.key === 'disk_rd' || p.key === 'disk_wr' || p.key === 'net_rx' || p.key === 'net_tx') val = formatBytes(val || 0);
       else val = String(val || '-');
       tr.appendChild(el('td', null, val));

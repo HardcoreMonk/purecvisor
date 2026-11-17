@@ -1,7 +1,7 @@
 # PureCVisor Single Edge 운영 가이드
-> **2026-11-11 공개 소스 기준 (2.2.0):** 2.1.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다. 호스트 장치 화면과 조회(`host.device.list`), USB 장치 영구 할당, Windows 게스트 명령 실행이 포함됩니다.
-> DB 스키마와 설정 파일은 그대로지만 USB 할당과 Windows 게스트 명령 실행의 동작이 바뀌었습니다. 변경 목록과 업그레이드·원복 안내는 저장소의 `CHANGELOG.md` 2.2.0 항목을 따릅니다.
-> 업그레이드 전에 붙인 USB 장치는 live 정의에만 있으므로 같은 `usb-attach`를 한 번 더 보내 영구 정의에 저장합니다.
+> **2026-11-18 공개 소스 기준 (2.2.1):** 2.2.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다. VM 진단(`monitor.vm.diag`), ADMIN이 아닌 계정의 VM 읽기 범위와 VM 소유자 이관(`vm.owner.set`), 사용자·API 키 이름 규칙, 호스트 재부팅 뒤 PCV 관리 브리지 VM 보완 시작, 플러그인 API 내보내기가 포함됩니다.
+> DB에 열 두 개와 표 하나가 더해지고(`user_version`은 그대로) 비ADMIN의 VM 조회 결과, 이름 규칙, Prometheus 출력 형식이 바뀌었습니다. 변경 목록과 업그레이드·원복 안내는 저장소의 `CHANGELOG.md` 2.2.1 항목을 따릅니다.
+> 업그레이드 직후 ADMIN으로 소유자 없는 VM과 테넌트 없는 계정을 확인합니다(10.2 "업그레이드 절차(VM 읽기 범위, ADMIN)").
 
 > **2026-11-08 공개 소스 기준 (2.0.4):** 읽기 전용으로 붙인 컨테이너 볼륨이 컨테이너 안에서 읽기 전용으로 유지되도록 고친 보안 수정 릴리스입니다.
 > 새 기능은 없으며 데이터·설정 형식과 API는 그대로입니다. 변경 목록과 업그레이드 안내는 저장소의 `CHANGELOG.md` 2.0.4 항목을 따릅니다.
@@ -28,7 +28,7 @@
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.2.0
+> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.2.1
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
@@ -42,7 +42,7 @@
 > ACL/NAT 필터 전달까지입니다. 완결되지 않은 OVN/NFV Load Balancer와 VM 자동 포트 내부
 > helper는 공개 기능이 아니며, Local VPC의 선택형 OVN backend는 별도 지원 gate를 따릅니다.
 >
-> **문서 현행화(2026-11-11)**: 2.2.0 공개 소스 기준으로 최신 릴리스 기준(1.0), 프로젝트 통계 스냅샷(18.6)과 공개 소스·문서 현황(22.8)을 갱신했습니다. 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
+> **문서 현행화(2026-11-18)**: 2.2.1 공개 소스 기준으로 최신 릴리스 기준(1.0), 프로젝트 통계 스냅샷(18.6)과 공개 소스·문서 현황(22.8)을 갱신했습니다. 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -78,13 +78,13 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.2.0`입니다.<br>
+현재 공개 제품 버전은 `2.2.1`입니다.<br>
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
-**2026-11-11 공개 현황:** 공개 `2.2.0` 릴리스는 2.1.0 위에 호스트 장치 화면과 조회, USB 장치 영구 할당, Windows 게스트 명령 실행과 GPU IOMMU 그룹 판정 수정을 더한 기능 릴리스이며 Single Edge 범위를 유지합니다.
+**2026-11-18 공개 현황:** 공개 `2.2.1` 릴리스는 2.2.0 위에 VM 진단, ADMIN이 아닌 계정의 VM 읽기 범위와 소유자 이관, 사용자·API 키 이름 규칙, 부팅 뒤 PCV 관리 브리지 VM 보완 시작, 플러그인 API 내보내기와 Prometheus 출력 정정을 더한 기능 릴리스이며 Single Edge 범위를 유지합니다.
 
-게시 전 검증에서 공개판 계약 게이트(`make check-all`) 47개, release·debug 빌드 각각의 C 단위 시험 2,514개(환경 의존 22개 생략)와 브라우저 UI 시험 613개가 통과했습니다. 패키지 검사, 격리된 Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림도 확인했습니다.
+게시 전 검증에서 공개판 계약 게이트(`make check-all`) 48개, release·debug 빌드 각각의 C 단위 시험 2,675개(환경 의존 22개 생략)와 브라우저 UI 시험 755개가 통과했습니다. 패키지 검사, 격리된 Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림도 확인했습니다.
 
 지정 공개 소스 검증은 통과했지만 전체 소스 감사와 지원 환경 인증은 미완료이며, 전체 감사 판정은 `FAIL(미완료)`입니다. 회차별 결과와 GPU Passthrough 영상의 검증 범위는 [품질 게이트의 공개 현황](/ko/development/quality-gates/#228-2026-09-15-공개-소스문서-현황)을 따릅니다.
 
@@ -230,7 +230,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 | [DEVELOPMENT_VERIFICATION_POLICY.md](../docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
 | [ADR_INDEX.md](../docs/ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
-| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 28개의 책임, schema와 복구 경계 |
+| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 29개의 책임, schema와 복구 경계 |
 | [PUBLIC_SOURCE_POLICY.md](../docs/PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
 <span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>
@@ -291,12 +291,12 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "node_name": "purecvisor-edge-01"
 }
 ```
 
-제품 버전은 `2.2.0`, canonical Git/GitHub 릴리스 태그는 `v2.2.0`이다.<br>
+제품 버전은 `2.2.1`, canonical Git/GitHub 릴리스 태그는 `v2.2.1`이다.<br>
 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
 Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
 `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
@@ -334,7 +334,7 @@ echo "http://127.0.0.1:8080/ui/ (admin / configured password)"
 | Web UI | `http://127.0.0.1:8080/ui/` | bootstrap admin `admin / configured password` |
 | WebSocket (이벤트) | `ws://127.0.0.1:8080/api/v1/ws/events` | JWT |
 | WebSocket (VNC) | `ws://127.0.0.1:8080/api/v1/ws/vnc` | JWT |
-| Prometheus | `http://127.0.0.1:8080/api/v1/metrics` | 없음 |
+| Prometheus | `http://127.0.0.1:8080/api/v1/metrics` | `[metrics] auth` 기본 `loopback` — 호스트에서 데몬 평문 리스너로 곧장 온 요청만 무인증, nginx 경유·원격은 토큰(8.10) |
 | Health | `http://127.0.0.1:8080/api/v1/health` | 없음 |
 
 이벤트 WebSocket에서 데몬은 30초마다 `{"type":"ping"}`을 보내고, 60초 안에 `pong`이 없으면 연결을 닫습니다. Web UI는 `{"type":"pong"}`으로 답해 연결을 유지합니다. 직접 만든 클라이언트도 같이 답해야 합니다.
@@ -359,7 +359,7 @@ echo '{"jsonrpc":"2.0","method":"monitor.fleet","params":{},"id":"1"}' \
 
 ### 2.1 솔루션 권장사항 — Ubuntu 26.04.1 LTS
 
-PureCVisor 2.2.0 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
+PureCVisor 2.2.1 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
 Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
 
 > **설치 기준**
@@ -524,11 +524,11 @@ SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습�
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 의존성 자동 해결 포함 설치
-sudo apt install -y ./purecvisor-single_2.2.0_amd64.deb
+sudo apt install -y ./purecvisor-single_2.2.1_amd64.deb
 
 # 선택: 같은 릴리스의 BPF 객체(BPF LSM 감사)
 sudo install -d -m 0755 /usr/lib/purecvisor/bpf
-sudo tar -xzf purecvisor-single-bpf_2.2.0_amd64.tar.gz -C /usr/lib/purecvisor/bpf
+sudo tar -xzf purecvisor-single-bpf_2.2.1_amd64.tar.gz -C /usr/lib/purecvisor/bpf
 
 # 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
 sudoedit /etc/purecvisor/daemon.conf
@@ -547,7 +547,7 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile을 묻지 않고 처리하려면 `-o Dpkg::Options::=--force-confold`(기존 유지) 또는 `-o Dpkg::Options::=--force-confnew`(새 파일 채택)를 붙인다).<br>
-2.1.0에서 2.2.0으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다(DB 스키마 이관 없음).<br>
+2.1.0·2.2.0에서 2.2.1으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다(기동 때 DB에 열 두 개와 표 하나를 더하며 `user_version`은 그대로). 2.2.1의 VM 읽기 범위·이름 규칙·Prometheus 출력 변경은 `CHANGELOG.md` 2.2.1의 '업그레이드 시 확인할 점'을 따른다.<br>
 2.0.4 이하에서 올릴 때는 먼저 `sudo systemctl stop purecvisorsd`로 정지하고 `/var/lib/purecvisor/*.db*`(WAL 포함)를 백업한 뒤 설치·시작하며, `CHANGELOG.md` 2.1.0의 '업그레이드 시 확인할 점'(DB 자동 이관·모든 사용자 한 번 재로그인·새 systemd 파일 두 개)도 함께 적용한다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.<br>
 같은 버전을 다시 설치할 때는 `sudo apt install --reinstall ./purecvisor-single_<버전>_amd64.deb`를 사용한다.
@@ -1171,6 +1171,7 @@ bind_plaintext = loopback
 
 # 셀프 회원가입 활성화 여부
 # true이면 로그인 랜딩의 회원가입으로 VIEWER 계정을 생성할 수 있습니다.
+# 이미 있는 사용자 이름·예약 이름·API 키 이름·지운 계정 이름은 가입할 수 없습니다(모두 409 "username is reserved").
 allow_self_register = false
 
 # ─────────────────────────────────────────────
@@ -1227,6 +1228,10 @@ default_subnet = 10.78.0.1/24
 
 # 0이면 기동 시 기본 네트워크 보장을 건너뜀
 default_ensure = 1
+
+# 1이면 호스트 재부팅 뒤 PCV 관리 브리지(기본 NAT·물리·VPC)에 붙은 autostart VM을 데몬이 네트워크 준비 뒤 부팅당 한 번 켭니다
+# (libvirt 자동 시작이 브리지 부재로 실패한 VM). 0이면 끔 — 효과는 다음 재부팅부터
+vm_autostart_after_bootstrap = 1
 
 # 호스트 방화벽(UFW/iptables FORWARD DROP) 자동 공존. "auto"면 UFW/iptables FORWARD DROP
 # 호스트에 모드별 최소 구멍(nat: 게스트 출발 포워딩 + DHCP·DNS·DHCPv6 포트,
@@ -1381,7 +1386,7 @@ NODE_IPV4="<configured-management-ipv4>"
 curl -ksS "https://${NODE_IPV4}/api/v1/health" \
   | jq '{status,service,version,node_name,tls:.checks.tls}'
 curl -ksS -o /tmp/pcv-live-app.bundle.js \
-  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.2.0"
+  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.2.1"
 
 sha256sum ui/app.bundle.js \
   /usr/local/share/purecvisor/ui/app.bundle.js \
@@ -1392,7 +1397,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 ```
 
 세 SHA-256 값은 같아야 하며 외부 런타임 참조를 찾는 `rg` 명령은 결과가 없어야 합니다.
-health의 `status=ok`, `version=2.2.0`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
+health의 `status=ok`, `version=2.2.1`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
 
 ### 2.9 logrotate 설정
 
@@ -1646,7 +1651,7 @@ sudo curl --fail --silent --show-error --cacert /etc/purecvisor/pki/node.crt \
 sudo pcvctl vm list
 ```
 
-서비스는 `active/running`, health는 `status=ok`·`version=2.2.0`·`cluster=false`인지
+서비스는 `active/running`, health는 `status=ok`·`version=2.2.1`·`cluster=false`인지
 확인합니다. libvirt·TLS·BPF 세부 상태도 확인하고 `https://<관리-IPv4>/ui/`에서 로그인합니다.
 최초 자체서명 인증서는 hostname·관리 주소를 확정한 뒤 생성하며, HTTPS 검사에서 신뢰와
 SAN 주소가 일치해야 합니다. 외부 접속은 관리망에서 443/tcp를 허용하고 평문 8080은
@@ -1965,6 +1970,19 @@ echo '{"jsonrpc":"2.0","method":"vm.rename","params":{
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
+#### 호스트 재부팅 뒤 자동 시작
+
+호스트를 다시 부팅하면 libvirt가 autostart VM을 켠다. 데몬이 만드는 브리지(기본 NAT `pcvnat0`, 물리 브리지, VPC Linux 브리지 `pcvs…`)는 그보다 늦게 생기므로, 그 브리지에 붙은 autostart VM은 libvirt 자동 시작이 실패한다. 데몬이 이 VM을 대신 켠다.
+
+- **대상.** autostart가 켜져 있고 꺼져 있으며(꺼진 이유 `FAILED` — libvirt 자동 시작 실패) 위 PCV 관리 브리지 가운데 하나 이상에 붙은 VM이다. 데몬이 네트워크 준비(보안 그룹·VPC·게스트 방화벽·NAT·기본 브리지)를 마친 직후, 기동 완료(`READY=1`) 전에 부팅당 한 번 켠다. 켜는 경로는 웹 UI의 시작과 같은 정식 `vm.start`(한 대씩, 감사 `vm.start`·행위자 `system`, origin `boot-autostart`)다. `virbr0`(libvirt 망)·OVS 브리지에만 붙은 VM은 지금처럼 libvirt가 켠다. 참조한 브리지가 지금 없는 VM(재부팅 뒤 복원되지 않는 사용자 망 등)은 건너뛰고 로그에 이름을 남긴다.
+- **libvirtd 오류 줄은 정상이다.** 재부팅 때 `Failed to autostart VM '<이름>': Cannot get interface MTU on 'pcvnat0': No such device` 같은 libvirtd 줄은 계속 찍힌다. 바로 뒤 데몬 로그 `[boot-autostart] candidate '<이름>'`과 요약 `[boot-autostart] summary decision=act started=… failed=…`가 보완 시작 결과다. 결과는 감사 `vm.boot_autostart`(대상 `host started=… failed=… …`, 결과 `ok`·`partial`·`fail`·`none`) 한 행과 지표 `purecvisor_vm_boot_autostart_total{result}`로도 남는다.
+- **같은 부팅의 데몬 재시작은 새로 판정하지 않는다.** 판정은 부팅 번호(`/proc/sys/kernel/random/boot_id`)로 한 번만 한다. 그 뒤 운영자가 끈 VM은 반영·장애 재시작·SIGUSR2 핫리로드로 다시 켜지지 않는다(`[boot-autostart] already evaluated in this boot`). SIGUSR2가 보완 시작 도중에 오면 진행 중인 차례를 끝까지 돌린 뒤 교체한다. SIGTERM(정지·재시작)이면 남은 VM은 켜지 않고 `vm.start` 실패(`daemon shutting down`)로 기록한다.
+- **libvirtd를 재시작한 뒤의 판정은 자동 시작에 실패한 VM도 켜지 않는다.** libvirtd를 재시작하면 꺼진 VM의 이유가 모두 `UNKNOWN`으로 바뀌어 운영자가 끈 VM과 구분되지 않기 때문이다. 기동 판정이 `deferred`(`[boot-autostart] deferred: libvirt unavailable` — 표지를 쓰지 않는다)였던 부팅에서 그 뒤 libvirtd가 재시작되면, 다음 데몬 기동의 판정은 그 VM을 요약 줄 `skipped_state_reason`으로 세고 켜지 않는다 — 직접 켠다. libvirtd가 스스로 끝났다가 다시 뜬 경우도 같다. 켜진 libvirt 망·VM·연결이 모두 없으면 libvirtd는 `--timeout 120`(Ubuntu 기본) 뒤 끝나고 다음 연결 때 소켓으로 다시 뜬다. 그래서 그런 호스트에서 데몬 첫 기동이 부팅 뒤 2분 넘게 늦으면 보완 시작이 없을 수 있다. 기본 libvirt 망 `default`가 켜져 있으면 libvirtd는 스스로 끝나지 않는다.
+- **설정.** `daemon.conf`의 `[network] vm_autostart_after_bootstrap = 1`(기본 1). `0`이면 끈다. 기동 때 한 번 읽고, 효과는 다음 재부팅부터다.
+- **이 판을 처음 반영한 기동은 기록만 한다.** 반영 재시작은 판정 표지 `/var/lib/purecvisor/vm_boot_autostart.json`이 없으므로 `[boot-autostart] decision=record_only`로 이 부팅을 기록만 하고 VM을 켜지 않는다(운영자가 일부러 꺼 둔 VM 보호). 보완 시작은 그다음 재부팅부터 동작한다.
+- **업그레이드 노트 — 원복 때 표지를 지운다.** 이전 판으로 되돌릴 때는 데몬을 멈춘 뒤 `/var/lib/purecvisor/vm_boot_autostart.json`을 지운다. 남겨 두면 원복 → 재부팅 → 다시 반영할 때 반영 재시작이 새 부팅으로 판정해 꺼 둔 PCV 브리지 autostart VM을 켤 수 있다. 원복할 때 이 단계를 빠뜨리지 않는다.
+- **격리 CPU 호스트.** 격리 CPU(`isolcpus`)가 있으면 보완 시작도 UI 시작처럼 전용 코어를 배정해 vCPU를 핀하고, 한 NUMA 노드 안에서 배정되면 비활성 정의에 `<numatune><memory mode='strict' nodeset='N'/></numatune>`을 영구로 더한다(이미 `<numatune>`이 있으면 그대로). libvirt 자동 시작은 정의를 바꾸지 않았다는 점이 다르다.
+
 #### REST API 라이프사이클
 
 ```bash
@@ -1994,6 +2012,12 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" \
 
 # 최근 삭제 Job 상태 확인
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/delete-status
+
+# VM 소유자 이관 (ADMIN — 10.2 "VM 소유자 이관")
+curl -X PUT -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"owner":"dev","expected_owner":null}' \
+  http://127.0.0.1:8080/api/v1/vms/web-prod/owner
 ```
 
 #### ADMIN 전용 구성 관측 (`vm.inspect`)
@@ -2528,6 +2552,23 @@ pcvctl monitor metrics web-prod
 vm	cpu	mem
 web-prod	15	50
 ```
+
+값이 없는 `mem`은 `N/A`로 보인다. 같은 값을 RPC `vm.metrics`(`{"name":"web-prod"}`)로 받으면 응답(`result`)은 다음과 같다.
+
+```json
+{"cpu": 15, "mem": 50, "mem_source": "guest_usable", "vcpu": 2, "memory_mb": 2048,
+ "disk_rd": 9126805504, "disk_wr": 2147483648, "net_rx": 1258291200, "net_tx": 314572800,
+ "disk_rd_req": 412300, "disk_wr_req": 98100, "net_rx_pkts": 1043000, "net_tx_pkts": 377000}
+```
+
+- `cpu`: 100 ms 동안 잰 vCPU 대비 CPU %(정수, 0~100).
+- `mem`: 게스트 안 사용 추정 ÷ 지금 할당 %(정수). `mem_source`가 그 원천이다 — `guest_usable`(게스트가 즉시 쓸 수 있는 양으로 계산) → `guest_unused` → `rss`(호스트 RSS) 순으로 있는 것을 쓴다. 셋 다 없으면 `mem_source`는 `unavailable`이고 `mem`은 **−1**(값 없음 — 전에는 할당량의 20%를 지어냈다). 화면과 `pcvctl monitor metrics`는 −1을 `—`·`N/A`로 보인다.
+- `disk_*`·`net_*`: VM 시작 뒤 **누적** 바이트·요청·패킷이다(속도가 아니다). 정의의 모든 디스크와 모든 인터페이스를 더한다. 속도는 `monitor.vm.diag`(8.1 "VM 진단")에 있다.
+- 정지 VM은 `cpu`·`mem`이 0이고 `mem_source`가 `null`이다.
+
+`monitor.metrics`(REST `GET /api/v1/monitor/metrics?vm_id=<이름>`)는 같은 VM의 libvirt 기본 정보다. `mem_max_mb`는 설정 최대, `mem_alloc_mb`는 지금 할당, `mem_used_mb`는 진단 표본의 게스트 안 사용 추정이고 없으면 −1이다. `cpu_time_ns`는 누적 CPU 시간이다.
+
+Web UI VM 상세 `요약` 탭은 이 누적값을 "읽기(누적)"·"쓰기(누적)"·"수신(누적)"·"송신(누적)" 이름으로 보이고, `성능` 탭은 진단 속도를 보인다.
 
 ```bash
 # 전체 VM 일괄 메트릭 (fleet 뷰)
@@ -4283,7 +4324,7 @@ curl -sS http://127.0.0.1:8080/api/v1/jobs/<job-id> \
 
 tenant가 없는 비ADMIN 사용자는 VPC 조회도 변경과 같은 오류(`이 작업에는 tenant가 필요합니다`, `-32002`, REST 409)로 거부된다. 빈 목록을 돌려주지 않아 "tenant 없음"과 "VPC 없음"이 구분된다. `auth.user.tenant.set`으로 tenant를 지정하면 풀린다. ADMIN의 전역 조회는 그대로다.
 
-비ADMIN API 키의 주체는 키 이름(`client_name`)이고 tenant는 같은 이름의 사용자에서 읽는다. 그런 사용자가 없는 키는 tenant가 없어 VPC 조회가 같은 오류로 거부되고, `auth.user.tenant.set`도 `-32005`(`User '<이름>' not found`, REST 404)로 실패해 풀리지 않는다. 키 이름과 같은 사용자를 만들고 그 사용자에게 tenant를 지정하면 풀린다.
+비ADMIN API 키의 주체는 키 이름(`client_name`)이고 **tenant가 없다**(같은 이름 사용자의 테넌트를 빌리지 않으며, 키 이름과 같은 사용자는 만들 수도 없다). 그래서 비ADMIN API 키의 VPC 조회는 같은 오류로 거부되고, `auth.user.tenant.set`도 `-32005`(`User '<이름>' not found`, REST 404)라 키에 tenant를 줄 길이 없다. 테넌트가 필요한 VPC 작업은 tenant를 지정한 사용자 계정(JWT)으로 한다.
 
 CLI로 같은 수명주기를 실행할 수 있습니다.
 
@@ -4490,14 +4531,14 @@ Web UI `관제` 메뉴의 화면과 이 가이드에서 그 화면을 다루는 
 
 | 관제 화면 | 관련 절 |
 |-----------|---------|
-| 운영 개요 | 8.1 자체 node_exporter, 12.4 승인 큐(자가치유 대기 액션) |
-| 이벤트 센터 | 8.1 자체 node_exporter(호스트·VM 요약), 알림·감사 로그 화면 바로 가기 |
+| 운영 개요 | 8.1 자체 node_exporter·VM 진단, 12.4 승인 큐(자가치유 대기 액션) |
+| 이벤트 센터 | 8.1 자체 node_exporter(호스트·VM 요약)·VM 진단(VM 행 메모리), 알림·감사 로그 화면 바로 가기 |
 | 알림 | 8.3 알림 엔진, 8.5 알림 ACK & 에스컬레이션, 8.9 DLQ |
 | 보안 이벤트 | 10.7 Native Host HIDS/HIPS, 10.12 Suricata DPI/IDS/IPS |
 | 감사 로그 (ADMIN) | 10.10 감사 로그 |
 | 활동 로그 | 따로 다루는 절 없음 — 이 브라우저가 보낸 API 요청 기록 |
-| VM 모니터 | 8.1 자체 node_exporter |
-| 스토리지 모니터 | 8.1 자체 node_exporter, 5.6 Prometheus 스토리지 메트릭 |
+| VM 모니터 | 8.1 VM 진단 |
+| 스토리지 모니터 | 8.1 자체 node_exporter·VM 진단(할당률), 5.6 Prometheus 스토리지 메트릭 |
 | 호스트 모니터 | 8.1 자체 node_exporter |
 | 히트맵 | 따로 다루는 절 없음 — VM 목록의 현재 CPU 조회값 |
 | API 성능 | 따로 다루는 절 없음 — 주요 REST 조회의 응답 시간을 브라우저에서 잰 값 |
@@ -4505,7 +4546,7 @@ Web UI `관제` 메뉴의 화면과 이 가이드에서 그 화면을 다루는 
 
 ### 8.1 자체 node_exporter
 
-`ebpf_telemetry.c`가 10개 콜렉터로 ~178개 Prometheus 메트릭을 직접 수집한다 (node_* 126 + purecvisor_* 52). 별도의 node_exporter 설치가 불필요하다.
+`ebpf_telemetry.c`가 10개 콜렉터로 Prometheus 메트릭을 직접 수집한다. 소스에 고정 이름으로 등록되는 이름은 164개 이상이고(도움말 표시 "164+"), 실제 줄 수는 CPU 코어·디스크·NIC·마운트·VM 수에 따라 늘어난다. 별도의 node_exporter 설치가 불필요하다. 2.2.1의 출력 형식 변경은 아래 "Prometheus 출력 변경"에 있다.
 
 | 콜렉터 | 메트릭 수 | 수집 내용 |
 |--------|----------|----------|
@@ -4520,26 +4561,129 @@ Web UI `관제` 메뉴의 화면과 이 가이드에서 그 화면을 다루는 
 | Hwmon | 가변 | 온도, 팬 속도 |
 | Misc | ~8 | boot_time, entropy, filefd, conntrack, ARP, NIC meta |
 
-추가 `purecvisor_*` 메트릭 (~44개):
-- `purecvisor_cb_state` / `purecvisor_cb_failures` (서킷 브레이커)
+추가 `purecvisor_*` 메트릭(일부):
+- `purecvisor_circuit_breaker_state`(0 = CLOSED, 1 = OPEN, 2 = HALF_OPEN) / `purecvisor_circuit_breaker_consecutive_failures`(지금 연속 실패 수, gauge) (서킷 브레이커)
 - `purecvisor_vm_locks_held` (VM 상태 잠금)
 - `purecvisor_tls_cert_expiry_days` (인증서 만료)
 - `purecvisor_zpool_*` (6개: state, errors_read, errors_write, errors_cksum, scrub_age_seconds, capacity_percent)
 - `purecvisor_worker_pool_pending` (GTask 큐 깊이)
 - `purecvisor_audit_queue_depth` (감사 큐)
 - `purecvisor_connpool_idle/active/max` (커넥션 풀)
+- `purecvisor_vm_*`·`purecvisor_host_*`·`purecvisor_vm_diag_*` (VM 진단 표본기 — 아래 "Prometheus 출력 변경")
 
 ```bash
-# Prometheus 메트릭 엔드포인트 (인증 불필요)
+# Prometheus 메트릭 — [metrics] auth 기본 loopback: 호스트에서 데몬 리스너로 곧장 보내면 토큰이 필요 없다(8.10)
 curl -s http://127.0.0.1:8080/api/v1/metrics
 
 # 특정 메트릭 필터
-curl -s http://127.0.0.1:8080/api/v1/metrics | grep purecvisor_cb_state
+curl -s http://127.0.0.1:8080/api/v1/metrics | grep purecvisor_circuit_breaker_state
 ```
 
 #### 모니터 화면의 IP 출처
 
 `monitor.fleet`은 VM IP를 다음 순서로 찾고 찾은 곳을 `ip_source`로 알린다: libvirt DHCP lease(`lease`) → 게스트 에이전트 캐시(`guest-agent`) → dnsmasq lease 파일(`lease-file`) → 호스트 ARP 표(`arp`, 완성된 항목만). 에이전트 IP는 메인 루프 밖에서 조회하므로 처음에는 보이지 않다가 한 폴링 주기 늦게 나타날 수 있다(§3.7). 첫 NIC가 direct 방식인 멀티 NIC VM은 lease 파일 단계에서 놓칠 수 있다.
+
+#### VM 진단(monitor.vm.diag)
+
+데몬의 VM 진단 표본기가 5초마다 실행 VM의 libvirt 통계를 한 번에 읽어 VM별 속도·메모리·데이터 품질·경합 신호를 만든다. 조회는 마지막 표본을 복사해 돌려주므로 요청마다 libvirt를 부르지 않는다(범위 읽기 줄 — 17장 "libvirtd·외부 명령이 응답하지 않을 때").
+
+| 표면 | 사용 |
+|---|---|
+| RPC | `monitor.vm.diag`, 매개변수 `vm`(선택, 문자열). 문자열이 아니거나 `null`이면 −32602, 없는 이름·범위 밖 이름이면 `vms`가 빈 배열(오류 아님) |
+| REST | `GET /api/v1/monitor/vm-diag`, 한 대는 `GET /api/v1/monitor/vm-diag?vm=<이름>` |
+| CLI | `pcvctl monitor diag [--vm 이름]` — 열 `NAME STATE QUALITY CPU% HOST% MEM_ALLOC RSS DISK_R/W NET_RX/TX HINTS`, 값 없음은 `-`. JSON은 `pcvctl --format=json monitor diag` |
+
+권한은 VIEWER 이상이다. ADMIN은 모든 VM을 본다(`scope: "all"`). ADMIN이 아니면 10.2 "VM 읽기 범위"의 술어대로 자기가 만든 VM과 같은 테넌트 사용자가 소유한 VM만 본다(`scope: "own"`) — 소유자가 없는 VM은 보이지 않고, 테넌트가 없는 VIEWER에는 VM이 0대, 테넌트가 없는 OPERATOR에는 자기가 만든 VM만 보인다. 이때 `sampler.tracked`·`sampler.truncated`와 `host.allocation`도 보이는 VM만 센다(범위 밖 VM 수를 드러내지 않는다). 소유자는 표본기가 12주기(약 60초)마다 다시 읽는다. `vm.owner.set`으로 바꾸면 다음 표본(5초) 안에 반영되고, virsh 직접 편집처럼 그 밖의 경로로 바꾸면 최대 약 60초 걸린다. `/metrics`의 VM 계열도 비ADMIN 토큰에는 같은 범위로 걸러진다(8.10).
+
+값의 단위는 필드 이름에 있다. `null`은 값 없음이고 `0`은 실제 0이다.
+
+| 필드 | 뜻 |
+|---|---|
+| `sampler.state` | `starting`(첫 주기 전) · `ok`(마지막 주기가 15초 안에 성공) · `stale`(마지막 성공이 15초보다 오래됨) · `error`(마지막 주기의 libvirt 연결·조회 실패, `sampler.error`는 고정 코드). `stale`·`error`여도 마지막 값을 지우지 않고 `age_ms`만 는다 |
+| `sampler.age_ms`·`interval_ms` | 마지막 표본의 나이, 표본 간격(5000) |
+| `sampler.tracked`·`truncated` | 진단한 VM 수, 상한(256대) 밖이라 진단하지 않은 VM 수 |
+| `host.logical_cpus`·`physical_cores`·`mem_total_mb` | 할당률 분모 |
+| `host.psi` | 호스트 PSI `cpu`·`memory`·`io`의 `some_avg10`·`full_avg10`(값만 — 신호를 만들지 않는다) |
+| `vms[].cpu_pct` | VM 자기 vCPU 대비 CPU % = Δ`cpu.time` ÷ (경과 × vCPU 수) × 100. `cpu.time`은 에뮬레이터·I/O 스레드를 포함해 100을 넘을 수 있다(화면 막대는 100에서 자르고 숫자는 그대로) |
+| `vms[].cpu_host_pct` | 호스트 논리 CPU 전체 대비 % |
+| `vms[].interval_ms` | 그 VM 속도에 쓴 실제 경과(명목 5000이 아니다) |
+| `vms[].disk` | `rd_bps`·`wr_bps`(B/s), `rd_iops`·`wr_iops`, `rd_lat_ms`·`wr_lat_ms`·`fl_lat_ms`(그 간격 평균 응답 시간 — 요청이 없으면 null) — 정의의 모든 디스크 합 |
+| `vms[].net` | `rx_bps`·`tx_bps`(B/s), `rx_pps`·`tx_pps`, `drop_ps`·`err_ps` — 모든 인터페이스 합 |
+| `vms[].contention` | `vcpu_delay_pct`·`vcpu_delay_max_pct`(vCPU가 실행 가능했지만 호스트 CPU를 기다린 시간 비율), `throttled_pct`·`throttled_max_pct`·`throttled_periods_ratio`(CPU 상한), `psi`(VM cgroup PSI), `swap_in_kbps`·`swap_out_kbps`·`major_faults_ps`(게스트 갱신 사이 값) |
+| `vms[].hints` | 신호 `{code, level, value, threshold}` — `level`은 `notice`(화면 "참고")·`warn`(화면 "주의"). 아래 신호 표 |
+
+메모리는 이름마다 뜻이 다르다.
+
+| 필드 | 뜻 | 원천 |
+|---|---|---|
+| `mem_max_mb` | 설정 최대 | `balloon.maximum` |
+| `mem_alloc_mb` | 게스트에 지금 할당된 양 | `balloon.current` |
+| `mem_guest_used_mb` | 게스트 안 사용 추정 | `balloon.current − usable`(없으면 `− unused`), 둘 다 없으면 null |
+| `mem_guest_available_mb` | 게스트가 보는 가용 | `balloon.available` |
+| `mem_rss_mb` | 호스트에서 QEMU가 쥔 실제 메모리 | `balloon.rss` |
+| `guest_stats_age_s` | 게스트 메모리 값의 나이 | 지금 − `balloon.last-update`(0·없음이면 null) |
+
+데이터 품질(`vms[].quality`)과 화면 표시:
+
+| 값 | 화면 | 뜻 |
+|---|---|---|
+| `ok` | 정상 | 핵심 묶음(CPU·vCPU·메모리 할당·디스크·네트워크)의 속도가 모두 있다 |
+| `warming_up` | 준비 중 | 앞 표본이 없거나(`reason: first_sample`) 재시작·장치 변경으로 기준을 다시 잡는다(`reason: reset`). 다음 표본(약 5초)부터 값이 나온다 |
+| `partial` | 일부 | 일부 묶음이 없다. `missing`에 묶음 이름(`cpu`·`vcpu_delay`·`guest_memory`·`rss`·`disk`·`net`·`cgroup`) |
+| `busy` | 읽기 보류 | 다른 작업이 VM의 도메인 작업 잠금을 쥐고 있어 이번 표본의 일부를 읽지 못했다(`reason: busy`). 남은 묶음은 값을 내고 빠진 묶음은 `missing`에 적는다. `last_ok_at_ms`는 busy가 아니던(작업 잠금으로 빠진 묶음이 없던) 마지막 표본 시각이다 — 게스트 통계가 늘 없는 `partial` VM도 그 시각을 낸다 |
+| `stopped` | 상태 열 "정지" | 실행 중이 아니다 — 설정값(vCPU·최대 메모리)만, 속도는 null |
+
+- 둘 이상에 맞으면 `warming_up` > `busy` > `partial` 순으로 하나를 고르고, `missing`에는 빠진 묶음을 모두 적는다.
+- 게스트 메모리 통계가 없는 VM(드라이버 없음·`last-update` 0·없음)은 `partial`+`guest_memory`이고 오류가 아니다. balloon 통계를 내지 않는 Windows 게스트는 이 상태가 정상이다.
+- balloon 통계 주기(`<stats period>`)를 두지 않은 VM도 드라이버가 올라올 때 통계를 한 번 보고한다. 그래서 `partial`이 아니라 `ok`이고, 30초가 지나면 `guest_stats_stale`(게스트 값 오래됨)이 켜진다. 게스트 메모리 값은 그 시점 값이다. PCV가 만든 VM은 주기 10초가 들어가 해당하지 않는다.
+- `disk.*_lat_ms`가 null이고 `missing`에 `disk`가 없으면 "그 간격 요청 0"이다.
+
+할당률(`host.allocation`)은 물리 용량 대비 설정 합이다. `*_running`은 실행·일시정지 VM, `*_defined`는 정지·transient를 포함한 등록 전체다. `vcpu_running`·`vcpu_defined`(vCPU 합)와 그 `_per_logical`(논리 CPU 수 대비), `mem_running_max_mb`·`mem_defined_max_mb`(최대 메모리 합)와 그 `_ratio`(메모리 총량 대비), `mem_running_alloc_mb`(실행 VM의 지금 할당 합)가 있다. 격리 코어 예약과 운영 여유는 넣지 않는다. 비율이 1을 넘으면 과할당이다 — 합법적인 설정이고, 모두 동시에 쓰면 경합할 수 있다는 뜻이다.
+
+Web UI에서는 다음 화면이 이 응답을 쓴다. 값이 없는 칸은 `—`이고, 이유는 데이터 열 글자·툴팁·스크린리더 글자로 함께 나온다.
+
+- `관제 > 운영 개요`의 "VM 자원" 절: 첫 줄 Top 5 CPU(호스트 대비 %로 정렬, vCPU 대비 %와 vCPU 수를 보조로)·Top 5 디스크 I/O·Top 5 네트워크(B/s), 둘째 줄 할당률 카드·Top 5 vCPU 할당·Top 5 메모리(호스트 RSS). 값 없는 VM은 순위에서 빼고 표 아래에 "값 없는 VM n대 제외"를 적는다. 상단 요약 띠의 "VM 신호"는 신호가 하나 이상인 실행 VM 수이고, 누르면 VM 모니터로 간다.
+- `VM 모니터`: VM 진단 표(상태·데이터·CPU·게스트 메모리·RSS·디스크·지연·네트워크·신호)와 "지표·신호 설명", 위에 할당률 카드.
+- `스토리지 모니터`: 등록 VM 최대 메모리 합·비율을 할당률과 같은 정의로 보인다.
+- `관제 > 이벤트 센터`의 VM 행 메모리: 게스트 사용 추정 ÷ 지금 할당이다. 게스트 통계가 없거나 게스트 값이 오래됐으면(`guest_stats_stale` — 이 칸에는 신호 배지가 없어 title에 "게스트 값 오래됨(N초 전)") `—`와 호스트 RSS, 정지 VM은 `—`, 진단을 불러오지 못하면 `—`와 "진단 실패"(옛 데몬이라 진단 RPC·REST 경로가 없으면 "진단 미지원")다. 이 화면을 그릴 때 한 번 부르고 따로 폴링하지 않는다.
+- VM 상세 `성능` 탭: 그 VM 한 대의 진단 값(CPU·메모리 4종·디스크 속도·IOPS·지연·네트워크·경합)과 신호 문장. 정지 VM은 설정값만 보인다. 누적값은 `요약` 탭에 "(누적)" 이름으로 남는다(3.9절).
+
+진단은 이 화면들(이벤트 센터 제외)이 보일 때만 10초마다 부른다. 보이는 탭 하나당 시간당 약 360건이고 읽기 감사 행도 그만큼 는다. 숨은 탭과 다른 화면에서는 부르지 않는다.
+
+#### VM 진단 신호(잠정 기준)
+
+`hints`는 아래 표의 조건이 맞을 때만 생긴다. 기준은 KVM 지표의 뜻에서 출발한 **잠정 기준**이고, 실측으로 바꾸면 이 표와 데몬 기준 표(`src/modules/daemons/vm_diag.c`)를 함께 고친다. 신호는 참고 표시다. 알림을 보내지 않고 원인을 단정하지 않는다("~후보", "~신호"까지). **VMware의 CPU Ready와 같은 지표가 아니다** — `vcpu_delay_pct`는 KVM이 vCPU 스레드마다 잰 "실행 가능했지만 호스트 CPU를 기다린 시간"(`vcpu.<n>.delay`)이다.
+
+- PSI 두 신호(`mem_pressure`·`io_pressure`)는 이미 10초 평균이라 한 표본에서 맞으면 켠다. `notice`는 some avg10, `warn`은 full avg10으로 본다.
+- `mem_swap`은 연속 두 게스트 갱신에서 맞아야 켠다.
+- 나머지는 그 묶음이 있는 연속 두 표본에서 맞아야 켠다. 묶음이 빠진 표본(`busy` 등)은 연속을 끊지도 잇지도 않는다.
+
+| 신호 | 참고(`notice`) | 주의(`warn`) | 화면 이름 · 뜻 |
+|---|---|---|---|
+| `cpu_wait` | `vcpu_delay_pct` − `throttled_pct`(상한 대기분을 뺀 값으로 판정) ≥ 5 | ≥ 20 | CPU 대기 — vCPU가 호스트 CPU를 기다린다. 호스트 CPU 과할당·CPU 핀 겹침을 살펴볼 후보. `vcpu_delay_pct`에는 CPU 상한에 걸려 멈춘 시간도 들어 있어 그만큼을 빼고 판정한다(`throttled_pct`가 없으면 그대로) |
+| `cpu_throttled` | `throttled_pct`(0~100, vCPU 수와 무관) ≥ 1 | ≥ 10 | CPU 상한 — CPU 상한(`vm.limit`)에 걸린다 |
+| `mem_swap` | 스왑 in+out > 0 | ≥ 1024 KiB/s | 게스트 스왑 — 게스트 메모리 부족 후보 |
+| `mem_pressure` | VM PSI memory some avg10 ≥ 5 | full avg10 ≥ 5 | 메모리 압박 — 호스트 쪽 메모리 압박 신호 |
+| `io_pressure` | VM PSI io some avg10 ≥ 20 | full avg10 ≥ 10 | I/O 대기 — I/O 대기 신호 |
+| `disk_latency` | 읽기·쓰기 평균 ≥ 20 ms | ≥ 100 ms | 디스크 지연 — 그 간격 요청이 초당 5건 이상일 때만 판단 |
+| `guest_stats_stale` | `guest_stats_age_s` > 30 | — | 게스트 값 오래됨 — 게스트 메모리 값이 오래됐다(데이터 품질). `last-update` 0·없음은 해당 없음 |
+
+호스트 PSI(`host.psi`)는 값만 보이고 신호를 만들지 않는다.
+
+#### Prometheus 출력 변경(2.2.1, VM 진단 표본기)
+
+외부 Prometheus·Grafana 규칙을 쓰고 있으면 다음을 확인한다. 저장소 안에는 이 이름들을 쓰는 알림 규칙·Grafana JSON이 없다.
+
+- **TYPE gauge → counter**(값·라벨 그대로): 원천에서 누적되는 `_total` 이름 — `node_cpu_seconds_total`·`node_context_switches_total`·`node_forks_total`, `node_disk_*_total` 13종, `node_network_*_total` 9종, `node_pressure_*_seconds_total`, `purecvisor_cgroup_pressure_*_seconds_total`, `purecvisor_audit_dropped_total`, `pcv_bpf_lsm_events_total`·`pcv_bpf_ringbuf_dropped_total`·`pcv_bpf_lsm_foreign_fs_total`, `purecvisor_suricata_alerts_total`·`purecvisor_suricata_eve_dropped_total`, `purecvisor_anomaly_alerts_total`, `purecvisor_qos_class_bytes_total`·`purecvisor_qos_class_drops_total`, `purecvisor_zfs_pool_lock_acquired_total`·`purecvisor_zfs_pool_lock_contentions_total`, VM 네트워크 4종 `purecvisor_vm_net_{rx,tx}_{bytes,packets}_total`. 데몬 재시작은 counter reset으로 받는다. 값을 그대로 그리던 패널은 `rate()`·`increase()`로 바꾼다. 예: VM별 CPU 사용 코어 수 `rate(purecvisor_vm_cpu_seconds_total[1m])`, 호스트 NIC 수신 속도 `rate(node_network_receive_bytes_total[1m])`.
+- **이름별 묶음:** 같은 이름의 시계열이 한 덩어리로 나오고 `# TYPE`이 이름마다 한 번이다. 출력 순서는 이름이 처음 등록된 순서다(전과 다를 수 있다).
+- **중복 제거:** `purecvisor_host_cpu_percent`·`purecvisor_host_memory_percent`가 한 번만 나온다(5초 간격 계산값).
+- **개명:** `purecvisor_circuit_breaker_failures_total` → `purecvisor_circuit_breaker_consecutive_failures`(gauge — 누적이 아니라 지금 연속 실패 수).
+- **라벨별 값:** `purecvisor_healing_policy_triggered_total{policy}`·`purecvisor_healing_actions_total{policy,action}`·`purecvisor_agent_requests_total{provider,model,status}`는 라벨마다 따로 센다(전에는 모든 줄이 라벨과 무관한 전역 합계였다).
+- **값 없음 생략:** `purecvisor_vm_memory_used_mb`가 값 없음(−1)이면 그 줄을 내지 않는다.
+- **라벨 값 이스케이프:** 라벨 값의 `\`·`"`·줄바꿈을 `\\`·`\"`·`\n`으로 낸다. 이스케이프한 라벨 묶음이 255바이트를 넘는 계열은 내지 않는다(잘린 라벨을 내지 않는다).
+- **새 VM 계열**(라벨 `vm="이름"`, 실행 VM이면서 그 묶음이 이번 표본에 있을 때만, 이름 순 앞 64대): counter `purecvisor_vm_cpu_seconds_total`·`purecvisor_vm_vcpu_delay_seconds_total`·`purecvisor_vm_cpu_throttled_seconds_total`·`purecvisor_vm_cpu_throttled_periods_total`·`purecvisor_vm_cpu_periods_total`·`purecvisor_vm_disk_{read,write}_bytes_total`·`purecvisor_vm_disk_{read,write}_requests_total`·`purecvisor_vm_disk_{read,write}_time_seconds_total`, gauge `purecvisor_vm_memory_{alloc,guest_used,rss}_bytes`(값 없으면 생략). 기존 VM 네트워크 4종도 같은 조건이라 정지 VM의 0 계열이 없고, 표본기가 libvirt를 읽지 못하는 동안에는 갱신되지 않다가 정리된다. 기존 `vm_name=` 라벨 계열은 그대로다.
+- **새 호스트·표본기 계열:** `purecvisor_host_vcpu_allocated{scope="running|defined"}`·`purecvisor_host_memory_allocated_bytes{scope="running_max|defined_max|running_alloc"}`·`purecvisor_host_logical_cpus`, `purecvisor_vm_diag_sample_age_seconds`·`purecvisor_vm_diag_vms{quality}`·`purecvisor_vm_diag_truncated`·`purecvisor_vm_diag_prom_truncated`(64대 밖이라 VM 계열을 내지 않은 실행 VM 수).
+- **되돌릴 때:** 이 변경 전 데몬으로 되돌리면 새 데몬이 저장한 계수 체크포인트(`/var/lib/purecvisor/prom_counters.json`)의 라벨별 counter 때문에 렌더마다 `Metric type mismatch` 경고가 찍힐 수 있다. 반영 전에 그 파일 사본을 두고, 원복 때 이전 데몬을 띄우기 전에 사본으로 되돌린다.
 
 ### 8.2 프로세스 모니터
 
@@ -4771,13 +4915,24 @@ scrape_configs:
 
 Grafana는 위 Prometheus를 데이터 소스로 추가해 대시보드를 직접 만듭니다(공개판은 대시보드 정의 파일을 제공하지 않습니다).
 
-`[metrics] auth`는 `/metrics`·`/internal/vms`·`/internal/telemetry`·`/health/recent-errors` 넷을 함께 다룹니다. 기본 `loopback`은 호스트에서 데몬 평문 리스너(`127.0.0.1:8080`)로 곧장 온 요청(전달 헤더 없음)만 무인증으로 받고, 원격·nginx 경유 요청에는 토큰을 요구합니다. `required`는 언제나 토큰, `none`은 언제나 무인증(기동 경고)이며 그 밖의 값은 `required`로 봅니다. 원격 Prometheus는 가장 낮은 권한의 API 키(RPC/REST `auth.apikey.create`에 `role: 0`을 명시 — 생략하면 role 1(OPERATOR)이고 `pcvctl`에는 이 명령이 없습니다)를 `authorization: { type: Bearer, credentials_file: … }`로 보냅니다. 전달 헤더를 붙이지 않는 사용자 정의 프록시 뒤 요청은 직접 로컬로 보이므로 그런 프록시는 쓰지 않습니다.
+`[metrics] auth`는 `/metrics`·`/internal/vms`·`/internal/telemetry`·`/health/recent-errors` 넷을 함께 다룹니다. 기본 `loopback`은 호스트에서 데몬 평문 리스너(`127.0.0.1:8080`)로 곧장 온 요청(전달 헤더 없음)만 무인증으로 받고, 원격·nginx 경유 요청에는 토큰을 요구합니다. `required`는 언제나 토큰, `none`은 언제나 무인증(기동 경고)이며 그 밖의 값은 `required`로 봅니다. 토큰으로 온 요청은 역할에 따라 받는 범위가 다릅니다 — 직접 로컬 요청과 ADMIN 토큰은 전부를 받고, 비ADMIN 토큰(VIEWER·OPERATOR JWT, 권한 0·1 API 키)은 아래 업그레이드 노트의 범위만 받습니다. 호스트 계열만 필요한 원격 Prometheus는 가장 낮은 권한의 API 키(RPC/REST `auth.apikey.create`에 `role: 0`을 명시 — 생략하면 role 1(OPERATOR)이고 `pcvctl`에는 이 명령이 없습니다)를 `authorization: { type: Bearer, credentials_file: … }`로 보냅니다. 전달 헤더를 붙이지 않는 사용자 정의 프록시 뒤 요청은 직접 로컬로 보이므로 그런 프록시는 쓰지 않습니다.
+
+**업그레이드 노트(수집기의 VM 계열 범위)** — 수집기 경로가 토큰의 역할을 봅니다. 예전에는 인증에 성공한 토큰이면 역할과 무관하게 모든 VM 계열을 받았습니다.
+
+1. 비ADMIN 토큰으로 긁는 `/metrics`는 그 호출자에게 보이는 VM(10.2 "VM 읽기 범위")의 계열만 담습니다. 대상은 VM 라벨(`vm=`·`vm_id=`·`vm_name=`)이 붙은 줄이고, 소유자를 알 수 없는 VM의 줄은 빠집니다. 호스트 계열과 `# HELP`·`# TYPE` 줄은 그대로입니다. API 키는 사용자에 딸린 것이 아니라 독립 주체라 테넌트가 없으므로 **권한 0·1 API 키로 긁던 외부 Prometheus는 VM 계열을 잃습니다.** VM 진단 표본기의 소유자 지도가 아직 없거나(기동 직후) 표본기가 `stale`·`error`이면 비ADMIN 토큰에는 VM 계열을 하나도 내지 않고, 새 VM은 다음 표본(5초)부터 보입니다.
+2. VM 계열이 필요한 외부 수집은 같은 호스트에서 전달 헤더 없이 데몬 리스너(`127.0.0.1:8080`)로 곧장 붙는 스크레이퍼(또는 그 결과를 넘기는 중계)를 씁니다. ADMIN API 키는 전체 관리 권한이므로 수집용으로 권하지 않습니다 — 그래도 쓴다면 그 키 하나로 모든 RPC를 부를 수 있다는 위험을 운영 기록에 남기고 키 파일 권한을 좁힙니다.
+3. `/internal/vms`·`/internal/telemetry`는 직접 로컬과 ADMIN 토큰만 200입니다. 비ADMIN 토큰은 403 `FORBIDDEN`이고 거절 감사(`denied`) 1행이 남습니다.
+4. `/health/recent-errors`는 비ADMIN 토큰에 그 토큰 주체가 낸 실패 행만 줍니다. `?vm=` 필터는 그 안에서만 걸립니다.
+
+**`auth=none`은 테넌트 경계 없이 공개합니다.** `[metrics] auth=none`이면 원격 무토큰 요청도 모든 테넌트의 VM 계열·내부 경로·최근 실패를 받습니다. 운영자가 명시한 공개 모드라 거르지 않으며, 기동 경고에 "모든 테넌트 VM 계열 공개"가 함께 남습니다. 여러 테넌트가 한 호스트를 나눠 쓰면 이 값을 쓰지 않습니다. 같은 호스트의 루프백에서 전달 헤더 없이 붙는 요청(그리로 가는 터널 포함)도 토큰 없이 전부를 받습니다 — 직접 로컬을 신뢰하는 모델입니다. 그런 연결로 웹 UI를 연 비ADMIN 로그인도 브라우저가 긁는 `/metrics`에서 모든 VM 계열을 받습니다.
 
 `purecvisor_mainloop_stalls_total{level="warn"}`·`{level="crit"}`는 메인 루프 정지 감지 횟수(counter)입니다. 평소 0이 정상이고, 늘면 17.1절의 정지 로그와 `current RPC`를 봅니다.
 
 ### 8.11 WebSocket 메트릭 Push
 
 `ws://127.0.0.1:8080/api/v1/ws/events`에 연결한 뒤 5초 안에 `{"type":"auth","token":"<access_token>"}`를 보내야 한다. 성공하면 `{"type":"auth_ok"}`가 오고, 5초 안에 인증하지 않으면 연결을 닫는다(URL의 `?token=`은 무시한다). 이벤트는 `{"type":…,"ts":…,"payload":{…}}` 형식이며 `metric`(텔레메트리 갱신마다, `payload.vm_count`)·`job.complete`·`healing`·`anomaly`·`forecast`가 온다.
+
+이벤트마다 받는 연결이 다릅니다. 호스트 이벤트(`metric`·`metrics-update`·`forecast`)는 인증된 연결 전부가 받습니다. VM 이름을 싣는 `healing`·`healing-request`·`anomaly`는 ADMIN 연결에만 갑니다. VM 작업 완료 `job.complete`는 ADMIN과 그 작업을 볼 수 있는 연결(행위자 본인·같은 테넌트 — 11.2)에만 가고, 재시작 뒤 결과 journal에서 복구한 작업의 완료는 ADMIN만 받습니다. AI 비교 `agent-comparison`은 비ADMIN 연결에 보이는 VM의 행만 남긴 사본(대상 VM이 없는 행은 사유 문구를 가림)으로 갑니다.
 
 ```javascript
 const ws = new WebSocket('ws://127.0.0.1:8080/api/v1/ws/events');
@@ -5166,7 +5321,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/auth/totp/verify \
 
 | 역할 | 레벨 | 권한 |
 |------|------|------|
-| VIEWER | 0 | 읽기 전용 (list, status, metrics) |
+| VIEWER | 0 | 읽기 전용 (list, status, metrics). VM은 같은 테넌트·본인 소유만(아래 "VM 읽기 범위") |
 | OPERATOR | 1 | VIEWER + VM/컨테이너 lifecycle. VM 단일 대상 action은 자신이 생성한 VM에 한정 |
 | ADMIN | 2 | 전체 권한 (사용자 관리, 설정 변경, 호스트 자원 등록) |
 
@@ -5181,7 +5336,107 @@ operator의 VM 단일 대상 action은 libvirt domain metadata의 `pcv:owner`와
 - `vm.batch`는 요청에 포함된 모든 VM owner가 호출자와 일치할 때만 실행한다.
 - `vm.batch start`는 VM을 한 대씩 차례로(앞 VM의 시작이 끝난 뒤 다음) 정식 `vm.start` 경로로 시작하며 같은 이름은 `duplicate`로 거절한다. 대수만큼 시간이 더 걸린다. `vm.batch stop`은 정상 종료(최대 30초 뒤 강제)를 풀 크기에 맞춘 상한(최대 4대)씩 진행하며, 이 상한 K(`MIN(4, pool_max_conn−1)`)는 요청마다가 아니라 **프로세스 전역**이다. `vm.batch stop` 요청이 여러 개 겹쳐도 합산 K대 이하로 정지하고, 겹친 요청은 거절되지 않고 교대로 진행되어 늦게 끝난다(응답은 즉시). 또 VM별 작업 잠금은 차례가 올 때 얻는다. 그때 다른 작업 중인 VM은 응답 `rejected`가 아니라 `vm.stop` 감사 기록(fail)로 남는다(2.1.0).
 - 같은 VM을 이름으로 요청하든 UUID로 요청하든 같은 작업 잠금으로 서로 배제되며, 거절 메시지는 VM 이름을 쓴다(`VM '<이름>' is already locked (op: …, pid: …)`). 잠금 거절 오류 코드는 RPC마다 이전과 같다(2.1.0).
-- owner metadata가 없는 기존 VM은 operator action이 거부된다. 소유권 정리와 복구는 admin 경로에서 처리한다.
+- owner metadata가 없는 기존 VM은 operator action이 거부되고, 비ADMIN에게는 목록에서도 보이지 않는다(아래 "VM 읽기 범위"). ADMIN이 `vm.owner.set`으로 소유자를 정한다(아래 "VM 소유자 이관").
+
+#### VM 읽기 범위 (비ADMIN)
+
+ADMIN이 아닌 계정(VIEWER·OPERATOR)이 VM을 **읽을** 때는 술어 하나로 판정한다. ADMIN은 늘 모든 VM을 본다.
+
+> 보인다 = VM에 소유자(`pcv:owner`)가 있고, 소유자가 호출자 본인이거나 소유자 계정의 테넌트가 호출자의 테넌트와 같다.
+
+| 호출자 | 보이는 VM |
+|---|---|
+| ADMIN | 모든 VM |
+| 테넌트 있는 VIEWER·OPERATOR | 자기가 만든 VM과 같은 테넌트 사용자가 소유한 VM |
+| 테넌트 없는 VIEWER | 없음(빈 목록) |
+| 테넌트 없는 OPERATOR | 자기가 만든 VM |
+| 비ADMIN API 키 | 그 키로 만든 VM. 키에는 테넌트가 없어 같은 테넌트 VM은 보이지 않는다 |
+| gRPC(비ADMIN) | `[grpc] tenant` 테넌트로 판정한다. 설정이 없으면 gRPC로 만든 VM만 |
+
+- 소유자가 없는 VM(UDS·virsh·옛 데몬으로 만든 VM)과 소유자 계정이 지워진 VM은 ADMIN만 본다. 소유자 계정의 테넌트는 판정 시점의 계정 정보로 읽는다.
+- **읽기와 조작은 따로 판정한다.** 같은 테넌트 사용자는 서로의 VM을 보고 지표·스냅숏 목록·게스트 상태를 읽지만, 시작·정지·삭제·콘솔(VNC) 같은 조작은 위 "VM owner-scope"대로 만든 사람과 ADMIN만 한다. 동료 VM의 조작 버튼은 화면에 그대로 보이고, 누르면 −32006과 함께 "이 VM은 만든 사용자만 조작할 수 있습니다" 안내가 뜬다.
+- 역할 등급은 바뀌지 않는다. OPERATOR 등급 읽기(`vm.cpu.stats`·`vm.memory.stats`·`vm.guest.ping`·`backup.history`)는 VIEWER에게 지금처럼 역할에서 막힌다.
+- **단일 VM 읽기**: 아래 14개 메서드는 디스패처가 대상 VM을 먼저 검사한다. 없는 VM, 범위 밖 VM, 소유자를 읽지 못한 VM(libvirtd 무응답 포함), 대상 이름이 빠진 요청은 모두 같은 −32006 `Permission denied: VM not found or not visible`과 같은 모양의 거절 감사 1행이다. 응답으로 VM이 있는지 가를 수 없다. ADMIN의 응답은 그대로다.
+  - `vm.metrics`·`vm.snapshot.list`·`vm.guest.agent.status`·`vm.guest.fsinfo`·`vm.blkio.get`·`vm.usb.list`·`vm.sla.report`·`vm.cpu.stats`·`vm.memory.stats`·`vm.guest.ping`(대상 키 `name`·`vm_id`·`vm_name`·`vm`), `device.nic.list`(`vm_id`), `qos.vm.get`(`vm`), `monitor.metrics`(`vm_id`), `backup.history`(`vm_name`)
+  - 이 메서드들도 VM 대상 키 넷이 서로 다른 VM을 가리키면 역할과 무관하게 −32602다.
+  - 비ADMIN의 `vm.metrics`·`vm.sla.report`는 없는 VM에 0값·기본값 성공을 주던 것이 이 −32006으로 바뀌었다.
+- **목록·이름이 든 응답**은 보이는 VM의 행만 담는다. 페이지·상위 N·`has_more`·총수는 거른 결과로 센다.
+  - `vm.list`(ADMIN 응답에만 `owner` 칸 — 문자열 또는 `null`), `monitor.fleet`(VM 행만 거르고 `host` 집계는 그대로), `monitor.processes`, `monitor.vm.diag`, `host.device.list`의 VM 이름(`vm_visible: false`), `vm.numa.info`(범위 밖 VM이 쓰는 코어는 `owner: null`·`owner_visible: false`), `backup.policy.list`(`vm_name="*"` 정책은 남긴다), `vm.snapshot.schedule.list`, `security_group.list`(그룹은 그대로, VM 연결만 거른다), `security.event.list`·`security.event.get`(범위 밖은 없는 이벤트와 같은 응답), `security.action.pending`, `healing.history`(대상이 보이는 VM인 행만 — 호스트 대상 행도 빠진다), `alert.history`(보안 이벤트 경보 행은 남기되 대상이 보이지 않으면 문구를 `[<심각도>] Security event: details hidden`으로 가린다), `agent.history`(대상 VM이 보이는 행만, 대상 없는 행은 사유 문구를 비운다).
+  - `healing.pending`은 비ADMIN에게 빈 배열이다(승인도 ADMIN 전용이다). 대기 건수는 호스트 집계라 그대로 보인다.
+  - Job(`jobs.list`·`jobs.get`·`vm.delete.status`)은 11.2, 수집기(`/metrics`·`/internal/*`·`/health/recent-errors`)는 8.10, WebSocket 이벤트는 8.11의 같은 규칙을 따른다.
+  - 이름으로 VM을 잇는 목록과 `/metrics`는 VM 진단 표본기의 소유자 지도를 쓴다. 지도가 아직 없거나 표본기가 `stale`·`error`이면 비ADMIN에게 그 VM 행을 내지 않는다.
+  - 호스트 집계(`quota.get` 합계·VM 수, `monitor.fleet`의 `host`, 대기 건수)는 거르지 않는다.
+- **넓어지는 곳과 좁아지는 곳(OPERATOR 기준)**: 예전에는 OPERATOR가 자기가 만든 VM만 읽던 10개 — VIEWER 등급 `vm.metrics`·`vm.snapshot.list`·`vm.guest.agent.status`·`vm.guest.fsinfo`·`vm.blkio.get`·`vm.usb.list`·`vm.sla.report`와 OPERATOR 등급 `vm.cpu.stats`·`vm.memory.stats`·`vm.guest.ping` — 이 같은 테넌트 VM으로 넓어진다(의도된 완화). `host.device.list`의 VM 이름과 `monitor.vm.diag`(테넌트 없는 OPERATOR가 자기 VM을 본다)도 넓어진다. `device.nic.list`·`qos.vm.get`·`monitor.metrics`·`backup.history`는 OPERATOR에게 소유자 검사가 없던 것이 생겨 좁아지고, VIEWER는 모든 VM 읽기에서 좁아진다.
+- 웹 UI는 서버가 거른 결과를 그대로 그린다. 비ADMIN의 VM 목록이 비면 "볼 수 있는 VM이 없습니다"와 함께 테넌트가 있으면 "같은 테넌트의 VM과 직접 만든 VM만 보입니다.", 테넌트 없는 VIEWER는 "이 계정에 tenant가 없어 볼 수 있는 VM이 없습니다", 테넌트 없는 OPERATOR는 "이 계정에 tenant가 없어 직접 만든 VM만 보입니다"를 보인다. 대시보드 워크로드 표는 "볼 수 있는 VM 없음", 자가치유 대기 목록은 "대기 항목은 관리자만 볼 수 있습니다"다.
+
+#### VM 소유자 이관 (`vm.owner.set`)
+
+ADMIN 전용이다. 소유자가 없는 VM, 옛 VM, 지울 계정의 VM을 실제 사용자에게 넘긴다.
+
+| 표면 | 사용 |
+|---|---|
+| RPC | `vm.owner.set` `{name, owner, expected_owner?}` — `name`은 VM 이름 또는 UUID(별칭 `vm_id`·`vm_name`·`vm`도 받는다) |
+| REST | `PUT /api/v1/vms/{name}/owner`, 본문 `{"owner":"dev","expected_owner":null}` |
+| CLI | `pcvctl vm owner <vm> <owner> [--expect <이전 소유자>\|--expect-none]` — 인자가 틀리면 RPC를 보내지 않고 사용법만 보인다 |
+
+- `owner`는 존재하는 RBAC 사용자 이름이어야 한다. 예약 이름(내부 행위자 이름 `grpc`·`local-admin`·`system`·`ai-agent`·`ai-ops`·`-` — 아래 "주체 이름 규칙과 지운 이름"과 같은 목록)과 지운 사용자 이름은 받지 않는다. 소유자를 지우는 기능은 없다.
+- `expected_owner`(CLI `--expect`, 소유자 없음은 `null`·`--expect-none`)를 주면 지금 소유자가 그 값일 때만 바꾼다. 두 ADMIN이 동시에 넘기면 한쪽만 된다.
+- 영구 정의는 늘, 실행 중이면 라이브 정의도 바꾸고 다시 읽어 확인한다. 어긋나면 이전 값으로 되돌리기를 시도하고 −32000이다. 응답은 `{name, uuid, owner, previous_owner(없으면 null), live_updated}`다.
+- 이전·새 소유자는 응답과 데몬 journal INFO(`[vm.owner.set] vm=… previous=… new=…`)에 남는다. 감사 로그에는 일반 RPC 감사 1행(행위자·메서드·대상 VM·결과)이 남는다.
+- 성공하면 그 VM의 비ADMIN VNC 연결을 닫는다(콘솔은 조작이라 옛 소유자의 연결을 남기지 않는다). 표본기는 다음 표본(5초)에 소유자를 다시 읽어 목록·`/metrics` 범위가 그 안에 바뀐다.
+- 같은 VM의 다른 작업과 VM 작업 잠금으로 서로 배제되고, 메인 루프가 아니라 `VM 장치 변경` 줄(1칸·대기 8초)에서 돈다.
+
+| 오류 | 뜻 | 조치 |
+|---|---|---|
+| −32602 `Missing required parameter: name`·`Missing required parameter: owner` | 대상 VM이나 새 소유자가 없다 | 두 값을 넣는다 |
+| −32602 `Invalid params: owner must be an existing user` | 빈 값, 내부 행위자 이름, 없는 사용자 | `pcvctl auth list`의 사용자 이름을 쓴다 |
+| −32602 `Invalid params: expected_owner must be a string or null` | `expected_owner`가 문자열·null이 아니다 | 값을 고친다 |
+| −32001 `VM not found` | 그런 VM이 없다 | 이름·UUID를 확인한다 |
+| −32002 `Owner changed: expected_owner does not match` | 그사이 소유자가 바뀌었다 | ADMIN `vm.list`의 `owner`를 다시 보고 결정한다 |
+| −32004 | 그 VM에 다른 작업이 진행 중이거나 줄에서 8초 넘게 기다렸다 | 앞 작업이 끝난 뒤 다시 보낸다 |
+| −32000 `Owner metadata update failed (config\|live\|verify)` | 정의 쓰기·확인이 그 단계에서 실패했다 | libvirtd 상태를 확인하고 다시 보낸다 |
+| −32000 `Owner check failed: user directory unavailable`·`libvirt connection unavailable` | 계정 DB나 libvirt에 닿지 못했다 | 데몬 로그를 확인하고 다시 보낸다 |
+| −32006 | ADMIN이 아니다 | ADMIN 계정으로 보낸다 |
+
+```bash
+# 소유자가 없는 VM을 dev에게 넘긴다 (지금 소유자가 없을 때만)
+pcvctl vm owner web-prod dev --expect-none
+
+# 지울 계정 old-dev의 VM을 dev에게 넘긴다 (지금 소유자가 old-dev일 때만)
+pcvctl vm owner web-prod dev --expect old-dev
+```
+
+**계정을 지우기 전에 VM을 넘긴다.** `auth.user.delete`는 그 사용자의 VM을 건드리지 않는다. 지운 사용자가 소유한 VM은 소유자 계정의 테넌트가 함께 사라져 같은 테넌트 동료에게도 보이지 않고, ADMIN만 보고 조작한다. 그래서 계정을 지우기 전에:
+
+1. ADMIN으로 `pcvctl --format=json vm list`(또는 `GET /api/v1/vms`)를 받아 `owner`가 그 사용자인 VM을 찾는다.
+2. 이어받을 사용자에게 `pcvctl vm owner <vm> <새 소유자> --expect <지울 사용자>`로 넘긴다.
+3. 넘긴 뒤 `pcvctl auth delete <지울 사용자>`.
+
+이미 지웠다면 ADMIN이 같은 방법으로 넘긴다(`--expect <지운 이름>`). 지운 사용자가 접수한 Job은 같은 테넌트 동료가 계속 본다(11.2).
+
+**업그레이드 절차(VM 읽기 범위, ADMIN)** — 이 판으로 올리면 소유자 없는 VM과 테넌트 없는 계정의 VM이 비ADMIN 화면에서 사라진다. ADMIN 화면은 그대로다.
+
+1. 반영 직후 ADMIN으로 `vm.list`의 `owner`(옛 판에는 이 칸이 없다)를 보고 `null`인 VM과 소유자 계정이 이미 없는 VM을 찾아, 테넌트 사용자에게 넘길지 정한다. 넘기는 방법은 위 `vm.owner.set`이다.
+2. 반영 전 `pcvctl --format=json auth list`로 OPERATOR·VIEWER 계정의 `tenant`를 확인한다. 테넌트가 없는 VIEWER는 VM을 하나도 보지 못하고, 테넌트가 없는 OPERATOR는 자기가 만든 VM만 본다. 필요하면 `pcvctl auth tenant <user> <tenant>`로 정한다(비어 있을 때만 된다).
+3. 외부 Prometheus가 쓰는 API 키의 역할을 확인한다. VM 계열이 필요하면 8.10 업그레이드 노트 2의 같은 호스트 직접 연결 스크레이퍼로 바꾼다.
+4. gRPC를 비ADMIN 역할로 쓰면 `[grpc] tenant`를 확인한다. 없으면 gRPC 쪽 `vm.list`에는 gRPC로 만든 VM만 보인다.
+5. 반영 뒤 비ADMIN 계정으로 로그인해 VM 목록과 빈 상태 문구를 확인한다. OPERATOR의 VM 읽기 거절 문구는 `Permission denied: VM not found or not visible`로 바뀌었다(조작 거절 문구는 그대로다).
+
+되돌릴 때: 이전 판으로 되돌리면 Job DB에 더한 `actor`·`actor_tenant` 열은 남지만 옛 판의 동작에 영향이 없고(`user_version`은 2 그대로), 비ADMIN 읽기 범위는 옛 동작으로 다시 열린다 — 반영 기록에 적는다. 되돌린 동안 접수된 Job은 다시 올린 뒤 ADMIN만 본다. `vm.owner.set`으로 바꾼 소유자는 그대로다(옛 판도 같은 소유자 표지를 읽는다).
+
+#### 주체 이름 규칙과 지운 이름
+
+사용자 계정·API 키·내부 상수 행위자는 **한 이름 공간**을 씁니다. 소유자·테넌트 판정이 이름으로 비교되므로, 서로 다른 주체가 같은 이름을 갖지 않게 생성 시점에 막습니다.
+
+- **이름 규칙**: 사용자 이름과 API 키 이름은 모두 `[A-Za-z0-9][A-Za-z0-9._-]{0,62}`입니다. 사용자 생성의 `tenant`도 같은 규칙이며, 문자열이 아니면(숫자·불리언·객체·배열) −32602로 거절합니다. 키가 없거나 `null`이면 테넌트 없음입니다.
+- **종류 간 충돌**: API 키와 같은 이름의 사용자, 사용자와 같은 이름의 키는 만들 수 없습니다(−32002). 같은 이름 키 여러 개는 한 주체로 봅니다.
+- **예약 이름**: `grpc`·`local-admin`·`system`·`ai-agent`·`ai-ops`·`-`는 내부 행위자 이름이라 사용자·키로 만들 수 없습니다(−32602). `admin`은 실제 부트스트랩 사용자 이름이라 예약하지 않습니다.
+- **지운 이름(묘비)**: 사용자를 지우면 그 이름이 묘비 명부에 남아, 같은 이름의 사용자·키를 다시 만들 수 없습니다(−32002). 그 이름이 남긴 VM·컨테이너·VPC 소유 기록을 새 계정이 우연히 잇지 않게 하기 위해서입니다. 계정을 지우기 전에 VM을 다른 사용자에게 넘기십시오(위 "VM 소유자 이관"의 `vm.owner.set`).
+- **명시 재사용**: ADMIN이 `auth.user.create`에 `"reuse_deleted_name": true`를 주거나 `pcvctl auth create … --reuse-deleted-name`을 쓰면 묘비를 지우고 다시 만듭니다. 이때 새 계정은 **옛 소유 기록을 의도적으로 잇습니다**(응답 `reused_deleted_name`). 예약 이름·키 이름은 이 플래그로도 풀 수 없습니다.
+- **계정 없이 이름 닫기**: 반영 전에 지운 이름처럼 묘비가 없는 이름은 `auth.deleted_name.add`(ADMIN) 또는 `pcvctl auth retire-name <이름>`으로 묘비에 올립니다.
+- **기동 집계**: 데몬은 기동 때 같은 이름 사용자·키 쌍, 예약 이름 계정·키, 규칙 밖 키 이름, 묘비와 겹치는 키, 정합으로 지운 묘비, 묘비 총수를 **수만** 한 줄로 남깁니다(이름은 남기지 않음). 반영 전에 생긴 겹침은 그대로 인증되므로 이 수를 보고 ADMIN이 재발급·재생성으로 정리합니다.
+- **gRPC**: 매핑 뒤 RPC 메서드 이름이 `[A-Za-z0-9][A-Za-z0-9._-]{0,126}` 밖이면 디스패처를 부르지 않고 `{"error":"invalid method"}` 프레임을 보냅니다(매핑 표·RPC 이름은 모두 지납니다).
+- **업그레이드 노트(주체 이름 공간)**: 반영 뒤 새로 막히는 ADMIN 동작은 사용자와 같은 이름의 키, 키와 같은 이름의 사용자, 예약 이름 계정·키, 플래그 없는 지운 이름 재생성, 규칙 밖 키 이름·사용자 테넌트, 문자열이 아닌 `tenant`이며 모두 생성 시점 오류 문구로 알립니다. 비ADMIN API 키는 같은 이름 사용자의 테넌트를 더는 얻지 않아 테넌트가 필요한 작업(VM 생성 포함 — 기본 브리지 판정, 호스트 자원 참조, VPC 테넌트 작업)이 거절됩니다. 지운 부트스트랩 관리자는 재기동으로 되살아나지 않습니다. UDS로 만든 Web Push 구독은 앞으로 `local-admin` 소유이고, 지금 `admin` 이름으로 남은 구독은 사용자 `admin`의 것으로 남습니다.
 
 #### Bootstrap admin과 전용 admin
 
@@ -5202,13 +5457,17 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 >
 > **⚠️ 파일 권한**: `daemon.conf`는 `admin_password` 등 자격증명을 담으므로 **반드시 소유자 `root:root`, 권한 `0600`**(`chown root:root` + `chmod 600`)이어야 한다(world-readable 금지). `.deb` 설치는 postinst가 자동으로 `0600`을 강제한다. 소스/수동 설치 시 직접 확인할 것.
 
-> **사용자 삭제와 인증 수단**: 사용자를 삭제하면 그 사용자의 access 토큰·refresh 세션·대기 중 로그인(pending)·WebSocket·VNC 연결이 즉시 무효가 되고, 열려 있던 WebSocket·VNC 연결은 닫힙니다. 같은 이름으로 다시 만든 사용자는 **다른 계정**이며(사용자마다 신원 세대 값이 따로 있음) 옛 토큰·refresh 세션·TOTP 등록을 물려받지 않습니다. 인증된 요청은 매번 주체가 DB에 있는지와 신원 세대가 맞는지 확인하며, 조회 자체가 실패하면 허용하지 않고 503으로 답합니다(예전의 "없는 사용자는 VIEWER" 폴백은 없습니다). API 키는 사용자 역할이 아니라 **키에 저장된 역할**로 판정하고, 업그레이드 때 저장 역할이 사용자 역할보다 높은 키는 한 번 낮춥니다(올리지는 않으며, 낮춘 키 수는 기동 로그에 남습니다). 부트스트랩 비상 토큰 발급은 중지되었습니다: 관리자 계정이 없으면 `pcvctl auth create`(UDS)로 만들거나 데몬을 재기동해 `admin_password`로 다시 시딩합니다. 이 변경을 반영한 뒤에는 모든 사용자가 **한 번 다시 로그인**해야 합니다(옛 refresh 세션은 이관 때 폐기됨).
+> **사용자 삭제와 인증 수단**: 사용자를 삭제하면 그 사용자의 access 토큰·refresh 세션·대기 중 로그인(pending)·WebSocket·VNC 연결이 즉시 무효가 되고, 열려 있던 WebSocket·VNC 연결은 닫힙니다. 지운 이름은 묘비에 남아 다시 만들 수 없고, ADMIN의 명시 재사용으로만 되살아나며 그때 옛 소유 기록을 잇습니다(위 "주체 이름 규칙과 지운 이름"). 되살린 계정도 사용자마다 신원 세대 값이 따로 있어 옛 토큰·refresh 세션·TOTP 등록을 물려받지 않습니다. 인증된 요청은 매번 주체가 DB에 있는지와 신원 세대가 맞는지 확인하며, 조회 자체가 실패하면 허용하지 않고 503으로 답합니다(예전의 "없는 사용자는 VIEWER" 폴백은 없습니다). API 키는 사용자 역할이 아니라 **키에 저장된 역할**로 판정하고, 업그레이드 때 저장 역할이 사용자 역할보다 높은 키는 한 번 낮춥니다(올리지는 않으며, 낮춘 키 수는 기동 로그에 남습니다). 부트스트랩 비상 토큰 발급은 중지되었습니다: 관리자 계정이 없으면 root가 UDS로 `pcvctl auth create <새 이름> <비밀번호> admin`을 만들거나, 지운 관리자 이름을 `pcvctl auth create <이름> <비밀번호> admin --reuse-deleted-name`으로 되살립니다. 지운 부트스트랩 관리자는 재기동해도 되살아나지 않으며, 설정에 그 이름·`admin_password`가 남아 있으면 기동마다 부트스트랩 실패 감사 1행과 WARN 1줄이 남습니다(`admin_password`를 비우거나 `[daemon] admin_user`를 바꾸면 멈춥니다). 이 변경을 반영한 뒤에는 모든 사용자가 **한 번 다시 로그인**해야 합니다(옛 refresh 세션은 이관 때 폐기됨). 사용자를 삭제해도 그 사용자가 소유한 VM의 소유자 표지는 바뀌지 않으므로, 지우기 전에 VM을 넘깁니다(위 "VM 소유자 이관"의 "계정을 지우기 전에 VM을 넘긴다").
 
 ```bash
 # 전용 admin 포함 사용자 관리
 pcvctl auth list
 pcvctl auth create ops-admin "${PCV_NEW_ADMIN_PASSWORD:?설정한 강한 비밀번호 필요}" admin
 pcvctl auth create dev "${PCV_NEW_USER_PASSWORD:?설정한 강한 비밀번호 필요}" operator
+# 지운 계정 이름을 일부러 되살릴 때만(옛 소유 기록을 잇는다)
+pcvctl auth create dev "${PCV_NEW_USER_PASSWORD:?설정한 강한 비밀번호 필요}" operator --reuse-deleted-name
+# 계정 없이 지운 이름을 닫는다(반영 전에 지운 이름)
+pcvctl auth retire-name former-operator
 pcvctl auth role dev admin
 pcvctl auth delete dev
 
@@ -5218,7 +5477,7 @@ echo '{"jsonrpc":"2.0","method":"auth.user.create","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 ```
 
-사용자 이름은 자원 경계 이름 규칙 `[A-Za-z0-9][A-Za-z0-9._-]{0,62}`(첫 글자 영숫자, 이후 영숫자·`.`·`_`·`-`, 63자 이하)를 따라야 합니다. `auth.user.create`는 이 규칙을 어긴 이름을 `-32602`로 거절합니다(`auth.user.tenant.set`의 테넌트 이름 규칙과 같은 집합). 자가 등록 `auth.register`는 자체 규칙(3–32자 소문자 영숫자·`_`)을 그대로 쓰고, 부트스트랩 `admin_user`는 영향받지 않습니다. 이미 만들어진 비규칙 이름 계정은 계속 동작하지만, 규칙에 맞게 고치려면 삭제 후 재생성해야 합니다(덮어쓰기 경로는 없습니다). 재생성 계정은 새 신원 세대를 받아 옛 토큰·세션·TOTP 등록을 물려받지 않고 테넌트·소유 범위도 초기화됩니다.
+사용자 이름은 자원 경계 이름 규칙 `[A-Za-z0-9][A-Za-z0-9._-]{0,62}`(첫 글자 영숫자, 이후 영숫자·`.`·`_`·`-`, 63자 이하)를 따라야 합니다. `auth.user.create`는 이 규칙을 어긴 이름을 `-32602`로 거절합니다(`auth.user.tenant.set`의 테넌트 이름 규칙과 같은 집합). 자가 등록 `auth.register`(`POST /api/v1/auth/register`)는 자체 규칙(3–32자 소문자 영숫자·`_`)을 그대로 쓰고, 가입할 수 없는 이름(이미 있는 사용자·`[daemon] admin_user`·예약·API 키·지운 이름)은 종류를 가리지 않고 같은 409 `username is reserved`로, 그 밖의 가입 실패는 500 `registration failed` 고정 문구로 답합니다. 부트스트랩 `admin_user`는 이 이름 규칙의 영향을 받지 않습니다. 이미 만들어진 비규칙 이름 계정은 계속 동작하지만, 규칙에 맞추려면 규칙에 맞는 새 이름으로 계정을 만들고(VM은 `vm.owner.set`으로 넘깁니다) 옛 계정을 지웁니다(이름 바꾸기·덮어쓰기 경로는 없습니다). 새 계정은 새 신원 세대를 받아 옛 토큰·세션·TOTP 등록을 물려받지 않고 테넌트·소유 범위도 처음부터 시작합니다.
 
 `auth create`의 비밀번호, `container env-set`의 값, `alert set --webhook`의 URL은 입력을 되풀이하는 출력(`--verbose`의 요청·응답 줄, `--batch`의 되풀이·실패 줄, 오류 안내)과 REPL 이력에 남지 않습니다. 예외로 `--format=json`은 사용자가 고른 원문 출력이라 `alert set`의 응답을 그대로 찍어 URL이 보이고, `alert config`도 ADMIN에게 URL 원문을 보여 줍니다. 또 명령줄 인자이므로 실행 중에는 같은 호스트의 `ps`에, `sudo`로 실행하면 sudo 로그에, 값을 직접 치면 셸 이력에 보일 수 있습니다. 위처럼 환경변수로 넘기고 공유 호스트에서는 REST(`POST /api/v1/auth/users`)를 씁니다.
 
@@ -5300,6 +5559,8 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
 curl -s -H "X-API-Key: pcv_<16진 64자>" \
   http://127.0.0.1:8080/api/v1/vms
 ```
+
+키 이름은 사용자 이름과 같은 규칙(`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`)이며 사용자·예약·지운 이름과 같을 수 없다(10.2 "주체 이름 규칙과 지운 이름"). 이미 있는 규칙 밖 이름의 키는 인증·목록·폐기가 그대로 된다. API 키 호출자에게는 테넌트가 없다 — `whoami`의 `tenant`는 `"---"`이고, 같은 이름 사용자의 테넌트를 빌려 쓰지 않는다(테넌트가 필요한 작업(VM 생성의 기본 브리지 판정, 호스트 자원 참조, VPC 테넌트 작업)은 거절되고 같은 테넌트 VM도 보이지 않는다). 폐기된 키 이름으로 새 키를 만들면 그 이름의 소유 기록을 잇는다.
 
 `auth.apikey.list`의 `last_used_at`은 그 키로 인증에 성공한 마지막 시각이다. 쓰기 부하를 막기 위해 같은 키는 60초에 한 번만 갱신한다.
 
@@ -5716,6 +5977,8 @@ DB/journal 양쪽 저장 실패나 효과 직후 기록 전 crash는 자동 복�
 기능 제거로 이미 접수된 외부 작업이 취소되거나 자원이 정리되지는 않습니다.
 제거된 API/CLI는 미지원이며 Cloud 화면의 이전 북마크는 도움말로 이동합니다.
 
+ADMIN이 아닌 계정은 자기가 접수한 Job과 같은 테넌트 사용자가 접수한 Job만 봅니다(`jobs.list`·`jobs.get`·`vm.delete.status`). 테넌트는 접수 때의 값을 Job 행(`actor`·`actor_tenant` 열)에 저장해 쓰므로, 행위자 계정을 지워도 같은 테넌트 동료는 계속 보고, 테넌트를 나중에 정해도 그 전 Job은 동료에게 보이지 않습니다. ADMIN이 접수한 Job은 ADMIN과 그 행위자 본인만, 행위자가 없는 Job(UDS·데몬 내부·이 판 이전 행)은 ADMIN만 봅니다. 보이지 않는 Job은 없는 Job과 같은 응답입니다(`jobs.get` −32001 `Job not found`, `vm.delete.status` `status: "not_found"`). `jobs.list`의 페이지는 거른 결과로 셉니다. `jobs.status`·`jobs.cancel`(ADMIN)은 그대로입니다. Job DB의 `user_version`은 2 그대로라 이전 판으로 되돌려도 장부가 동작합니다.
+
 종료된 Job 기록은 보존 기간이 지나면 하루 한 번 자동으로 정리됩니다. 완료·실패·취소로 결과가 확정된(`outcome_known`) Job만 대상이며, 진행 중·대기·결과 미확정 Job은 남깁니다. 기본 보존 기간은 30일이고 `[daemon]` 설정의 `job_retention_days`로 조정합니다 — 0 이하(0·음수)는 정리를 끄고(보존 기간을 잘못 0으로 두어 전량 삭제되는 것을 막는 안전값), 양수 N은 N일을 뜻합니다. 보존 기간을 넘긴 Job은 기록에서 지워지므로 `jobs.get`·`jobs.status`가 `not_found`를 돌려줍니다. 장기 보관이 필요하면 완료 WebSocket·감사 로그로 결과를 따로 남기거나 보존 기간을 늘립니다.
 
 
@@ -5887,7 +6150,7 @@ per-VM PSI 연결 전의 이상탐지는 `/proc/pressure/*`의 **노드 전역 P
 | bootstrap admin | `admin / configured password` |
 | 전용 admin | 설치 직후 RBAC `admin` 역할 사용자 추가 권장 |
 | 앱 셸 | 고정 사이드바 트리(236px) + topbar(브레드크럼·통합 검색·세션) + 글로벌 statusbar |
-| JS 모듈 | `app.js` + `app.bundle.js` + `modules/*.js` 30개 + `i18n.js` + `sw.js` |
+| JS 모듈 | `app.js` + `app.bundle.js` + `modules/*.js` 31개 + `i18n.js` + `sw.js` |
 | 프레임워크 | Vanilla JS (단일 번들 + 임베디드 UI) |
 
 ### 13.2 페이지 구조
@@ -5950,7 +6213,7 @@ dot·NODE/VERSION/UPTIME·KVM/DISK 점검 2종), 우측에 인증 카드를 배�
 | 동작 | 할당이 없으면 '할당…', 있으면 '해제'(할당이 둘 이상이면 '해제…'에서 VM을 고른다). 실행 중 VM의 영구 정의에만 있고 지금 붙어 있지 않은 USB는 '지금 붙이기'가 함께 있다. 쓸 수 없는 동작은 이유를 글로 쓴다 |
 | 할당 창 | VM 선택, '영구로 저장 — VM을 다시 켜도 붙어 있음'(끄면 `vm.usb.attach` `persistent: false` — 꺼진 VM·GPU는 켠 채 잠김), 호스트가 키보드·마우스·저장 장치로 쓰는 장치는 확인 체크 전 '할당' 잠김, 블루투스는 경고만 |
 
-- 권한: VIEWER는 보기만 한다. USB 할당·해제는 OPERATOR 이상(`vm.usb.attach`·`detach` — OPERATOR는 자기 VM만), GPU 할당·해제는 ADMIN(`device.gpu.attach`·`detach`)이다. ADMIN이 아니면 자기 테넌트에 허용된 장치 행만 보이고 VM 이름은 자기 VM 것만 보인다.
+- 권한: VIEWER는 보기만 한다. USB 할당·해제는 OPERATOR 이상(`vm.usb.attach`·`detach` — OPERATOR는 자기 VM만), GPU 할당·해제는 ADMIN(`device.gpu.attach`·`detach`)이다. ADMIN이 아니면 자기 테넌트에 허용된 장치 행만 보이고 VM 이름은 보이는 VM(자기가 만든 VM과 같은 테넌트 VM — 10.2 "VM 읽기 범위") 것만 보인다.
 - 호스트에서 빠짐·옛 장치 번호·자리만 있음의 복구는 '해제' 뒤 다시 '할당…' 두 단계다. 장치를 다시 꽂아도 자동으로 붙지 않는다. 호스트에 없는 PCI 정의(`managed='no'`)는 '해제 불가'이고 정의는 운영자가 정리한다.
 - 목록을 읽지 못하면 '장치 없음'이 아니라 오류 문구와 다시 시도가 보인다. VM 정의 하나라도 읽지 못하면 표 일부를 보내지 않고 −32000이다. 장치가 512개를 넘으면 앞부분만 보이고 안내 줄이 전체를 보는 명령을 알려 준다.
 - 화면의 할당·해제는 기존 RPC를 그대로 보내므로 권한·감사·VM 잠금·레인이 CLI와 같다(USB 변경은 `VM 장치 변경` 줄).
@@ -6100,6 +6363,7 @@ ui/
     ├── network.js      # 네트워크 관리
     ├── storage.js      # 스토리지 관리
     ├── monitor.js      # 모니터링 대시보드, 운영 이벤트 센터
+    ├── monitor-vmdiag.js # 모니터 VM 진단(순위·할당률·데이터 품질·신호)
     ├── host-devices.js # 호스트 장치(GPU·USB) 표와 할당·해제 창
     ├── security.js     # 보안 이벤트 UI
     ├── help.js         # 도움말, Swagger API
@@ -6313,6 +6577,8 @@ Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 
 curl -s -H "Authorization: Bearer $TOKEN" \
   https://HOST/api/v1/vms | jq
 ```
+
+ADMIN이 아닌 토큰의 VM 조회 응답(`GET /vms`, 단일 VM 지표·상태 등)은 그 호출자에게 보이는 VM만 담고, 보이지 않는 VM은 없는 VM과 같은 오류다(10.2 "VM 읽기 범위"). ADMIN의 `GET /vms` 응답에는 VM마다 `owner`(없으면 `null`)가 있다.
 
 #### 14.6.2 VM 생성
 
@@ -6548,6 +6814,7 @@ pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
 | `vm stop <name>` | VM 중지 (graceful) |
 | `vm delete <name>` | VM 삭제 |
 | `vm delete-status <name>` | 최근 삭제 Job 상태(경고·오류 포함) |
+| `vm owner <vm> <owner> [--expect <previous_owner>\|--expect-none]` | VM 소유자 이관 (ADMIN, `vm.owner.set` — 10.2) |
 | `vm clone <source> <clone_name> --mode cow\|full --guest-reset\|--template-prepared` | VM 복제 |
 | `vm vnc <name>` | VNC 포트 조회 |
 | `snapshot create <name> <snap>` | 스냅샷 생성 |
@@ -6634,7 +6901,8 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | 커맨드 | 설명 |
 |--------|------|
 | `auth list` | 사용자 목록 |
-| `auth create <user> <pass> <role>` | 사용자 생성 |
+| `auth create <user> <pass> <role> [--reuse-deleted-name]` | 사용자 생성(지운 이름은 플래그로만 되살리고 옛 소유 기록을 잇는다) |
+| `auth retire-name <name>` | 계정 없이 지운 사용자 이름을 묘비에 올린다(ADMIN) |
 | `auth role <user> <role>` | 역할 변경 |
 | `auth delete <user>` | 사용자 삭제 |
 | (CLI 명령 없음) RPC/REST `auth.apikey.create` | API Key 생성. `role`을 생략하면 1(OPERATOR)이므로 원격 Prometheus용은 `role: 0`(viewer)을 명시해 `Authorization: Bearer`로 사용 |
@@ -6736,7 +7004,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_c
 | `admin_user` | `admin` | bootstrap 관리자 사용자명 (초기/비상 진입용) |
 | `admin_password` | (미설정) | bootstrap 관리자 비밀번호. 첫 로그인 전 명시 설정 필요 |
 | `jwt_secret` | (미설정) | 선택적 runtime 우선 JWT. `PCV_SECRET_AUTH_JWT_SECRET`이 더 우선하며, 둘 다 없으면 `[daemon]` 호환 fallback 사용 |
-| `allow_self_register` | `false` | 로그인 랜딩의 셀프 회원가입 허용 여부. 생성 계정의 기본 역할은 `VIEWER` |
+| `allow_self_register` | `false` | 로그인 랜딩의 셀프 회원가입 허용 여부. 생성 계정의 기본 역할은 `VIEWER`. 이미 있는 사용자 이름·예약 이름·API 키 이름·지운 계정 이름은 가입할 수 없다(모두 같은 409 `username is reserved` — 10.2) |
 
 운영용 관리자 계정은 `pcvctl auth create <name> <password> admin` 또는 `POST /api/v1/auth/users`로 별도 생성해 사용합니다.
 
@@ -6839,11 +7107,12 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_c
 
 | 줄 | 동시 실행 | 대기 칸 | RPC |
 |---|---:|---:|---|
-| libvirt 읽기 | 2 | 32 | `monitor.fleet`, `quota.get`, `vm.cpu.stats`, `vm.memory.stats`, `vm.blkio.get`, `vm.usb.list`, `device.nic.list`, `vm.vnc`, `get_vnc_info`, `qos.vm.get`, `resource.unregistered.list`, `host.device.list` |
+| libvirt 읽기 | 2 | 32 | `monitor.fleet`, `quota.get`, `vm.cpu.stats`, `vm.memory.stats`, `vm.blkio.get`, `vm.usb.list`, `device.nic.list`, `vm.vnc`, `get_vnc_info`, `qos.vm.get`, `resource.unregistered.list`, `host.device.list`, `vm.sla.report`. 비ADMIN의 `vm.metrics`·`vm.guest.agent.status`·`vm.guest.fsinfo`·`vm.guest.ping`·`monitor.metrics`는 VM 읽기 사전 검사만 이 줄에서 하고 처리는 메인 루프로 돌아간다 |
+| 범위 읽기 | 2 | 32 | `monitor.vm.diag`, `monitor.processes`, `vm.numa.info`, `backup.policy.list`, `vm.snapshot.schedule.list`, `security_group.list`, `healing.history`, `security.event.list`, `security.event.get`, `security.action.pending`, `alert.history`, `agent.history`, `jobs.list`, `jobs.get`, `vm.delete.status` — 메모리·sqlite만 읽고 libvirt·외부 명령을 부르지 않는다(외부 명령 읽기 줄이 묶여도 따로 돈다) |
 | 외부 명령 읽기 | 2 | 32 | `dpdk.list`, `dpdk.status`, `gpu.list`, `gpu.metrics`, `sriov.list`, `backup.history`, `container.env.list`, `container.volume.list`, `network.host.info`, `network.info`, `network.qos.get`, `storage.pool.health`, `vm.snapshot.list`, `push.subscribe` |
 | 망 변경 | 1 | 8 | `security_group.create`·`delete`·`detach`·`rule.add`·`rule.remove`, `vm.security_group.set`, `dpdk.bind`·`unbind` |
 | 저장소 변경 | 1 | 8 | `storage.pool.create`, `vm.snapshot.create`·`delete`·`delete_all` |
-| VM 장치 변경 | 1 | 8 | `vm.usb.attach`·`detach` |
+| VM 장치 변경 | 1 | 8 | `vm.usb.attach`·`detach`, `vm.owner.set` |
 | 컨테이너 볼륨 변경 | 1 | 8 | `container.volume.attach`·`detach` |
 
 | 보이는 것 | 뜻 | 할 일 |
@@ -6854,7 +7123,8 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_c
 | −32000 `<method>: host command timed out`(`vm.snapshot.list`는 zfs 확인이 멈출 때 폴백 없이 이 응답) | 외부 명령 읽기가 명령당 10초(호출당 20초)를 넘겼다. 감사는 `fail`이다. REST는 8초 504, CLI는 10초 소켓 시간 초과가 먼저 보일 수 있다 | `zfs`·`zpool`·`tc` 등 그 명령과 호스트 상태를 확인한다 |
 | −32000 `server is shutting down` | 데몬이 내려가는 중이라 실행하지 않았거나, 진행 중 명령이 끊겼다 | 재시작 뒤 다시 보낸다 |
 | −32000 `Hypervisor connection pool exhausted`, 로그 `libvirtd not answering for <N> s; refusing libvirt calls on the main loop` | libvirtd가 10초 넘게 답하지 않아 메인 루프의 libvirt 호출을 하지 않는다. 이름 지정 `vm.start`도 핀닝 없이 뜨는 대신 같은 오류로 거절된다 | libvirtd를 확인한다. 회복하면 `libvirtd answering again` INFO가 남고 다시 보내면 된다 |
-| OPERATOR가 자기 VM에 −32006 `Permission denied: operators can access only VMs they created` | libvirtd 무응답이면 소유자를 확인할 수 없어 거부한다. 권한 문제가 아니다 | libvirtd 회복 뒤 다시 보낸다 |
+| OPERATOR가 자기 VM 조작에 −32006 `Permission denied: operators can access only VMs they created` | libvirtd 무응답이면 소유자를 확인할 수 없어 거부한다. 권한 문제가 아니다. 같은 테넌트 동료 VM이면 정상 거절이다(조작은 만든 사람만 — 10.2) | libvirtd 회복 뒤 다시 보낸다. 동료 VM은 소유자에게 맡기거나 ADMIN이 `vm.owner.set`으로 넘긴다 |
+| 비ADMIN의 VM 읽기에 −32006 `Permission denied: VM not found or not visible` | 없는 VM, 보이지 않는 VM(다른 테넌트·소유자 없음·지운 계정 소유), 대상 이름 누락, libvirtd 무응답으로 소유자를 읽지 못함 가운데 하나다. 응답으로는 가르지 않는다(10.2 "VM 읽기 범위") | 이름을 확인하고, 계정 테넌트(`whoami`)와 ADMIN `vm.list`의 `owner`를 본다. 내 VM이면 libvirtd 상태를 확인한 뒤 다시 보낸다 |
 | `vm.list` −32000 `Failed to list domains.` (REST 500) | 목록을 읽는 중 연결이 끊겼다. VM이 빠진 목록을 내지 않는다. UI는 직전 목록을 유지한다 | libvirtd 회복 뒤 다음 주기에 정상으로 돌아온다 |
 | `/health` 503 `critical`이 약 3초 뒤 | libvirt 확인이 3초 안에 끝나지 않았다. 5초 동안 캐시한다 | libvirtd를 확인한다 |
 
@@ -7063,34 +7333,34 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 
 ### 18.6 프로젝트 통계
 
-2026-11-11 공개 `2.2.0` 소스의 현재 도움말·필수 gate는 다음과 같습니다. 소스 게시와
+2026-11-18 공개 `2.2.1` 소스의 현재 도움말·필수 gate는 다음과 같습니다. 소스 게시와
 전체 실환경 인증은 구분합니다.
 
 | 현재 항목 | 값·범위 |
 |---|---|
-| 도움말 표시 | RPC 317·REST 225 (`make check-help-counts`) |
+| 도움말 표시 | RPC 320·REST 227 (`make check-help-counts`) |
 | 지원 범위 | Single Edge·OVA·로컬 백업, AWS/S3 제거 |
-| 활성 DB | 9개·영구 테이블 28개; 과거 Cloud DB는 자동 삭제하지 않음 |
-| Web UI | `tests/ui/*.test.mjs` 77개 |
+| 활성 DB | 9개·영구 테이블 29개; 과거 Cloud DB는 자동 삭제하지 않음 |
+| Web UI | `tests/ui/*.test.mjs` 80개 |
 | 주요 정적 게이트 | `make -j1 check-all` 48개 게이트 |
 | 운영 기능 아티팩트 | 공개 소스 검증과 별도이며 실제 설치본의 source commit으로 확인 |
 
 
-다음 수치는 2026-11-11 공개 `2.2.0` 소스의 추적 파일과 `Makefile`,
+다음 수치는 2026-11-18 공개 `2.2.1` 소스의 추적 파일과 `Makefile`,
 `make check-rbac`를 대조한 스냅샷입니다. 시험 통과 수는 같은 소스의 게시 전 검증 기록이며,
 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
 
-| 항목 | 2026-11-11 기준 |
+| 항목 | 2026-11-18 기준 |
 |------|----------------|
 | C 표준 | `-std=gnu23` |
-| 에디션·버전 | Single Edge · `2.2.0` |
-| RPC 등록/정책 | RPC 318건, 정책 매핑 333건, 정책표 밖 조회성 VIEWER 기본 0건 — 모든 라우트가 정책표에 매핑됨 (`make check-rbac`) |
-| C/H 소스 | `src/` 아래 C 265개, 헤더 239개, 총 229,701행 (공백 포함) |
-| Web UI | `ui/modules/*.js` 30개, 추적 UI 파일 65개 |
-| 테스트 파일 | `tests/` C 182개, `tests/integration/` 116개, `tests/ui/*.test.mjs` 69개 |
+| 에디션·버전 | Single Edge · `2.2.1` |
+| RPC 등록/정책 | RPC 321건, 정책 매핑 336건, 정책표 밖 조회성 VIEWER 기본 0건 — 모든 라우트가 정책표에 매핑됨 (`make check-rbac`) |
+| C/H 소스 | `src/` 아래 C 285개, 헤더 256개, 총 237,971행 (공백 포함) |
+| Web UI | `ui/modules/*.js` 31개, 추적 UI 파일 66개 |
+| 테스트 파일 | `tests/` C 202개, `tests/integration/` 116개, `tests/ui/*.test.mjs` 80개 |
 | 공개 문서 사이트 | 21개 운영 가이드 장 + DB 아키텍처, 8개 분류·22개 문서 |
-| 공개 소스 검증 기록 | release·debug 빌드 각각 C 2,514 PASS·22 SKIP, audit startup 5 PASS, UI 613 PASS |
-| 계약 게이트 | `make check-all` 47개 — 정확한 목록은 Makefile 의존성과 22.4절 |
+| 공개 소스 검증 기록 | release·debug 빌드 각각 C 2,675 PASS·22 SKIP, audit startup 5 PASS, UI 755 PASS |
+| 계약 게이트 | `make check-all` 48개 — 정확한 목록은 Makefile 의존성과 22.4절 |
 | 운영 인증 경계 | 지정 시험 통과와 전체 감사·지원 환경 인증은 별도이며 22.8절 참조 |
 
 파일 수는 `git ls-files`의 해당 경로·확장자로 집계합니다. 등록 테스트 수·실행 통과 수와
@@ -7694,6 +7964,13 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
+**2026-11-18 현재 소스 (2.2.1):** 2.2.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다(아래 2.2.0 뒤 공개 main 변경 포함).
+변경 목록은 `CHANGELOG.md`의 2.2.1 항목을 따릅니다.
+게시 전 검증에서 공개판 `make check-all` 48개 게이트, release·debug 빌드 각각의 C 단위 시험
+2,675 PASS·22 SKIP과 audit startup 5 PASS, 브라우저 UI 시험 755 PASS, 패키지 검사, 격리된
+Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림을
+확인했습니다. 컨테이너 검증에는 systemd 부팅, 실제 KVM 작업과 커널 BPF 적재가 포함되지 않습니다.
+
 **2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
 도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.
 변경 목록은 `CHANGELOG.md` 맨 위 '2026-11-11 2.2.0 이후 main 변경' 항목을 따릅니다. RPC·REST·DB 스키마·`daemon.conf`
@@ -7734,8 +8011,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 
 #### 2026-09-15 검증 기록 (과거 회차, 2.0.0)
 
-아래 표는 2.0.0 공개 소스 `22d6912` 회차의 기록입니다. 현재 `2.2.0`의 검증 결과가 아니며,
-2.2.0 게시 전 검증은 위 2.2.0 항목을 따릅니다.
+아래 표는 2.0.0 공개 소스 `22d6912` 회차의 기록입니다. 현재 `2.2.1`의 검증 결과가 아니며,
+2.2.1 게시 전 검증은 위 2.2.1 항목을 따릅니다.
 
 | 항목 | 공개 근거와 확인 범위 |
 |---|---|
@@ -7750,8 +8027,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
 결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 이 회차의 전체 감사는
 `FAIL(미완료)`로 남겼습니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
-않습니다. 지금 공개 제품 버전은 `2.2.0`이며 이 회차는 2.0.0 기준입니다.
+않습니다. 지금 공개 제품 버전은 `2.2.1`이며 이 회차는 2.0.0 기준입니다.
 
 ---
 
-> PureCVisor v2.2.0 Complete Guide — 22장 끝.
+> PureCVisor v2.2.1 Complete Guide — 22장 끝.

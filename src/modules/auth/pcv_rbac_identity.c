@@ -176,7 +176,8 @@ _rollback(sqlite3 *db)
   
                                                                                                 
                                                                                              
-                                                                        
+                                                                                                   
+                                                                 
                                                                   
   
                                                                     
@@ -240,7 +241,8 @@ pcv_rbac_user_delete(const gchar *username, GError **error)
         revoked = sqlite3_changes(db);
         sqlite3_finalize(stmt);
     }
-    if (rc != SQLITE_DONE || sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL) != SQLITE_OK) {
+    if (rc != SQLITE_DONE || !pcv_rbac_names_tombstone_locked(db, username)                               
+        || sqlite3_exec(db, "COMMIT;", NULL, NULL, NULL) != SQLITE_OK) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "DB error: %s", sqlite3_errmsg(db));
         _rollback(db);
         pcv_rbac_db_unlock();
@@ -618,6 +620,7 @@ pcv_rbac_identity_migrate(void)
         filled = revoked = -1;
     }
     gint downgraded = _downgrade_apikey_roles_once(db);
+    pcv_rbac_names_migrate_locked(db);                                                        
     pcv_rbac_db_unlock();
 
     g_last_filled_users = filled;

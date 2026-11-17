@@ -28,6 +28,7 @@
 #include "utils/pcv_bpf.h"
 #include "utils/pcv_secure.h"
 #include "modules/dispatcher/rpc_utils.h"
+#include "modules/resource/resource_gate.h"
 #if PCV_CLUSTER_ENABLED
 #include "../modules/cluster/cluster_manager.h"
 #endif
@@ -270,7 +271,8 @@ pcv_rest_audit_search_params(SoupServerMessage *message, GHashTable *query, Json
 gchar *
 pcv_rest_rpc_attach_auth_context(const gchar *rpc_json,
                          const gchar *subject,
-                         PcvRole      role)
+                         PcvRole      role,
+                         const gchar *tenant)
 {
                 
                                                  
@@ -316,6 +318,7 @@ pcv_rest_rpc_attach_auth_context(const gchar *rpc_json,
     if (subject && *subject)
         json_object_set_string_member(params, "_pcv_caller_sub", subject);
     json_object_set_int_member(params, "_pcv_caller_role", (gint)role);
+    pcv_res_inject_caller_tenant(params, (gint)role, tenant);
 
     gchar *rpc_with_context = json_to_string(root, FALSE);
     g_object_unref(parser);

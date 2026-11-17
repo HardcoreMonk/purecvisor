@@ -460,6 +460,57 @@ test_run_bootstrap_refused(void)
     db_teardown();
 }
 
+                                                                                               
+static void
+count_critical(const gchar *dom, GLogLevelFlags lvl, const gchar *msg, gpointer data)
+{
+    (void)dom; (void)lvl; (void)msg;
+    g_atomic_int_inc((gint *)data);
+}
+
+                                                                                            
+                                                                                   
+                                         
+static void
+test_run_empty_fields(void)
+{
+    db_setup();
+    GError *err = NULL;
+    g_assert_true(pcv_rbac_user_create("empty-user", "Right-Passw0rd!", PCV_ROLE_VIEWER, NULL, &err));
+    g_assert_no_error(err);
+
+    gint crit = 0;
+    guint h = g_log_set_handler(NULL, G_LOG_LEVEL_CRITICAL | G_LOG_FLAG_FATAL, count_critical, &crit);
+    const struct { const gchar *user, *pass; } cases[] = {
+        { "", "" }, { "", "Right-Passw0rd!" }, { "empty-user", "" }, { "boot-admin", "" },
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(cases); i++) {
+        PcvRestLoginRequest in = { .username = (gchar *)cases[i].user, .password = (gchar *)cases[i].pass,
+                                   .client_ip = (gchar *)"192.0.2.94",
+                                   .cfg_user = (gchar *)"boot-admin", .cfg_pass = (gchar *)"boot-pass-1234" };
+        PcvRestLoginResult out = { 0 };
+        gint before = g_atomic_int_get(&g_hash_calls);
+        pcv_rest_login_run(&in, &out);
+        g_assert_cmpuint(out.status, ==, 401);
+        g_assert_cmpstr(out.err_code, ==, "UNAUTHORIZED");
+        g_assert_cmpstr(out.err_msg, ==, "Invalid credentials");
+        g_assert_null(out.json);
+        g_assert_cmpint(out.retry_after, ==, 0);
+        g_assert_cmpint(g_atomic_int_get(&g_hash_calls), ==, before);
+        pcv_rest_login_result_clear(&out);
+    }
+    g_log_remove_handler(NULL, h);
+    g_assert_cmpint(g_atomic_int_get(&crit), ==, 0);
+
+                                                                
+    for (int i = 0; i < 15; i++)
+        pcv_rbac_ip_record_auth_failure("192.0.2.94");
+    g_assert_cmpint(pcv_rbac_get_ip_remaining_lockout("192.0.2.94"), ==, 0);
+    pcv_rbac_ip_record_auth_failure("192.0.2.94");
+    g_assert_cmpint(pcv_rbac_get_ip_remaining_lockout("192.0.2.94"), >, 0);
+    db_teardown();
+}
+
 void
 test_rest_login_register(void)
 {
@@ -471,4 +522,5 @@ test_rest_login_register(void)
     g_test_add_func("/rest_login/real_hash_off_rest_thread", test_real_hash_off_rest_thread);
     g_test_add_func("/rest_login/run_results", test_run_results);
     g_test_add_func("/rest_login/run_bootstrap_refused", test_run_bootstrap_refused);
+    g_test_add_func("/rest_login/run_empty_fields", test_run_empty_fields);
 }

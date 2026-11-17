@@ -76,6 +76,7 @@
 #include "modules/auth/pcv_rbac.h"                                                   
 #include "modules/dispatcher/rpc_utils.h"                                            
 #include "modules/resource/resource_registry.h"                                                         
+#include "modules/auth/pcv_principal_names.h"                                                                
 #include <glib.h>
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -284,6 +285,25 @@ _grpc_inject_caller_identity(const gchar *params_json, gint role, const gchar *t
                                       
    
 
+                                                                                         
+                                                           
+static gint g_grpc_bad_method_warn_s;
+static gint g_grpc_bad_method_suppressed;
+static void
+_grpc_warn_invalid_method(gsize len)
+{
+    gint now_s = (gint)(g_get_monotonic_time() / G_USEC_PER_SEC) + 1;
+    gint last = g_atomic_int_get(&g_grpc_bad_method_warn_s);
+    if (last != 0 && now_s - last < 60) {
+        g_atomic_int_inc(&g_grpc_bad_method_suppressed);
+        return;
+    }
+    g_atomic_int_set(&g_grpc_bad_method_warn_s, now_s);
+    gint sup = g_atomic_int_exchange(&g_grpc_bad_method_suppressed, 0);
+    PCV_LOG_WARN("grpc", "rejected gRPC method outside the RPC name grammar (length %zu, %d more suppressed in the last 60s)",
+                 len, sup);
+}
+
    
                                                   
   
@@ -379,6 +399,18 @@ _handle_client(int client_fd)
             rpc_method = MAP[i].rpc;
             break;
         }
+    }
+
+                                                                                         
+                                                 
+    if (!pcv_rpc_method_name_is_valid(rpc_method)) {
+        _grpc_warn_invalid_method(strlen(rpc_method));
+        const char *bad = "{\"error\":\"invalid method\"}";
+        guint32 bl = GUINT32_TO_BE((guint32)strlen(bad));                             
+        (void)!write(client_fd, &bl, 4);
+        (void)!write(client_fd, bad, strlen(bad));
+        g_free(payload);
+        return;
     }
 
                                                                          

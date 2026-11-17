@@ -116,7 +116,7 @@ void handle_host_device_list(JsonObject *params, const gchar *rpc_id, UdsServer 
     PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
     PcvResCaller rc = { 0 };
     pcv_res_caller_init(&rc, params, connection);
-    PcvHostViewCaller caller = { rc.role, rc.subject, _host_visible, &rc };
+    PcvHostViewCaller caller = { rc.role, rc.subject, _host_visible, &rc, NULL };
 
     virDomainPtr *doms = NULL;
     int n = virConnectListAllDomains(conn, &doms, 0);
@@ -150,6 +150,7 @@ void handle_host_device_list(JsonObject *params, const gchar *rpc_id, UdsServer 
         return;
     }
 
+    caller.vm_scope = pcv_vm_read_scope_new(&rc);
     PcvHostScan *scan = NULL;
     GError *error = NULL;
     JsonObject *view = pcv_host_device_scan("/", &scan, &error)
@@ -166,5 +167,6 @@ void handle_host_device_list(JsonObject *params, const gchar *rpc_id, UdsServer 
     g_clear_error(&error);
     pcv_host_device_scan_free(scan);
     g_ptr_array_unref(vms);
+    pcv_vm_read_scope_free(caller.vm_scope);
     pcv_res_caller_clear(&rc);
 }

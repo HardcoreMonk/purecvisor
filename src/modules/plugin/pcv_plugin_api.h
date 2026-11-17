@@ -18,24 +18,47 @@
                                                       
   
                 
-                     
+                                                                   
                                                                  
                                                   
                                                
-                                               
+                                                                                            
+                                                                                   
                                                                               
-                                              
+                                                                               
+                                                                     
+                                                                                        
+                                                                             
+                                                                                       
+                                                                                            
+                                                                      
                       
+  
+                                                                    
+                                                    
+                                                                                      
+                                                                                            
+                                                                       
+                                                                                                           
+                                                                                     
+  
+          
+                                                                                    
+                                                                                                 
+                                                                         
   
             
                                                  
                                        
+                                                                              
+                                                                                 
+                                                                          
   
              
                                                 
                                                                
                                     
-                                                  
+                                                                                
   
          
                                                  
@@ -85,10 +108,15 @@ typedef struct {
                                             
                                                    
   
-                                  
-                                       
-                                                           
-                                          
+                                                                                               
+                                                 
+                                                                         
+                                                
+                                                  
+                                                    
+  
+                                                                         
+                                                          
    
 typedef void (*PcvRpcHandler)(JsonObject *params, const gchar *rpc_id,
                                gpointer server, GSocketConnection *connection);
@@ -108,9 +136,11 @@ typedef const PcvPluginMeta* (*PcvPluginGetMetaFunc)(void);
                                                             
 typedef void (*PcvPluginRegisterFunc)(PcvPluginRegistry *registry);
 
-                      
+                                                                                               
                                                             
 typedef void (*PcvPluginShutdownFunc)(void);
+
+                                                                       
 
                                                    
 
@@ -123,11 +153,58 @@ typedef void (*PcvPluginShutdownFunc)(void);
   
                               
                                                
-                                                          
+                                                                                         
                                      
    
 void pcv_plugin_registry_add(PcvPluginRegistry *reg,
                               const gchar *method_name,
                               PcvRpcHandler handler);
+
+                                                     
+  
+          
+                                                                            
+                                                                        
+                                                                                            
+                              
+                                                                        
+                                                                       
+                                                                   
+                                                                    
+                                              
+   
+
+   
+                              
+                                                 
+                                                      
+                                  
+                                      
+                                                                                                  
+                                      
+  
+                                                                      
+                                                                                                  
+   
+gboolean pcv_plugin_respond_success(const gchar *rpc_id, gpointer server,
+                                    GSocketConnection *connection, JsonNode *result);
+
+   
+                            
+                                                     
+                                                      
+                                  
+                                      
+                                                                              
+                                                                                
+                                                                                          
+                                      
+                                                                                               
+  
+                                                                                                
+                                                                           
+   
+gboolean pcv_plugin_respond_error(const gchar *rpc_id, gpointer server,
+                                  GSocketConnection *connection, gint code, const gchar *message);
 
 #endif                              

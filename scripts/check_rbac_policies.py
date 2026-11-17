@@ -165,6 +165,12 @@ class PolicyContract:
                                                                               
                                                                              
 POLICY_CONTRACTS = (
+    PolicyContract(
+        method="vm.owner.set",
+        min_role=2,
+        owner_scope=False,
+        reason="VM 소유자 이관 — ADMIN 만. 정책행 소실 시 vm.* 기본 규칙으로 OPERATOR 에 열린다",
+    ),
                                                                              
                                                                             
                                                                             
@@ -276,6 +282,14 @@ POLICY_CONTRACTS = (
         min_role=2,
         owner_scope=False,
         reason="테넌트 지정은 호스트 자원 허용 범위를 정하므로 admin-only (계획 A RA9)",
+    ),
+
+
+    PolicyContract(
+        method="auth.deleted_name.add",
+        min_role=2,
+        owner_scope=False,
+        reason="지운 이름 묘비 추가는 사용자·키 이름 공간을 정하므로 admin-only",
     ),
 
     PolicyContract(

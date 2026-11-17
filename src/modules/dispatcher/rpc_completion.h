@@ -36,11 +36,25 @@ void pcv_rpc_completion_begin(const gchar *method);
 void pcv_rpc_completion_set_actor(const gchar *actor);
 
    
+                                                                                             
+                                                                                               
+                                                                                  
+                                        
+   
+void pcv_rpc_completion_set_actor_tenant(const gchar *actor_tenant);
+
+   
                                                                 
                                                          
                                                        
    
 const gchar *pcv_rpc_completion_actor(void);
+
+   
+                                                                                                           
+                                                                     
+   
+const gchar *pcv_rpc_completion_actor_tenant(void);
 
                                                         
 void pcv_rpc_completion_observe_response(gboolean success, gint error_code);

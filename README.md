@@ -1,13 +1,13 @@
 # PureCVisor Single Edge
 
-> **최신 릴리스(2026-11-11, 2.2.0):** 2.1.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다. 호스트 장치 화면과 조회(웹 UI `인프라 > 호스트 장치`·`host.device.list`·`pcvctl host devices`), USB 장치 영구 할당(`startup_policy`·`persistent`), Windows 게스트 명령 실행(PowerShell)이 포함됩니다. DB 스키마와 설정 형식은 그대로이며, USB 할당과 게스트 명령 실행의 바뀐 동작은 [변경 목록](CHANGELOG.md)의 업그레이드 안내를 확인하세요.
+> **최신 릴리스(2026-11-18, 2.2.1):** 2.2.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다. VM 진단(`monitor.vm.diag`·`pcvctl monitor diag`), ADMIN이 아닌 계정의 VM 읽기 범위(본인 소유와 같은 테넌트 소유)와 VM 소유자 이관(`vm.owner.set`), 사용자·API 키 이름 규칙, 호스트 재부팅 뒤 PCV 관리 브리지 VM 보완 시작, 플러그인 API 내보내기가 포함됩니다. DB에 열 두 개와 표 하나가 더해지고 Prometheus 출력 형식이 바뀌므로 [변경 목록](CHANGELOG.md)의 업그레이드 안내를 확인하세요.
 
 > 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성,<br> Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
 
 [![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)
 [![Runtime: Linux/KVM](https://img.shields.io/badge/Runtime-Linux%2FKVM-2f855a.svg)](docs/GUIDE.md)
 [![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](docs/PUBLIC_SOURCE_POLICY.md)
-[![Version: 2.2.0](https://img.shields.io/badge/Version-2.2.0-6b46c1.svg)](include/purecvisor/version.h)
+[![Version: 2.2.1](https://img.shields.io/badge/Version-2.2.1-6b46c1.svg)](include/purecvisor/version.h)
 
 [공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/ko/getting-started/installation/) · [네트워크·OVN](https://purecvisor.site/ko/infrastructure/networking/) · [데이터베이스 아키텍처](https://purecvisor.site/ko/development/database-architecture/)
 
@@ -84,7 +84,7 @@ curl -ksS "https://${NODE_IPV4}/api/v1/health" | jq '{status,version,tls:.checks
 {
   "service": "purecvisorsd",
   "status": "ok",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "capabilities": {
     "cluster": false
   }

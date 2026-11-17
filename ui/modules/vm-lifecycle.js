@@ -294,7 +294,7 @@ async function vmPower(a, target) {
                       
     if (r && r.error) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-      if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || 'Failed'));
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (PCV.vmScope ? PCV.vmScope.actionErrorText(r.error) : (r.error.message || 'Failed')));
       setTimeout(closeModal, 3000);
       return;
     }

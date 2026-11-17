@@ -84,6 +84,7 @@
 #include "utils/pcv_bpf.h"
 #include "prometheus_exporter.h"
 #include "cgroup_psi.h"                                                                
+#include "vm_diag_sampler.h"
 #include "modules/ai/anomaly_detector.h"
 #include "modules/ai/workload_predict.h"
 #include "modules/virt/virt_conn_pool.h"
@@ -118,56 +119,6 @@
 
 #define EBPF_LOG_DOM       "ebpf_telem"
 #define EBPF_INTERVAL_SEC  5
-#define EBPF_MAX_VMS       64
-
-                                                             
-
-   
-                       
-                                                         
-  
-                                                         
-                                           
-  
-                                                             
-                                                    
-  
-                                                         
-  
-                      
-                                                           
-                                                 
-                                                    
-                                           
-  
-               
-                                                          
-                                            
-                                                       
-   
-typedef struct {
-    gchar    name[64];                                                               
-             
-    gdouble  cpu_percent;                                                   
-    guint64  cpu_time_ns;                                                       
-                             
-    guint64  mem_max_kb;                                                              
-    guint64  mem_used_kb;                                                             
-                             
-    guint64  disk_rd_bytes;                                               
-    guint64  disk_wr_bytes;                                               
-    guint64  disk_rd_reqs;                                                
-    guint64  disk_wr_reqs;                                                
-                                
-    guint64  net_rx_bytes;                                               
-    guint64  net_tx_bytes;                                               
-    guint64  net_rx_pkts;                                           
-    guint64  net_tx_pkts;                                           
-               
-    gint     state;                                                   
-                                                                              
-                                                                         
-} VmExtMetrics;
 
                                                                      
   
@@ -279,8 +230,6 @@ typedef struct {
 static struct {
     GThread      *thread;                                                
     gint          running;                                                 
-    VmExtMetrics  vms[EBPF_MAX_VMS];                                     
-    gint          vm_count;                                   
     HostMetrics   host;                                                
     gint64        host_observed_at;                                           
     GMutex        mu;                                                      
@@ -680,8 +629,8 @@ _collect_node_cpu(void)
             g_snprintf(cpu, sizeof(cpu), "%d", cpuid);
             char lbl[64];
 #define _SET_CPU(mode, val) \
-            g_snprintf(lbl, sizeof(lbl), "cpu=\"%s\",mode=\"" mode "\"", cpu); \
-            pcv_prom_gauge_set_labels("node_cpu_seconds_total", lbl, (gdouble)(val) / 100.0);
+            if (pcv_prom_labels_build(lbl, sizeof(lbl), "cpu", cpu, "mode", mode, NULL)) \
+                pcv_prom_source_counter_set_labels("node_cpu_seconds_total", lbl, (gdouble)(val) / 100.0);
             _SET_CPU("user",    user);
             _SET_CPU("nice",    nice);
             _SET_CPU("system",  sys);
@@ -695,10 +644,10 @@ _collect_node_cpu(void)
                                       
         unsigned long long ctxt;
         if (sscanf(buf, "ctxt %llu", &ctxt) == 1)
-            pcv_prom_gauge_set_labels("node_context_switches_total", "", (gdouble)ctxt);
+            pcv_prom_source_counter_set_labels("node_context_switches_total", "", (gdouble)ctxt);
         unsigned long long forks;
         if (sscanf(buf, "processes %llu", &forks) == 1)
-            pcv_prom_gauge_set_labels("node_forks_total", "", (gdouble)forks);
+            pcv_prom_source_counter_set_labels("node_forks_total", "", (gdouble)forks);
         unsigned long long procs_running;
         if (sscanf(buf, "procs_running %llu", &procs_running) == 1)
             pcv_prom_gauge_set_labels("node_procs_running", "", (gdouble)procs_running);
@@ -808,8 +757,7 @@ _collect_node_filesystem(void)
         gdouble ffree = (gdouble)vfs.f_ffree;
 
         char lbl[256];
-        g_snprintf(lbl, sizeof(lbl),
-            "device=\"%s\",mountpoint=\"%s\",fstype=\"%s\"", dev, mount, fstype);
+        if (!pcv_prom_labels_build(lbl, sizeof(lbl), "device", dev, "mountpoint", mount, "fstype", fstype, NULL)) continue;
 
         pcv_prom_gauge_set_labels("node_filesystem_size_bytes", lbl, total);
         pcv_prom_gauge_set_labels("node_filesystem_free_bytes", lbl, free_b);
@@ -896,24 +844,24 @@ _collect_node_diskstats(void)
             }
         }
 
-        char lbl[64];
-        g_snprintf(lbl, sizeof(lbl), "device=\"%s\"", dev);
+        char lbl[PCV_PROM_LABELS_MAX];
+        if (!pcv_prom_labels_build(lbl, sizeof(lbl), "device", dev, NULL)) continue;
 
-        pcv_prom_gauge_set_labels("node_disk_reads_completed_total", lbl, (gdouble)rd_ios);
-        pcv_prom_gauge_set_labels("node_disk_reads_merged_total", lbl, (gdouble)rd_merges);
-        pcv_prom_gauge_set_labels("node_disk_read_bytes_total", lbl, (gdouble)rd_sectors * 512.0);
-        pcv_prom_gauge_set_labels("node_disk_read_time_seconds_total", lbl, (gdouble)rd_ticks / 1000.0);
-        pcv_prom_gauge_set_labels("node_disk_writes_completed_total", lbl, (gdouble)wr_ios);
-        pcv_prom_gauge_set_labels("node_disk_writes_merged_total", lbl, (gdouble)wr_merges);
-        pcv_prom_gauge_set_labels("node_disk_written_bytes_total", lbl, (gdouble)wr_sectors * 512.0);
-        pcv_prom_gauge_set_labels("node_disk_write_time_seconds_total", lbl, (gdouble)wr_ticks / 1000.0);
+        pcv_prom_source_counter_set_labels("node_disk_reads_completed_total", lbl, (gdouble)rd_ios);
+        pcv_prom_source_counter_set_labels("node_disk_reads_merged_total", lbl, (gdouble)rd_merges);
+        pcv_prom_source_counter_set_labels("node_disk_read_bytes_total", lbl, (gdouble)rd_sectors * 512.0);
+        pcv_prom_source_counter_set_labels("node_disk_read_time_seconds_total", lbl, (gdouble)rd_ticks / 1000.0);
+        pcv_prom_source_counter_set_labels("node_disk_writes_completed_total", lbl, (gdouble)wr_ios);
+        pcv_prom_source_counter_set_labels("node_disk_writes_merged_total", lbl, (gdouble)wr_merges);
+        pcv_prom_source_counter_set_labels("node_disk_written_bytes_total", lbl, (gdouble)wr_sectors * 512.0);
+        pcv_prom_source_counter_set_labels("node_disk_write_time_seconds_total", lbl, (gdouble)wr_ticks / 1000.0);
         pcv_prom_gauge_set_labels("node_disk_io_now", lbl, (gdouble)io_now);
-        pcv_prom_gauge_set_labels("node_disk_io_time_seconds_total", lbl, (gdouble)io_ticks / 1000.0);
-        pcv_prom_gauge_set_labels("node_disk_io_time_weighted_seconds_total", lbl, (gdouble)io_wt / 1000.0);
+        pcv_prom_source_counter_set_labels("node_disk_io_time_seconds_total", lbl, (gdouble)io_ticks / 1000.0);
+        pcv_prom_source_counter_set_labels("node_disk_io_time_weighted_seconds_total", lbl, (gdouble)io_wt / 1000.0);
         if (n >= 18) {
-            pcv_prom_gauge_set_labels("node_disk_discards_completed_total", lbl, (gdouble)dc_ios);
-            pcv_prom_gauge_set_labels("node_disk_discards_merged_total", lbl, (gdouble)dc_merges);
-            pcv_prom_gauge_set_labels("node_disk_discard_time_seconds_total", lbl, (gdouble)dc_ticks / 1000.0);
+            pcv_prom_source_counter_set_labels("node_disk_discards_completed_total", lbl, (gdouble)dc_ios);
+            pcv_prom_source_counter_set_labels("node_disk_discards_merged_total", lbl, (gdouble)dc_merges);
+            pcv_prom_source_counter_set_labels("node_disk_discard_time_seconds_total", lbl, (gdouble)dc_ticks / 1000.0);
         }
     }
     fclose(f);
@@ -969,18 +917,18 @@ _collect_node_netdev(void)
             continue;
 
         g_strstrip(iface);
-        char lbl[64];
-        g_snprintf(lbl, sizeof(lbl), "device=\"%s\"", iface);
+        char lbl[PCV_PROM_LABELS_MAX];
+        if (!pcv_prom_labels_build(lbl, sizeof(lbl), "device", iface, NULL)) continue;
 
-        pcv_prom_gauge_set_labels("node_network_receive_bytes_total", lbl, (gdouble)rb);
-        pcv_prom_gauge_set_labels("node_network_receive_packets_total", lbl, (gdouble)rp);
-        pcv_prom_gauge_set_labels("node_network_receive_errs_total", lbl, (gdouble)re);
-        pcv_prom_gauge_set_labels("node_network_receive_drop_total", lbl, (gdouble)rd);
-        pcv_prom_gauge_set_labels("node_network_receive_multicast_total", lbl, (gdouble)rmu);
-        pcv_prom_gauge_set_labels("node_network_transmit_bytes_total", lbl, (gdouble)tb);
-        pcv_prom_gauge_set_labels("node_network_transmit_packets_total", lbl, (gdouble)tp);
-        pcv_prom_gauge_set_labels("node_network_transmit_errs_total", lbl, (gdouble)te);
-        pcv_prom_gauge_set_labels("node_network_transmit_drop_total", lbl, (gdouble)td);
+        pcv_prom_source_counter_set_labels("node_network_receive_bytes_total", lbl, (gdouble)rb);
+        pcv_prom_source_counter_set_labels("node_network_receive_packets_total", lbl, (gdouble)rp);
+        pcv_prom_source_counter_set_labels("node_network_receive_errs_total", lbl, (gdouble)re);
+        pcv_prom_source_counter_set_labels("node_network_receive_drop_total", lbl, (gdouble)rd);
+        pcv_prom_source_counter_set_labels("node_network_receive_multicast_total", lbl, (gdouble)rmu);
+        pcv_prom_source_counter_set_labels("node_network_transmit_bytes_total", lbl, (gdouble)tb);
+        pcv_prom_source_counter_set_labels("node_network_transmit_packets_total", lbl, (gdouble)tp);
+        pcv_prom_source_counter_set_labels("node_network_transmit_errs_total", lbl, (gdouble)te);
+        pcv_prom_source_counter_set_labels("node_network_transmit_drop_total", lbl, (gdouble)td);
     }
     fclose(f);
 }
@@ -1134,7 +1082,9 @@ _collect_node_pressure_file(const char *resource)
                 char metric[128];
                 g_snprintf(metric, sizeof(metric),
                     "node_pressure_%s_%s_seconds_total", resource, type);
-                pcv_prom_gauge_set_labels(metric, "", (gdouble)total_us / 1e6);
+                pcv_prom_source_counter_set_labels(metric, "", (gdouble)total_us / 1e6);
+                gboolean some = (type[0] == 's');
+                pcv_vm_diag_sampler_note_host_psi(resource, some, avg10, !some, avg10);
             }
         }
     }
@@ -1203,9 +1153,9 @@ _collect_node_hwmon(void)
 
             int milli = 0;
             if (fscanf(tf, "%d", &milli) == 1) {
-                char lbl[128];
-                g_snprintf(lbl, sizeof(lbl), "chip=\"%s\",sensor=\"temp%d\"", chip_name, i);
-                pcv_prom_gauge_set_labels("node_hwmon_temp_celsius", lbl, (gdouble)milli / 1000.0);
+                char lbl[128], sn[16]; g_snprintf(sn, sizeof(sn), "temp%d", i);
+                if (pcv_prom_labels_build(lbl, sizeof(lbl), "chip", chip_name, "sensor", sn, NULL))
+                    pcv_prom_gauge_set_labels("node_hwmon_temp_celsius", lbl, (gdouble)milli / 1000.0);
             }
             fclose(tf);
 
@@ -1215,9 +1165,9 @@ _collect_node_hwmon(void)
             if (tf) {
                 int crit = 0;
                 if (fscanf(tf, "%d", &crit) == 1) {
-                    char lbl[128];
-                    g_snprintf(lbl, sizeof(lbl), "chip=\"%s\",sensor=\"temp%d\"", chip_name, i);
-                    pcv_prom_gauge_set_labels("node_hwmon_temp_crit_celsius", lbl, (gdouble)crit / 1000.0);
+                    char lbl[128], sn[16]; g_snprintf(sn, sizeof(sn), "temp%d", i);
+                    if (pcv_prom_labels_build(lbl, sizeof(lbl), "chip", chip_name, "sensor", sn, NULL))
+                        pcv_prom_gauge_set_labels("node_hwmon_temp_crit_celsius", lbl, (gdouble)crit / 1000.0);
                 }
                 fclose(tf);
             }
@@ -1351,8 +1301,8 @@ _collect_node_misc(void)
         struct dirent *ent;
         while ((ent = readdir(d)) != NULL) {
             if (ent->d_name[0] == '.' || strcmp(ent->d_name, "lo") == 0) continue;
-            char lbl[64];
-            g_snprintf(lbl, sizeof(lbl), "device=\"%s\"", ent->d_name);
+            char lbl[PCV_PROM_LABELS_MAX];
+            if (!pcv_prom_labels_build(lbl, sizeof(lbl), "device", ent->d_name, NULL)) continue;
 
                      
             char path[256];
@@ -1388,119 +1338,6 @@ _collect_node_misc(void)
         }
         closedir(d);
     }
-}
-
-  
-                                                              
-  
-                                                             
-                                              
-  
-                                                               
-  
-                               
-                                                               
-                                                               
-                                                
-  
-                      
-                                                             
-                                                  
-                                                              
-                                                                 
-                                                              
-  
-                  
-                                                            
-                                                       
-                                            
-  
-           
-                                       
-                               
-                                     
-  
-                        
-                             
-                                
-   
-static void
-_collect_vm_metrics(void)
-{
-    virConnectPtr conn = pcv_virt_open_bounded("qemu:///system", FALSE, PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);
-    if (!conn) return;
-
-    virDomainStatsRecordPtr *stats = NULL;
-    unsigned int flags = VIR_CONNECT_GET_ALL_DOMAINS_STATS_RUNNING;
-    gint nstats = virConnectGetAllDomainStats(conn,
-        VIR_DOMAIN_STATS_STATE | VIR_DOMAIN_STATS_CPU_TOTAL |
-        VIR_DOMAIN_STATS_BALLOON | VIR_DOMAIN_STATS_BLOCK |
-        VIR_DOMAIN_STATS_INTERFACE,
-        &stats, flags);
-
-    if (nstats < 0) {
-        virConnectClose(conn);
-        return;
-    }
-
-                                                   
-    g_mutex_lock(&G.mu);
-    G.vm_count = 0;                                
-
-                                                                      
-    for (gint i = 0; i < nstats && G.vm_count < EBPF_MAX_VMS; i++) {
-        virDomainStatsRecordPtr rec = stats[i];
-        const gchar *name = virDomainGetName(rec->dom);
-        if (!name) continue;
-
-        VmExtMetrics *vm = &G.vms[G.vm_count++];
-        memset(vm, 0, sizeof(*vm));
-        g_strlcpy(vm->name, name, sizeof(vm->name));
-
-                                
-        for (gint j = 0; j < rec->nparams; j++) {
-            virTypedParameterPtr p = &rec->params[j];
-
-            if (g_strcmp0(p->field, "state.state") == 0)
-                vm->state = p->value.i;
-            else if (g_strcmp0(p->field, "cpu.time") == 0)
-                vm->cpu_time_ns = p->value.ul;
-            else if (g_strcmp0(p->field, "balloon.maximum") == 0)
-                vm->mem_max_kb = p->value.ul;
-            else if (g_strcmp0(p->field, "balloon.current") == 0)
-                vm->mem_used_kb = p->value.ul;
-                                                                      
-            else if (g_str_has_prefix(p->field, "block.") &&
-                     g_str_has_suffix(p->field, ".rd.bytes"))
-                vm->disk_rd_bytes += p->value.ul;
-            else if (g_str_has_prefix(p->field, "block.") &&
-                     g_str_has_suffix(p->field, ".wr.bytes"))
-                vm->disk_wr_bytes += p->value.ul;
-            else if (g_str_has_prefix(p->field, "block.") &&
-                     g_str_has_suffix(p->field, ".rd.reqs"))
-                vm->disk_rd_reqs += p->value.ul;
-            else if (g_str_has_prefix(p->field, "block.") &&
-                     g_str_has_suffix(p->field, ".wr.reqs"))
-                vm->disk_wr_reqs += p->value.ul;
-                                                
-            else if (g_str_has_prefix(p->field, "net.") &&
-                     g_str_has_suffix(p->field, ".rx.bytes"))
-                vm->net_rx_bytes += p->value.ul;
-            else if (g_str_has_prefix(p->field, "net.") &&
-                     g_str_has_suffix(p->field, ".tx.bytes"))
-                vm->net_tx_bytes += p->value.ul;
-            else if (g_str_has_prefix(p->field, "net.") &&
-                     g_str_has_suffix(p->field, ".rx.pkts"))
-                vm->net_rx_pkts += p->value.ul;
-            else if (g_str_has_prefix(p->field, "net.") &&
-                     g_str_has_suffix(p->field, ".tx.pkts"))
-                vm->net_tx_pkts += p->value.ul;
-        }
-    }
-    g_mutex_unlock(&G.mu);
-
-    virDomainStatsRecordListFree(stats);
-    virConnectClose(conn);
 }
 
                                                             
@@ -1563,34 +1400,7 @@ _ebpf_thread(gpointer data)
         }
 
                                 
-        _collect_vm_metrics();
-
-          
-                                 
-          
-                                                          
-                                                       
-          
-                  
-                                                                           
-                                                                           
-           
-        {
-            g_mutex_lock(&G.mu);
-            for (gint i = 0; i < G.vm_count; i++) {
-                gchar lbl[128];
-                g_snprintf(lbl, sizeof(lbl), "vm_name=\"%s\"", G.vms[i].name);
-                pcv_prom_gauge_set_labels("purecvisor_vm_net_rx_bytes_total",
-                                          lbl, (gdouble)G.vms[i].net_rx_bytes);
-                pcv_prom_gauge_set_labels("purecvisor_vm_net_tx_bytes_total",
-                                          lbl, (gdouble)G.vms[i].net_tx_bytes);
-                pcv_prom_gauge_set_labels("purecvisor_vm_net_rx_packets_total",
-                                          lbl, (gdouble)G.vms[i].net_rx_pkts);
-                pcv_prom_gauge_set_labels("purecvisor_vm_net_tx_packets_total",
-                                          lbl, (gdouble)G.vms[i].net_tx_pkts);
-            }
-            g_mutex_unlock(&G.mu);
-        }
+        pcv_vm_diag_sampler_collect();
 
                                                               
         _collect_node_cpu();
@@ -1612,7 +1422,7 @@ _ebpf_thread(gpointer data)
                                                      
                                                      
                                                         
-        pcv_cgroup_psi_collect(NULL);
+        pcv_vm_diag_sampler_finish();
 
         _collect_node_hwmon();
         _collect_node_misc();
@@ -1652,7 +1462,7 @@ _ebpf_thread(gpointer data)
                                      
         pcv_prom_gauge_set_labels("purecvisor_audit_queue_depth", "",
                                   (gdouble)pcv_audit_get_queue_depth());
-        pcv_prom_gauge_set_labels("purecvisor_audit_dropped_total", "",
+        pcv_prom_source_counter_set_labels("purecvisor_audit_dropped_total", "",
                                   (gdouble)pcv_audit_get_dropped_count());
         PcvAuditChainHealth audit_chain = pcv_audit_get_chain_health();
         pcv_prom_gauge_set_labels("purecvisor_audit_chain_ok", "",
@@ -1802,7 +1612,7 @@ _ebpf_thread(gpointer data)
                                                                
         pcv_prom_gauge_set_labels("purecvisor_circuit_breaker_state", "",
                                   (gdouble)cb_get_state());
-        pcv_prom_gauge_set_labels("purecvisor_circuit_breaker_failures_total", "",
+        pcv_prom_gauge_set_labels("purecvisor_circuit_breaker_consecutive_failures", "",
                                   (gdouble)cb_get_failure_count());
         pcv_prom_gauge_set_labels("purecvisor_vm_locks_held", "",
                                   (gdouble)pcv_vm_state_get_lock_count());
@@ -1841,6 +1651,7 @@ _ebpf_thread(gpointer data)
             g_usleep(50000);
     }
 
+    pcv_vm_diag_sampler_shutdown();
     PCV_LOG_INFO(EBPF_LOG_DOM, "eBPF telemetry thread stopped");
     return NULL;
 }
@@ -2054,86 +1865,3 @@ pcv_ebpf_telemetry_get_host(void)
   
                                                                          
                                                            
-                      
-  
-                                          
-                                                             
-                                                   
-   
-static JsonObject *
-_vm_to_json(const VmExtMetrics *vm)
-{
-    JsonObject *obj = json_object_new();
-    json_object_set_string_member(obj, "name",          vm->name);
-    json_object_set_int_member   (obj, "state",         vm->state);
-    json_object_set_int_member   (obj, "cpu_time_ns",   vm->cpu_time_ns);
-    json_object_set_int_member   (obj, "mem_max_kb",    vm->mem_max_kb);
-    json_object_set_int_member   (obj, "mem_used_kb",   vm->mem_used_kb);
-    json_object_set_int_member   (obj, "disk_rd_bytes", vm->disk_rd_bytes);
-    json_object_set_int_member   (obj, "disk_wr_bytes", vm->disk_wr_bytes);
-    json_object_set_int_member   (obj, "disk_rd_reqs",  vm->disk_rd_reqs);
-    json_object_set_int_member   (obj, "disk_wr_reqs",  vm->disk_wr_reqs);
-    json_object_set_int_member   (obj, "net_rx_bytes",  vm->net_rx_bytes);
-    json_object_set_int_member   (obj, "net_tx_bytes",  vm->net_tx_bytes);
-    json_object_set_int_member   (obj, "net_rx_pkts",   vm->net_rx_pkts);
-    json_object_set_int_member   (obj, "net_tx_pkts",   vm->net_tx_pkts);
-    return obj;
-}
-
-   
-                                     
-  
-                                                                   
-  
-                                                        
-                                                      
-  
-                                            
-                                                              
-                                                                 
-  
-                                                
-                            
-   
-JsonObject *
-pcv_ebpf_telemetry_get_vm(const gchar *vm_name)
-{
-    g_mutex_lock(&G.mu);
-    for (gint i = 0; i < G.vm_count; i++) {
-        if (g_strcmp0(G.vms[i].name, vm_name) == 0) {
-            JsonObject *obj = _vm_to_json(&G.vms[i]);
-            g_mutex_unlock(&G.mu);
-            return obj;
-        }
-    }
-    g_mutex_unlock(&G.mu);
-
-    JsonObject *obj = json_object_new();
-    json_object_set_string_member(obj, "error", "VM not found in telemetry cache");
-    return obj;
-}
-
-   
-                                         
-  
-                                                            
-  
-                                             
-                                        
-  
-                                                            
-                           
-  
-                                                 
-                            
-   
-JsonArray *
-pcv_ebpf_telemetry_get_all_vms(void)
-{
-    JsonArray *arr = json_array_new();
-    g_mutex_lock(&G.mu);
-    for (gint i = 0; i < G.vm_count; i++)
-        json_array_add_object_element(arr, _vm_to_json(&G.vms[i]));
-    g_mutex_unlock(&G.mu);
-    return arr;
-}

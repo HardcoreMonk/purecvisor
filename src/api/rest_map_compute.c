@@ -419,6 +419,20 @@ pcv_rest_map_compute(PcvRestRequest *rq)
             rq->rpc = pcv_rest_build_rpc("vm.rename", p);
             json_object_unref(p);
 
+        } else if (g_strcmp0(action, "owner") == 0 && g_strcmp0(method, "PUT") == 0) {
+
+            if (!body || !json_object_has_member(body, "owner")) {
+                pcv_rest_send_error(msg, 400, "BAD_REQUEST", "owner required");
+                return PCV_REST_STEP_CLEANUP;
+            }
+            JsonObject *p = json_object_new();
+            json_object_set_string_member(p, "name", name);
+            json_object_set_member(p, "owner", json_node_copy(json_object_get_member(body, "owner")));
+            if (json_object_has_member(body, "expected_owner"))
+                json_object_set_member(p, "expected_owner", json_node_copy(json_object_get_member(body, "expected_owner")));
+            rq->rpc = pcv_rest_build_rpc("vm.owner.set", p);
+            json_object_unref(p);
+
         } else if (g_strcmp0(action, "iso") == 0) {
             if (g_strcmp0(method, "POST") == 0) {
                 JsonObject *p = body ? (json_object_ref(body), body)

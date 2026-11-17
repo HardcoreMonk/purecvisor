@@ -334,5 +334,23 @@ class OffloadRuleTests(Base):
         self.assertIn("VM_DEVICE_MUTATE", out)
 
 
+    def test_scope_read_blocking_fails(self):
+
+        for call in ("virDomainLookupByName(c, n)", "virt_conn_pool_acquire()", "pcv_spawn_sync(a)",
+                     "pcv_spawn_sync_bounded(a)", "virConnectOpen(u)"):
+            with self.subTest(call=call):
+                self.tree("void h(void)\n{\n    %s;\n}\n" % call)
+                self.lane("a.get", "SCOPE_READ")
+                rc, out = self.run_gate("--report")
+                self.assertEqual(rc, 1, out)
+                self.assertIn("SCOPE_READ", out)
+
+    def test_scope_read_memory_only_passes(self):
+        self.tree("static int g;\nstatic void m(void)\n{\n    g++;\n}\nvoid h(void)\n{\n    m();\n}\n")
+        self.lane("a.get", "SCOPE_READ")
+        rc, out = self.run_gate("--report")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.route_rows(), set())
+
 if __name__ == "__main__":
     unittest.main()

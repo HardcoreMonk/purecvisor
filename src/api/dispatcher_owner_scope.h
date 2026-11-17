@@ -26,6 +26,15 @@ pcv_disp_vm_owner_scoped_method_allowed(const gchar *method,
                                 GSocketConnection *connection,
                                 gint caller_role,
                                 gchar **deny_message);
+   
+                                                                                             
+                                                                           
+                                                             
+                                                            
+   
+gboolean
+pcv_disp_vm_read_allowed(const gchar *method, JsonObject *params, GSocketConnection *connection,
+                         gchar **deny_message);
 const gchar *
 pcv_disp_container_owner_scope_target_from_params(const gchar *method, JsonObject *params);
 const gchar *

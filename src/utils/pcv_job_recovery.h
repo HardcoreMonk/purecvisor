@@ -28,6 +28,9 @@ const gchar *pcv_job_generation(const PcvJobRef *ref);
 const gchar *pcv_job_method(const PcvJobRef *ref);
 const gchar *pcv_job_target(const PcvJobRef *ref);
                                                    
+const gchar *pcv_job_actor(const PcvJobRef *ref);
+const gchar *pcv_job_actor_tenant(const PcvJobRef *ref);
+
 gboolean pcv_job_progress(PcvJobRef *ref, gint progress, const gchar *detail);
                                                         
                                                                       

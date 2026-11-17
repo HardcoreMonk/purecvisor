@@ -143,7 +143,7 @@ static const gchar *
 _push_caller_username(JsonObject *params, GSocketConnection *connection)
 {
     const gchar *sub = pcv_disp_dispatcher_caller_subject(params, connection);
-    return (sub && *sub) ? sub : "admin";
+    return (sub && *sub) ? sub : PCV_AUDIT_ACTOR_LOCAL;
 }
 
                                                     

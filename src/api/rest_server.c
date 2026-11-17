@@ -142,6 +142,7 @@
 #include "../modules/network/dpdk_manager.h"
 #include "../utils/pcv_spawn.h"
 #include "../modules/auth/pcv_rbac.h"
+#include "../modules/resource/resource_gate.h"
 #include "../modules/audit/pcv_audit.h"
 #include "../modules/dispatcher/rpc_utils.h"
 #include "../modules/virt/circuit_breaker.h"
@@ -222,6 +223,12 @@ G_DEFINE_TYPE(PcvRestServer, pcv_rest_server, G_TYPE_OBJECT)
                                                                          
 
 
+static gchar *
+_rest_caller_tenant(const PcvRestRequest *rq, PcvRole caller_role)
+{
+    const gchar *who = pcv_res_rest_tenant_subject((gint)caller_role, rq->key_role >= 0, rq->subject);
+    return who ? g_strdup(pcv_rbac_get_tenant(who)) : NULL;
+}
 
    
                                                                                
@@ -474,7 +481,10 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         PcvRole caller_role = (rq->key_role >= 0)
             ? (PcvRole)rq->key_role
             : (PcvRole)rq->subject_role;                                                     
-        gchar *rpc_with_context = pcv_rest_rpc_attach_auth_context(rq->rpc, rq->subject, caller_role);
+
+        gchar *caller_tenant = _rest_caller_tenant(rq, caller_role);
+        gchar *rpc_with_context = pcv_rest_rpc_attach_auth_context(rq->rpc, rq->subject, caller_role, caller_tenant);
+        g_free(caller_tenant);
         g_free(rq->rpc);
         rq->rpc = rpc_with_context;
     }

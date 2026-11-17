@@ -54,8 +54,15 @@ test('자가치유 거부 입력창 취소는 요청하지 않고 빈 사유 확
 });
 
 test('성능 Stack과 Auto 버튼은 실제 레이아웃을 양방향으로 전환한다', async () => {
-  await withPage(MODS, async page => {
+  await withPage([...MODS.slice(0, 7), 'ui/modules/monitor-vmdiag.js', ...MODS.slice(7)], async page => {
     await boot(page);
+
+    await page.evaluate(() => {
+      auditHandler = url => url.includes('/monitor/vm-diag') ? auditReply({ data: { schema: 1, scope: 'all',
+        sampler: { state: 'ok', age_ms: 1000, interval_ms: 5000, tracked: 1, truncated: 0, error: null }, host: {},
+        vms: [{ name: 'vm-a', state: 'shutoff', quality: 'stopped', missing: [], vcpus: 2, mem_max_mb: 2048, hints: [], disk: {}, net: {} }] } })
+        : auditReply({ error: { message: 'Controlled HTTP failure' } }, 503);
+    });
     await page.evaluate(() => renderPerformance(document.getElementById('cb'), vmList[0]));
     for (const [label, height, grid] of [['Stack', '120px', false], ['Auto', '80px', true]]) {
       await page.evaluate(label => [...document.querySelectorAll('#cb button')]

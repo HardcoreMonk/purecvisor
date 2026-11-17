@@ -231,6 +231,8 @@ COMMON_CORE_SRCS = \
     src/modules/lxc/lxc_volume_guard.c \
     src/modules/resource/resource_registry.c \
     src/modules/resource/resource_domain_refs.c \
+    src/modules/virt/vm_owner.c \
+    src/modules/virt/vm_owner_meta.c \
     src/utils/logger.c \
     src/utils/pcv_validate.c \
     src/utils/pcv_pci_sysfs.c \
@@ -251,6 +253,7 @@ COMMON_CORE_SRCS = \
     src/utils/pcv_job_queue.c \
     src/utils/pcv_job_recovery.c \
     src/utils/pcv_zfs_lock.c \
+    src/modules/daemons/prom_labels.c \
     src/utils/pcv_zfs_exec.c \
     src/utils/pcv_bpf.c \
     src/utils/pcv_lsm_mounts.c
@@ -340,6 +343,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/rpc_utils.c \
     src/modules/dispatcher/handler_snapshot.c \
     src/modules/dispatcher/handler_vm_start.c \
+    src/modules/dispatcher/vm_boot_autostart_run.c \
     src/modules/dispatcher/handler_vnc.c \
     src/modules/dispatcher/handler_vm_lifecycle.c \
     src/modules/dispatcher/handler_vm_guest.c \
@@ -355,6 +359,8 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/hotplug_nic_xml.c \
     src/modules/dispatcher/hotplug_disk_xml.c \
     src/modules/dispatcher/hotplug_usb_xml.c \
+    src/modules/virt/vm_boot_autostart.c \
+    src/modules/virt/vm_boot_autostart_scan.c \
     src/modules/dispatcher/vnc_port_xml.c \
     $(COMMON_SINGLE_ALLOWED_NET_SRCS) \
     src/modules/dispatcher/handler_storage.c \
@@ -363,6 +369,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/host_device_view.c \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/dispatcher/handler_monitor.c \
+    src/modules/dispatcher/handler_monitor_diag.c \
     src/modules/lxc/lxc_driver.c \
     src/modules/lxc/lxc_rollback.c \
     src/modules/lxc/lxc_clone.c \
@@ -386,15 +393,24 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/handler_template.c \
     src/modules/template/vm_template.c \
     src/modules/dispatcher/handler_auth.c \
+    src/modules/dispatcher/handler_auth_names.c \
+    src/modules/auth/pcv_principal_names.c \
+    src/modules/auth/pcv_rbac_names.c \
     src/modules/auth/pcv_rbac.c \
     src/modules/auth/pcv_rbac_tenant.c \
     src/modules/auth/pcv_rbac_identity.c \
     src/modules/auth/pcv_rbac_attempts.c \
     src/modules/resource/resource_gate.c \
+    src/modules/resource/vm_read_scope.c \
+    src/modules/resource/vm_read_filter.c \
     src/modules/dispatcher/handler_resource.c \
     src/modules/dispatcher/handler_host_device.c \
+    src/modules/dispatcher/handler_vm_owner.c \
     src/modules/daemons/ebpf_telemetry.c \
+    src/modules/daemons/vm_diag_sampler.c \
     src/modules/daemons/cgroup_psi.c \
+    src/modules/daemons/vm_diag.c \
+    src/modules/daemons/vm_diag_view.c \
     src/modules/daemons/alert_engine.c \
     src/modules/daemons/process_monitor.c \
     src/modules/backup/backup_scheduler.c \
@@ -537,6 +553,7 @@ TEST_COMMON_SRCS = \
     tests/test_txn.c \
     tests/test_worker_pool.c \
     tests/test_job_queue.c \
+    tests/test_job_scope.c \
     tests/test_vm_state.c \
     tests/test_log.c \
     tests/test_conn_pool.c \
@@ -613,8 +630,17 @@ TEST_COMMON_SRCS = \
     tests/test_vm_death_class.c \
     src/modules/daemons/pcv_vm_death_class.c \
     tests/test_cgroup_psi.c \
+    tests/test_vm_diag.c \
+    tests/test_vm_diag_view.c \
+    tests/test_vm_read_scope.c \
+    tests/test_vm_read_filter.c \
+    tests/test_vm_read_precheck.c \
+    tests/test_vm_owner.c \
+    tests/test_vm_owner_meta.c \
     tests/test_process_monitor.c \
     src/modules/daemons/cgroup_psi.c \
+    src/modules/daemons/vm_diag.c \
+    src/modules/daemons/vm_diag_view.c \
     tests/test_suricata.c \
     tests/test_suricata_integration.c \
     tests/test_suricata_ips.c \
@@ -626,6 +652,7 @@ TEST_COMMON_SRCS = \
     tests/test_webpush.c \
     src/modules/daemons/pcv_webpush.c \
     src/modules/dispatcher/handler_auth.c \
+    src/modules/dispatcher/handler_auth_names.c \
     src/modules/dispatcher/dispatcher_shared.c \
     src/modules/dispatcher/handler_container_mode.c \
     src/modules/dispatcher/handler_container_health.c \
@@ -640,6 +667,9 @@ TEST_COMMON_SRCS = \
     tests/test_rbac_user_exists.c \
     tests/test_rbac_identity.c \
     tests/test_rbac_login_enum.c \
+    tests/test_principal_names.c \
+    tests/test_rbac_names.c \
+    tests/test_auth_names_handler.c \
     tests/test_rest_login.c \
     tests/test_sec_consistency.c \
     tests/test_pbkdf2_verify.c \
@@ -654,6 +684,7 @@ TEST_COMMON_SRCS = \
     tests/test_hotplug_nic_xml.c \
     tests/test_hotplug_disk_xml.c \
     tests/test_hotplug_usb_xml.c \
+    tests/test_vm_boot_autostart.c \
     tests/test_vnc_port_xml.c \
     tests/test_ws_send.c \
     src/modules/security/security_event.c \
@@ -666,11 +697,15 @@ TEST_COMMON_SRCS = \
     src/modules/security/pcv_suricata.c \
     src/modules/security/pcv_suricata_rules.c \
     src/modules/security/pcv_suricata_ips.c \
+    src/modules/auth/pcv_principal_names.c \
+    src/modules/auth/pcv_rbac_names.c \
     src/modules/auth/pcv_rbac.c \
     src/modules/auth/pcv_rbac_tenant.c \
     src/modules/auth/pcv_rbac_identity.c \
     src/modules/auth/pcv_rbac_attempts.c \
     src/modules/resource/resource_gate.c \
+    src/modules/resource/vm_read_scope.c \
+    src/modules/resource/vm_read_filter.c \
     src/modules/network/ovs_overlay_core.c \
     src/modules/network/ovn_core.c \
     src/api/rest_middleware.c \
@@ -698,6 +733,8 @@ TEST_COMMON_SRCS = \
     src/modules/dispatcher/hotplug_nic_xml.c \
     src/modules/dispatcher/hotplug_disk_xml.c \
     src/modules/dispatcher/hotplug_usb_xml.c \
+    src/modules/virt/vm_boot_autostart.c \
+    src/modules/virt/vm_boot_autostart_scan.c \
     src/modules/dispatcher/vnc_port_xml.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
@@ -742,7 +779,7 @@ TEST_SRCS = \
 
 CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c src/cli/cli_backup_hostkey.c src/cli/cli_vpc_mgmt.c \
            src/cli/cli_container_guard.c src/cli/cli_container_ns.c src/cli/cli_resource.c src/cli/cli_security_close.c src/cli/cli_agent_set.c \
-           src/cli/cli_secret_echo.c src/cli/cli_vm_usb.c src/cli/cli_host_device.c \
+           src/cli/cli_secret_echo.c src/cli/cli_vm_usb.c src/cli/cli_host_device.c src/cli/cli_monitor_diag.c src/cli/cli_iso.c src/cli/cli_auth_names.c src/cli/cli_vm_owner.c \
            src/modules/lxc/lxc_volume_guard.c src/modules/lxc/lxc_mountinfo.c
 
                                
@@ -865,10 +902,12 @@ daemon: $(DAEMON_BIN)
 cli:    $(CLI_BIN)
 
          
-$(DAEMON_BIN): $(DAEMON_OBJS)
+PLUGIN_EXPORTS_LIST = src/modules/plugin/pcv_plugin_exports.list
+DAEMON_EXPORT_LDFLAGS = -Wl,--dynamic-list=$(PLUGIN_EXPORTS_LIST)
+$(DAEMON_BIN): $(DAEMON_OBJS) $(PLUGIN_EXPORTS_LIST)
 	@mkdir -p bin
 	@echo "🔗 Linking Daemon: $@"
-	$(CC) -o $@ $(DAEMON_OBJS) $(LDFLAGS)
+	$(CC) -o $@ $(DAEMON_OBJS) $(LDFLAGS) $(DAEMON_EXPORT_LDFLAGS)
 
                                                             
                             
@@ -995,7 +1034,8 @@ test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-d
 
 
 
-check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $(CLI_BIN)
+
+check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $(CLI_BIN) $(DAEMON_BIN)
 	@python3 scripts/tests/test_vm_delete_nvram.py
 	@bash tests/integration/test_vpc_startup_order.sh
 	@bash tests/integration/test_tenant_overlay_startup_order.sh
@@ -1014,8 +1054,24 @@ check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $
 	@python3 tests/test_host_device_contract.py
 	@python3 tests/test_cli_vm_usb.py
 	@python3 tests/test_cli_host_device.py
+	@python3 tests/test_principal_names_contract.py
+	@python3 tests/test_cli_auth_names.py
+	@python3 tests/test_cli_vm_owner.py
+	@python3 tests/test_vm_read_scope_contract.py
+	@python3 tests/test_cli_iso_list.py
 	@python3 tests/test_guest_exec_worker_fixture.py
 	@python3 tests/test_guest_exec_bounds_contract.py
+	@python3 tests/test_vm_boot_autostart_contract.py
+	@python3 tests/test_prom_flush_contract.py
+	@python3 tests/test_plugin_shutdown_contract.py
+	@python3 tests/test_plugin_api_export_contract.py
+	@python3 tests/test_plugin_trust_contract.py
+	@python3 tests/test_vm_diag_contract.py
+	@python3 tests/test_cli_monitor_diag.py
+	@python3 tests/test_prom_registry_contract.py
+	@python3 tests/test_prom_names_contract.py
+	@python3 tests/test_prom_exposition_contract.py
+	@python3 tests/test_prom_label_escape_contract.py
 
 
 
@@ -1164,6 +1220,7 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
     $(UI_DIR)/modules/metrics.js \
     $(UI_DIR)/modules/security.js \
     $(UI_DIR)/modules/monitor.js \
+    $(UI_DIR)/modules/monitor-vmdiag.js \
     $(UI_DIR)/modules/vm.js $(UI_DIR)/modules/vm-console.js $(UI_DIR)/modules/vm-lifecycle.js \
     $(UI_DIR)/modules/vm-guest.js \
     $(UI_DIR)/modules/container.js $(UI_DIR)/modules/network.js $(UI_DIR)/modules/vpc.js \
@@ -1474,6 +1531,11 @@ check-rbac:
                                                               
 	@python3 scripts/check_ws_broadcast_auth.py
 	@python3 scripts/tests/test_check_ws_broadcast_auth.py
+                                                                                                
+                              
+	@python3 scripts/check_owner_reader.py --self-test
+	@python3 scripts/check_owner_reader.py
+	@python3 scripts/tests/test_check_owner_reader.py
 
 check-secret-wipe:
 	@echo "🔐 Running secret free-without-wipe gate (OVL-1 후속 완전성)..."

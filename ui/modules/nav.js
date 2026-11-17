@@ -73,6 +73,7 @@ function _commitNavigation(n) {
   if (typeof stopAdaptivePolling === 'function' && currentTab && currentTab.startsWith('mon-') && !(n && n.startsWith('mon-'))) {
     stopAdaptivePolling('mon-refresh');
   }
+  if (typeof stopAdaptivePolling === 'function' && n !== 'performance') stopAdaptivePolling('vm-perf-refresh');
                                                                                    
   if (typeof clearAllFormDirty === 'function') clearAllFormDirty();
                                        

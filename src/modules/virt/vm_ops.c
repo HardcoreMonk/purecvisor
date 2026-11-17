@@ -450,13 +450,13 @@ static void resize_disk_data_free(ResizeDiskData *d) {
                                                               
    
 static void
-audit_resize_disk_success(ResizeDiskData *d, const gchar *actor)
+audit_resize_disk_success(ResizeDiskData *d, const gchar *actor, const gchar *actor_tenant)
 {
     gchar *target = g_strdup_printf("%s:%s", d->name, d->target ? d->target : "vda");
     gchar *job_id = g_strdup_printf("vm.resize_disk:%s", target);
     pcv_audit_log(actor, "vm.resize_disk", target, "ok", 0, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(job_id, "vm.resize_disk",
-                                     "completed", NULL);
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.resize_disk",
+                                     "completed", NULL, actor, actor_tenant);
     g_free(job_id);
     g_free(target);
 }
@@ -469,13 +469,13 @@ audit_resize_disk_success(ResizeDiskData *d, const gchar *actor)
                                                       
    
 static void
-audit_resize_disk_failure(ResizeDiskData *d, const gchar *error_msg, const gchar *actor)
+audit_resize_disk_failure(ResizeDiskData *d, const gchar *error_msg, const gchar *actor, const gchar *actor_tenant)
 {
     gchar *target = g_strdup_printf("%s:%s", d->name, d->target ? d->target : "vda");
     gchar *job_id = g_strdup_printf("vm.resize_disk:%s", target);
     pcv_audit_log(actor, "vm.resize_disk", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(job_id, "vm.resize_disk",
-                                     "failed", error_msg ? error_msg : "unknown");
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.resize_disk",
+                                     "failed", error_msg ? error_msg : "unknown", actor, actor_tenant);
     g_free(job_id);
     g_free(target);
 }
@@ -633,7 +633,7 @@ pcv_vm_disk_resize_check(guint64 current_bytes, gint new_size_gb, GError **error
 static void
 resize_disk_fail(GTask *task, ResizeDiskData *d, const gchar *msg)
 {
-    audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task));
+    audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
     g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", msg);
 }
 
@@ -661,7 +661,7 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        audit_resize_disk_failure(d, "Failed to acquire libvirt connection", pcv_drain_task_actor(task));
+        audit_resize_disk_failure(d, "Failed to acquire libvirt connection", pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
             "Failed to acquire libvirt connection");
         return;
@@ -670,7 +670,7 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
     virDomainPtr dom = virDomainLookupByName(conn, d->name);
     if (!dom) {
         gchar *msg = g_strdup_printf("VM '%s' not found", d->name);
-        audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task));
+        audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
             "VM '%s' not found", d->name);
         virt_conn_pool_release(conn);
@@ -755,7 +755,7 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
         if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
             const gchar *err_msg = error ? error->message : (std_err ? std_err : "unknown");
             gchar *msg = g_strdup_printf("zfs set volsize failed: %s", err_msg);
-            audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task));
+            audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                 "zfs set volsize failed: %s",
                 err_msg);
@@ -776,7 +776,7 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
                                                                                         
         if (!pcv_disk_image_resize_file(disk_source, disk_format, d->new_size_gb, &error)) {
             gchar *msg = g_strdup_printf("qemu-img resize failed: %s", error->message);
-            audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task));
+            audit_resize_disk_failure(d, msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                 "qemu-img resize failed: %s",
                 error->message);
@@ -824,7 +824,7 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
     g_free(disk_source);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
-    audit_resize_disk_success(d, pcv_drain_task_actor(task));
+    audit_resize_disk_success(d, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
     g_task_return_boolean(task, TRUE);
 }
 

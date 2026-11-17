@@ -167,6 +167,34 @@ test_scope_actor_lifecycle(void)
     g_assert_null(pcv_rpc_completion_actor());
 }
 
+
+const gchar *pcv_rpc_completion_actor_tenant(void);
+
+static void
+test_actor_tenant_scope(void)
+{
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    pcv_rpc_completion_set_actor_tenant("ghost");
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    pcv_rpc_completion_begin("jobs.list");
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    gchar *t = g_strdup("ta");
+    pcv_rpc_completion_set_actor_tenant(t);
+    g_free(t);
+    g_assert_cmpstr(pcv_rpc_completion_actor_tenant(), ==, "ta");
+    pcv_rpc_completion_set_actor_tenant(NULL);
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    pcv_rpc_completion_set_actor_tenant("tb");
+    pcv_rpc_completion_begin("vm.start");
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    pcv_rpc_completion_set_actor_tenant("tc");
+    (void)pcv_rpc_completion_finish();
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    pcv_rpc_completion_begin("jobs.get");
+    g_assert_null(pcv_rpc_completion_actor_tenant());
+    (void)pcv_rpc_completion_finish();
+}
+
 static void
 test_should_audit_table(void)
 {
@@ -202,5 +230,6 @@ test_rpc_completion_register(void)
     g_test_add_func("/rpc_completion/monitor_fleet_exact_id_and_audit_success",
                     test_monitor_fleet_preserves_id_and_records_success);
     g_test_add_func("/rpc_completion/scope_actor_lifecycle", test_scope_actor_lifecycle);
+    g_test_add_func("/rpc_completion/actor_tenant_scope", test_actor_tenant_scope);
     g_test_add_func("/rpc_completion/should_audit_table", test_should_audit_table);
 }

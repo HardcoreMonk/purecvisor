@@ -45,7 +45,7 @@ typedef struct {
     guint        numa_node;                          
     guint        vcpu_count;                                                                                       
     const gchar *bridge_name;                           
-    const gchar *origin;                                                                                                                  
+    const gchar *origin;                                                                                                                                   
     gboolean     skip_if_active;                                                                             
     const gchar *actor;                                                                                          
 } PcvVmStartRequest;
@@ -64,6 +64,18 @@ typedef struct {
    
 PcvVmStartSubmit pcv_vm_start_submit(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
                                      gpointer user_data, gchar **err_msg);
+
+   
+                                                                                                    
+  
+                                                                    
+                                                              
+                                                                                       
+                                                                                                
+                                                            
+   
+PcvVmStartSubmit pcv_vm_start_submit_ex(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
+                                        gpointer user_data, gchar **err_msg, gboolean *lock_busy);
 
    
                                             

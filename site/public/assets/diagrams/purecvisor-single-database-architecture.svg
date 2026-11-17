@@ -13,9 +13,9 @@
     </style>
   </defs>
   <rect class="canvas" width="1440" height="1040"/>
-  <text class="eyebrow" x="40" y="42">PURECVISOR 2.2.0 · SINGLE EDGE</text>
+  <text class="eyebrow" x="40" y="42">PURECVISOR 2.2.1 · SINGLE EDGE</text>
   <text class="title" x="40" y="80">요청, 로컬 정본, 실제 상태를 한 흐름으로 읽기</text>
-  <text class="subtitle" x="40" y="108">9 local SQLite files · 28 permanent tables · no external DBMS · no cross-DB transaction</text>
+  <text class="subtitle" x="40" y="108">9 local SQLite files · 29 permanent tables · no external DBMS · no cross-DB transaction</text>
 
   <line class="flow" x1="42" y1="137" x2="104" y2="137"/>
   <text class="flow-label" x="116" y="141">호출 · 읽기/쓰기 · 적용</text>
@@ -70,13 +70,13 @@
   <text class="lane-copy" x="1251" y="460" text-anchor="middle">replication 0 · consensus 0</text>
 
   <rect class="boundary" x="68" y="496" width="550" height="264" rx="9"/>
-  <text class="lane-title" x="90" y="526">정본과 정책 · 5 files / 22 tables</text>
+  <text class="lane-title" x="90" y="526">정본과 정책 · 5 files / 23 tables</text>
   <text class="lane-copy" x="90" y="546">인증, 네트워크, 보안과 호스트 자원 경계를 보존</text>
   <line class="divider" x1="90" y1="559" x2="596" y2="559"/>
 
   <rect class="database" x="90" y="578" width="242" height="54" rx="7"/>
   <text class="node-mono" x="108" y="599">rbac.db</text>
-  <text class="node-count" x="324" y="599" text-anchor="end">5 TABLES</text>
+  <text class="node-count" x="324" y="599" text-anchor="end">6 TABLES</text>
   <text class="node-copy" x="108" y="620">사용자 · session · TOTP · API key</text>
 
   <rect class="database" x="354" y="578" width="242" height="54" rx="7"/>

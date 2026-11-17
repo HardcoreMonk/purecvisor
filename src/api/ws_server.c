@@ -429,6 +429,8 @@ _on_ws_connected(SoupServer *server __attribute__((unused)),
                                                                                
 
 #include "vnc_proxy.h"
+#include "modules/audit/pcv_audit.h"                             
+#include "modules/resource/vm_read_filter.h"                                        
 
    
                                                                 
@@ -948,6 +950,142 @@ _ws_broadcast_fanout(gpointer data)
     return G_SOURCE_REMOVE;
 }
 
+static gint ws_fanout_queued;                                                
+
+                                               
+typedef struct {
+    gint   kind;                              
+    gchar *type;
+    gchar *payload;
+    gint64 ts;
+    gchar *actor;                                         
+    gchar *actor_tenant;                     
+} WsScoped;
+
+static gchar *
+_ws_frame(const gchar *type, gint64 ts, const gchar *payload)
+{
+    return g_strdup_printf("{\"type\":\"%s\",\"ts\":%ld,\"payload\":%s}", type, (long)ts, payload ? payload : "{}");
+}
+
+                                                                                 
+static gchar *
+_ws_filtered_comparison(const WsScoped *s, gint role, const gchar *subject, const gchar *tenant, const PcvVmOwnerMap *map)
+{
+    JsonNode *node = json_from_string(s->payload ? s->payload : "{}", NULL);
+    if (!node)
+        return NULL;                               
+    PcvVmReadScope *scope = pcv_vm_read_scope_new_parts(role, subject, TRUE, tenant);
+    node = pcv_vm_read_filter_agent_comparison(scope, map, node);
+    gchar *payload = json_to_string(node, FALSE);
+    gchar *frame = _ws_frame(s->type, s->ts, payload);
+    g_free(payload);
+    json_node_unref(node);
+    pcv_vm_read_scope_free(scope);
+    return frame;
+}
+
+                                                                                                   
+                                                                                    
+                                                                            
+static gboolean
+_ws_broadcast_scoped_fanout(gpointer data)
+{
+    const WsScoped *s = data;
+    GPtrArray *subjects = g_ptr_array_new_with_free_func(g_free);
+    g_mutex_lock(&G.mu);
+    for (guint i = 0; G.clients && i < G.clients->len; i++) {
+        SoupWebsocketConnection *conn = g_ptr_array_index(G.clients, i);
+        if (soup_websocket_connection_get_state(conn) != SOUP_WEBSOCKET_STATE_OPEN)
+            continue;
+        if (!_ws_conn_is_authed(conn))
+            continue;
+        const gchar *sub = g_object_get_data(G_OBJECT(conn), "pcv-ws-subject");
+        if (sub && !g_ptr_array_find_with_equal_func(subjects, sub, g_str_equal, NULL))
+            g_ptr_array_add(subjects, g_strdup(sub));
+    }
+    g_mutex_unlock(&G.mu);
+
+    PcvWsSubjectCache *cache = pcv_ws_subject_cache_new();
+    GHashTable *frames = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);                             
+    gchar *raw = _ws_frame(s->type, s->ts, s->payload);
+    PcvVmOwnerMap *map = NULL;
+    gboolean map_tried = FALSE;
+    for (guint i = 0; i < subjects->len; i++) {
+        const gchar *sub = g_ptr_array_index(subjects, i);
+        gint role = PCV_ROLE_VIEWER;
+        const gchar *tenant = NULL;
+        if (!pcv_ws_subject_cache_lookup(cache, sub, &role, &tenant) ||
+            !pcv_ws_scope_should_send(s->kind, role, sub, tenant, s->actor, s->actor_tenant))
+            continue;
+        gchar *frame = NULL;
+        if (s->kind == PCV_WS_SCOPE_FILTER && role < PCV_ROLE_ADMIN) {                                            
+            if (!map_tried) {
+                map = pcv_vm_owner_map_current(g_get_monotonic_time());
+                map_tried = TRUE;
+            }
+            frame = _ws_filtered_comparison(s, role, sub, tenant, map);
+        } else {
+            frame = g_strdup(raw);
+        }
+        if (frame)
+            g_hash_table_insert(frames, g_strdup(sub), frame);
+    }
+
+    g_mutex_lock(&G.mu);
+    for (guint i = 0; G.clients && i < G.clients->len;                      ) {
+        SoupWebsocketConnection *conn = g_ptr_array_index(G.clients, i);
+        if (soup_websocket_connection_get_state(conn) != SOUP_WEBSOCKET_STATE_OPEN) {
+            i++;
+            continue;
+        }
+        if (!_ws_conn_is_authed(conn)) {                                         
+            i++;
+            continue;
+        }
+        const gchar *frame = g_hash_table_lookup(frames, g_object_get_data(G_OBJECT(conn), "pcv-ws-subject"));
+        if (!frame) {
+            i++;
+            continue;
+        }
+        gint *pending = g_object_get_data(G_OBJECT(conn), "pcv-pending");
+        if (pending && g_atomic_int_get(pending) >= ws_max_pending_msgs) {                       
+            soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_GOING_AWAY, "backpressure");
+            g_ptr_array_remove_index(G.clients, i);
+            continue;
+        }
+        if (pcv_ws_send_text_if_open(conn, frame) && pending)
+            g_atomic_int_add(pending, 1);
+        g_object_set_data(G_OBJECT(conn), "last_active", GINT_TO_POINTER((gint)time(NULL)));
+        i++;
+    }
+    g_mutex_unlock(&G.mu);
+    pcv_vm_owner_map_free(map);
+    g_free(raw);
+    g_hash_table_unref(frames);
+    pcv_ws_subject_cache_free(cache);
+    g_ptr_array_unref(subjects);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+_ws_scoped_free(gpointer p)
+{
+    WsScoped *s = p;
+    g_free(s->type);
+    g_free(s->payload);
+    g_free(s->actor);
+    g_free(s->actor_tenant);
+    g_free(s);
+}
+
+static void
+_ws_scoped_queued_free(gpointer p)
+{
+    _ws_scoped_free(p);
+    g_atomic_int_add(&ws_fanout_queued, -1);
+}
+
                                                              
 static gint ws_fanout_queued;
 static gint ws_fanout_dropped;
@@ -997,6 +1135,32 @@ _ws_owner_ref(void)
     return owner;
 }
 
+                                                                                             
+                                                                                          
+                                                         
+static void
+_ws_broadcast_scoped(const gchar *type, const gchar *payload_json, gint kind, const gchar *actor, const gchar *actor_tenant)
+{
+    if (!g_atomic_int_get(&G.initialized) || !type) return;
+    if (actor && (g_strcmp0(actor, PCV_AUDIT_ACTOR_LOCAL) == 0 || g_strcmp0(actor, PCV_AUDIT_ACTOR_SYSTEM) == 0))
+        actor = NULL;                                     
+    WsScoped *sc = g_new0(WsScoped, 1);
+    *sc = (WsScoped){ .kind = kind, .type = g_strdup(type), .payload = g_strdup(payload_json), .ts = (gint64)time(NULL),
+                      .actor = g_strdup(actor), .actor_tenant = actor ? g_strdup(actor_tenant) : NULL };
+    GMainContext *owner = _ws_owner_ref();                                  
+    gboolean queued = owner && !g_main_context_is_owner(owner);                           
+    if (queued && !_ws_fanout_slot_take()) {
+        _ws_scoped_free(sc);
+        g_main_context_unref(owner);
+        return;
+    }
+    if (!pcv_ws_dispatch_on_owner(owner, _ws_broadcast_scoped_fanout, sc, queued ? _ws_scoped_queued_free : _ws_scoped_free)) {
+        if (queued) g_atomic_int_add(&ws_fanout_queued, -1);
+        _ws_scoped_free(sc);
+    }
+    if (owner) g_main_context_unref(owner);
+}
+
    
                                                     
   
@@ -1029,6 +1193,13 @@ void
 pcv_ws_broadcast(const gchar *type, const gchar *payload_json)
 {
     if (!g_atomic_int_get(&G.initialized) || !type) return;                                  
+                                                                                               
+                                              
+    const PcvWsScopeKind kind = pcv_ws_scope_kind(type);
+    if (kind == PCV_WS_SCOPE_ADMIN || kind == PCV_WS_SCOPE_FILTER) {
+        _ws_broadcast_scoped(type, payload_json, kind, NULL, NULL);
+        return;
+    }
 
                                           
                                                                   
@@ -1083,6 +1254,26 @@ _ws_close_subject_on_owner(gpointer data)
     return G_SOURCE_REMOVE;
 }
 
+                                                                                                     
+static gboolean
+_ws_close_vm_on_owner(gpointer data)
+{
+    _vnc_close_vm(data);
+    return G_SOURCE_REMOVE;
+}
+
+                                                                    
+void
+pcv_ws_close_vm_streams(const gchar *uuid)
+{
+    if (!uuid || !*uuid) return;
+    gchar *copy = g_strdup(uuid);
+    GMainContext *owner = _ws_owner_ref();
+    if (!pcv_ws_dispatch_on_owner(owner, _ws_close_vm_on_owner, copy, g_free))
+        g_free(copy);                               
+    if (owner) g_main_context_unref(owner);
+}
+
                                                                 
 void
 pcv_ws_close_subject(const gchar *username)
@@ -1128,9 +1319,23 @@ pcv_ws_client_count(void)
                                                                     
                                                                        
 static void
+_broadcast_job_complete_to(const gchar *job_id, const gchar *method, const gchar *status, const gchar *error_msg,
+                           gint persistence, gint recovery, const gchar *reason, gboolean scoped, const gchar *actor,
+                           const gchar *actor_tenant);
+
+static void
 _broadcast_job_complete(const gchar *job_id, const gchar *method,
                         const gchar *status, const gchar *error_msg, gint persistence,
                         gint recovery, const gchar *reason)
+{
+    _broadcast_job_complete_to(job_id, method, status, error_msg, persistence, recovery, reason, FALSE, NULL, NULL);
+}
+
+                                                                                                    
+static void
+_broadcast_job_complete_to(const gchar *job_id, const gchar *method, const gchar *status, const gchar *error_msg,
+                           gint persistence, gint recovery, const gchar *reason, gboolean scoped, const gchar *actor,
+                           const gchar *actor_tenant)
 {
     if (!job_id || !method || !status) return;
     JsonObject *obj = json_object_new();
@@ -1146,7 +1351,10 @@ _broadcast_job_complete(const gchar *job_id, const gchar *method,
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, obj);
     gchar *payload = json_to_string(node, FALSE);
-    pcv_ws_broadcast("job.complete", payload);
+    if (scoped)
+        _ws_broadcast_scoped("job.complete", payload, PCV_WS_SCOPE_JOB, actor, actor_tenant);
+    else
+        pcv_ws_broadcast("job.complete", payload);
     g_free(payload);
     json_node_free(node);
     PCV_LOG_INFO(WS_LOG_DOM, "Broadcast job.complete: job_id=%s method=%s status=%s",
@@ -1163,11 +1371,20 @@ pcv_ws_broadcast_job_complete(const gchar *job_id, const gchar *method,
                                                                                
                                                                                 
                                                  
+                                                                                                       
 void
 pcv_ws_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
                                   const gchar *status, const gchar *error_msg)
 {
     _broadcast_job_complete(job_id, method, status, error_msg, -1, -1, NULL);
+}
+
+                                                               
+void
+pcv_ws_broadcast_job_complete_scoped(const gchar *job_id, const gchar *method, const gchar *status,
+                                     const gchar *error_msg, const gchar *actor, const gchar *actor_tenant)
+{
+    _broadcast_job_complete_to(job_id, method, status, error_msg, -1, -1, NULL, TRUE, actor, actor_tenant);
 }
 
                                                  
@@ -1179,9 +1396,9 @@ _job_result_ready(const PcvJobRef *ref, PcvJobStatus status, const gchar *error,
                   gboolean persisted, gboolean pending, const gchar *reason,
                   gpointer data G_GNUC_UNUSED)
 {
-    _broadcast_job_complete(pcv_job_id(ref), pcv_job_method(ref),
+    _broadcast_job_complete_to(pcv_job_id(ref), pcv_job_method(ref),                                           
         status == PCV_JOB_COMPLETED ? "completed" : "failed", error,
-        persisted ? 1 : 0, pending ? 1 : 0, reason);
+        persisted ? 1 : 0, pending ? 1 : 0, reason, TRUE, pcv_job_actor(ref), pcv_job_actor_tenant(ref));
 }
 
 void

@@ -440,9 +440,11 @@ void init_pending_state_machine(void) {
     g_message("[vm_state] SQLite WAL state machine initialized at '%s'.", db_path);
 }
 
-                                                                                                             
-                                                                                      
-static gboolean _lock_insert(const gchar *vm_id, gint op_type, const gchar *owner, gchar **err_msg) {
+                                                                                                                
+                                                                                          
+                                                                   
+                                                                        
+static gboolean _lock_insert(const gchar *vm_id, gint op_type, const gchar *owner, gchar **err_msg, gboolean *contended) {
     if (!g_db) {
                                                        
                                                                   
@@ -532,6 +534,7 @@ static gboolean _lock_insert(const gchar *vm_id, gint op_type, const gchar *owne
                                                      
                
             const gchar *op_name = _op_name(existing_op);
+            if (contended) *contended = TRUE;
             if (err_msg)
                 *err_msg = g_strdup_printf(
                     "VM '%s' is already locked (op: %s, pid: %d)", vm_id, op_name, existing_pid);
@@ -849,9 +852,11 @@ static void _lock_free(PcvVmLock *lock) {
     g_free(lock);
 }
 
-                                                                             
+                                                                        
+                                                                    
                                                                                                             
-PcvVmLock *pcv_vm_lock_acquire(const gchar *vm_id, gint op_type, gchar **err_msg) {
+PcvVmLock *pcv_vm_lock_acquire_ex(const gchar *vm_id, gint op_type, gchar **err_msg, gboolean *contended) {
+    if (contended) *contended = FALSE;
     if (!vm_id || !*vm_id) {
         if (err_msg) *err_msg = g_strdup("VM identifier is required for an operation lock");
         return NULL;
@@ -870,12 +875,17 @@ PcvVmLock *pcv_vm_lock_acquire(const gchar *vm_id, gint op_type, gchar **err_msg
         return lock;
     }
     lock->owner = g_uuid_string_random();
-    if (!_lock_insert(lock->key, op_type, lock->owner, err_msg)) {
+    if (!_lock_insert(lock->key, op_type, lock->owner, err_msg, contended)) {
         _lock_free(lock);
         return NULL;
     }
     lock->backed = TRUE;
     return lock;
+}
+
+                                                                        
+PcvVmLock *pcv_vm_lock_acquire(const gchar *vm_id, gint op_type, gchar **err_msg) {
+    return pcv_vm_lock_acquire_ex(vm_id, op_type, err_msg, NULL);
 }
 
                                                                    

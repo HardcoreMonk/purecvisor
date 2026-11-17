@@ -200,12 +200,18 @@ _task_actor_quark(void)
     return g_quark_from_static_string("pcv-drain-task-actor");
 }
 
+static GQuark _task_actor_tenant_quark(void);
+
 void
 pcv_drain_task_set_actor(GTask *task, const gchar *actor)
 {
     g_return_if_fail(G_IS_TASK(task));
                                                             
     g_object_set_qdata_full(G_OBJECT(task), _task_actor_quark(), g_strdup(actor), g_free);
+                                                                                                
+                                                                                                    
+    if (g_strcmp0(actor, pcv_rpc_completion_actor()) != 0)
+        g_object_set_qdata(G_OBJECT(task), _task_actor_tenant_quark(), NULL);
 }
 
                                                                                  
@@ -214,6 +220,21 @@ pcv_drain_task_actor_of(gpointer task_or_result)
 {
     return G_IS_TASK(task_or_result)
         ? g_object_get_qdata(G_OBJECT(task_or_result), _task_actor_quark()) : NULL;
+}
+
+                            
+static GQuark
+_task_actor_tenant_quark(void)
+{
+    return g_quark_from_static_string("pcv-drain-task-actor-tenant");
+}
+
+                                                                                                              
+const gchar *
+pcv_drain_task_actor_tenant_of(gpointer task_or_result)
+{
+    return G_IS_TASK(task_or_result)
+        ? g_object_get_qdata(G_OBJECT(task_or_result), _task_actor_tenant_quark()) : NULL;
 }
 
 GTask *
@@ -226,6 +247,9 @@ pcv_drain_task_new(gpointer source, GCancellable *cancel,
     const gchar *actor = pcv_rpc_completion_actor();
     if (actor)
         pcv_drain_task_set_actor(task, actor);
+    const gchar *actor_tenant = pcv_rpc_completion_actor_tenant();                                     
+    if (actor_tenant)
+        g_object_set_qdata_full(G_OBJECT(task), _task_actor_tenant_quark(), g_strdup(actor_tenant), g_free);
     return task;
 }
 

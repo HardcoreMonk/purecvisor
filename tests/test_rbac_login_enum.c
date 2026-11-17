@@ -217,8 +217,11 @@ race_delete_recreate(void)
     GError *err = NULL;
     g_assert_true(pcv_rbac_user_delete("race-user", &err));
     g_assert_no_error(err);
-    g_assert_true(pcv_rbac_user_create("race-user", RACE_NEW_PW, PCV_ROLE_VIEWER, NULL, &err));
+    gboolean reused = FALSE;
+    g_assert_true(pcv_rbac_user_create_ex("race-user", RACE_NEW_PW, PCV_ROLE_VIEWER, NULL,
+                                          PCV_RBAC_CREATE_REUSE_DELETED_NAME, &reused, &err));
     g_assert_no_error(err);
+    g_assert_true(reused);
 }
 
 static void

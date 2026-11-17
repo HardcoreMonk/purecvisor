@@ -265,12 +265,12 @@ _vm_clone_job_id(VmCloneCtx *ctx)
                                                                
                                                                
 static void
-_audit_vm_clone_success(VmCloneCtx *ctx, const gchar *actor)
+_audit_vm_clone_success(VmCloneCtx *ctx, const gchar *actor, const gchar *actor_tenant)
 {
     gchar *target = _vm_clone_job_target(ctx);
     gchar *job_id = _vm_clone_job_id(ctx);
     pcv_audit_log(actor, "vm.clone", target, "ok", 0, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(job_id, "vm.clone", "completed", NULL);
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.clone", "completed", NULL, actor, actor_tenant);
     g_free(job_id);
     g_free(target);
 }
@@ -279,13 +279,13 @@ _audit_vm_clone_success(VmCloneCtx *ctx, const gchar *actor)
                                              
                                                
 static void
-_audit_vm_clone_failure(VmCloneCtx *ctx, const gchar *error_msg, const gchar *actor)
+_audit_vm_clone_failure(VmCloneCtx *ctx, const gchar *error_msg, const gchar *actor, const gchar *actor_tenant)
 {
     gchar *target = _vm_clone_job_target(ctx);
     gchar *job_id = _vm_clone_job_id(ctx);
     pcv_audit_log(actor, "vm.clone", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(job_id, "vm.clone",
-                                     "failed", error_msg ? error_msg : "unknown");
+    pcv_ws_broadcast_job_complete_scoped(job_id, "vm.clone",
+                                     "failed", error_msg ? error_msg : "unknown", actor, actor_tenant);
     g_free(job_id);
     g_free(target);
 }
@@ -518,7 +518,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         (!is_zvol && !is_file_disk)) {
         const gchar *err_msg = "vm.clone internal error: missing clone disk plan";
         PCV_LOG_WARN("vm_clone", "%s", err_msg);
-        _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+        _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         g_task_return_boolean(task, FALSE);
         return;
     }
@@ -552,7 +552,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
                 const gchar *err_msg = err ? err->message : "unknown";
                 PCV_LOG_WARN("vm_clone", "ZFS snapshot failed for '%s': %s",
                               ctx->source, err_msg);
-                _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+                _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
                 if (err) g_error_free(err);
                 g_free(snap_tag);
                 g_task_return_boolean(task, FALSE);
@@ -576,7 +576,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
                 PCV_LOG_WARN("vm_clone", "ZFS %s failed for '%s': %s",
                               ctx->full_copy ? "full copy" : "clone",
                               ctx->target, err_msg);
-                _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+                _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
                 _vm_clone_cleanup_failed_artifacts(ctx,
                                                    source_snapshot_exists ? snap_tag : NULL);
                 if (err) g_error_free(err);
@@ -608,7 +608,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
                         "zvol device node '%s' did not appear within %ds after clone",
                         ctx->target_disk_path, node_wait_max_ms / 1000);
                     PCV_LOG_WARN("vm_clone", "%s", err_msg);
-                    _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+                    _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
                     _vm_clone_cleanup_failed_artifacts(ctx,
                                                        source_snapshot_exists ? snap_tag : NULL);
                     g_free(err_msg);
@@ -633,7 +633,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
             const gchar *err_msg = err ? err->message : "unknown";
             PCV_LOG_WARN("vm_clone", "File disk clone failed for '%s': %s",
                          ctx->target, err_msg);
-            _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx, NULL);
             if (err) g_error_free(err);
             g_task_return_boolean(task, FALSE);
@@ -647,7 +647,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
             const gchar *err_msg = err ? err->message : "unknown";
             PCV_LOG_WARN("vm_clone", "Guest identity reset failed for '%s': %s",
                          ctx->target, err_msg);
-            _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx,
                                                source_snapshot_exists ? snap_tag : NULL);
             if (err) g_error_free(err);
@@ -663,7 +663,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         virConnectPtr conn = virt_conn_pool_acquire();
         if (!conn) {
             PCV_LOG_WARN("vm_clone", "Failed to acquire libvirt connection");
-            _audit_vm_clone_failure(ctx, "Failed to acquire libvirt connection", pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, "Failed to acquire libvirt connection", pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx,
                                                source_snapshot_exists ? snap_tag : NULL);
             g_free(snap_tag);
@@ -674,7 +674,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         if (!dom) {
             PCV_LOG_WARN("vm_clone", "Source VM '%s' not found in libvirt",
                           ctx->source);
-            _audit_vm_clone_failure(ctx, "Source VM not found in libvirt", pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, "Source VM not found in libvirt", pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx,
                                                source_snapshot_exists ? snap_tag : NULL);
             virt_conn_pool_release(conn);
@@ -688,7 +688,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         if (!xml || !*xml) {
             PCV_LOG_WARN("vm_clone", "Empty XML for source VM '%s'",
                           ctx->source);
-            _audit_vm_clone_failure(ctx, "Empty XML for source VM", pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, "Empty XML for source VM", pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx,
                                                source_snapshot_exists ? snap_tag : NULL);
             free(xml);
@@ -758,7 +758,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
     } else {
         const gchar *err_msg = "Source disk path not found in current VM XML";
         PCV_LOG_WARN("vm_clone", "%s for '%s'", err_msg, ctx->source);
-        _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+        _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
         _vm_clone_cleanup_failed_artifacts(ctx,
                                            source_snapshot_exists ? snap_tag : NULL);
         g_free(xml);
@@ -772,7 +772,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         virConnectPtr conn = virt_conn_pool_acquire();
         if (!conn) {
             PCV_LOG_WARN("vm_clone", "Failed to acquire libvirt connection");
-            _audit_vm_clone_failure(ctx, "Failed to acquire libvirt connection", pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, "Failed to acquire libvirt connection", pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx,
                                                source_snapshot_exists ? snap_tag : NULL);
             g_free(xml);
@@ -792,7 +792,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
             const gchar *err_msg = vir_err ? vir_err->message : "unknown";
             PCV_LOG_WARN("vm_clone", "virDomainDefineXML failed for '%s': %s",
                           ctx->target, err_msg);
-            _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task));
+            _audit_vm_clone_failure(ctx, err_msg, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
             _vm_clone_cleanup_failed_artifacts(ctx,
                                                source_snapshot_exists ? snap_tag : NULL);
             virt_conn_pool_release(conn);
@@ -812,7 +812,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
     }
 
                                              
-    _audit_vm_clone_success(ctx, pcv_drain_task_actor(task));
+    _audit_vm_clone_success(ctx, pcv_drain_task_actor(task), pcv_drain_task_actor_tenant(task));
 
     g_free(xml);
     g_free(snap_tag);

@@ -1,8 +1,8 @@
-
-
-
-
-
+                                                          
+                                                           
+                       
+                                                      
+                                     
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
@@ -105,8 +105,29 @@ test('모니터링 상세 상태 제목·설명·가동 시간은 실제 ko/en �
   }, { routes: { '/api/v1/health': { body: { status: 'ok', uptime_sec: 60 } } } });
 });
 
+                                                                                          
+                                                                            
+const OPS_VM_LIST = { data: [
+  { uuid: 'u-alpha', name: 'alpha', state: 'running', vcpu: 2, memory_mb: 2048, storage_type: 'zfs', network_count: 1 },
+  { uuid: 'u-beta', name: 'beta', state: 'running', vcpu: 2, memory_mb: 1024, storage_type: 'zfs', network_count: 1 },
+  { uuid: 'u-gamma', name: 'gamma', state: 'shut off', vcpu: 1, memory_mb: 512, storage_type: 'zfs', network_count: 1 }
+] };
+function opsDiagVm(name, over) {
+  return Object.assign({ name, uuid: 'u-' + name, state: 'running', quality: 'ok', reason: null, missing: [], vcpus: 2,
+    mem_max_mb: 2048, mem_alloc_mb: 2048, mem_guest_used_mb: 1024, mem_guest_available_mb: 1024, mem_rss_mb: 1800,
+    cpu_pct: 5, cpu_host_pct: 0.5, hints: [] }, over);
+}
+const OPS_DIAG = { schema: 1, scope: 'all',
+  sampler: { state: 'ok', observed_at_ms: 1794757394000, age_ms: 2000, interval_ms: 5000, tracked: 2, truncated: 0, error: null },
+  host: { logical_cpus: 8, physical_cores: 4, mem_total_mb: 16384, allocation: {}, psi: {} },
+  vms: [
+    opsDiagVm('alpha', { quality: 'partial', missing: ['guest_memory'], mem_guest_used_mb: null, mem_guest_available_mb: null, mem_rss_mb: 1536 }),
+    opsDiagVm('beta', { mem_max_mb: 1024, mem_alloc_mb: 1024, mem_guest_used_mb: 0, mem_rss_mb: 300 }),
+    opsDiagVm('gamma', { state: 'shutoff', quality: 'stopped', vcpus: 1, mem_max_mb: 512, mem_alloc_mb: null, mem_guest_used_mb: null, mem_rss_mb: null })
+  ] };
+
 test('운영 센터는 누락 수치를 만들지 않고 실제 0·검색·조회 이동을 보존한다', async () => {
-  await withPage([...COMMON, 'ui/modules/monitor.js'], async page => {
+  await withPage([...COMMON, 'ui/modules/monitor.js', 'ui/modules/monitor-vmdiag.js'], async page => {
     await page.evaluate(async () => {
       window._L = (ko, en) => I18N.getLang() === 'ko' ? ko : en;
       window.authToken = 'fixture';
@@ -120,22 +141,83 @@ test('운영 센터는 누락 수치를 만들지 않고 실제 0·검색·조�
     const initial = await page.$eval('#cb', host => ({
       values: [...host.querySelectorAll('.ops-triage-metric-value')].map(n => n.textContent),
       rows: [...host.querySelectorAll('tbody tr')].map(n => [...n.cells].map(c => c.textContent)),
+      memTitles: [...host.querySelectorAll('tbody tr')].map(n => (n.cells[4].querySelector('[title]') || {}).title || ''),
       text: host.textContent, tabs: host.querySelectorAll('[role="tablist"]').length
     }));
     assert.deepEqual(initial.values.slice(0, 2), ['미수집', '미수집']);
-    assert.deepEqual(initial.rows[0].slice(3, 5), ['미수집', '미수집']);
-    assert.deepEqual(initial.rows[1].slice(3, 5), ['0.0%', '0.0%']);
+    assert.equal(initial.rows.length, 3);
+                                                                                
+    assert.match(initial.rows[0][4], /^— RSS 1\.5 GiB/);
+    assert.match(initial.memTitles[0], /게스트 메모리/);
+                                            
+    assert.equal(initial.rows[1][4], '0.0%');
+                         
+    assert.match(initial.rows[2][4], /^—/);
+    assert.match(initial.memTitles[2], /정지 VM/);
+    assert.ok(!initial.rows.some(r => r[4].includes('미수집')), 'VM 메모리 칸에 미수집이 남지 않는다');
     assert.ok(!/로그인 시도 증가|scrape 지연 확인|32GB 중 13.1GB/.test(initial.text));
     assert.equal(initial.tabs, 0);
-    await page.type('.ops-triage-field', '192.0.2.22');
+    await page.type('.ops-triage-field', 'bet');
     assert.deepEqual(await page.$$eval('tbody tr', rows => rows.map(n => n.cells[0].textContent)), ['beta']);
     assert.equal(await page.$eval('.ops-triage-field', n => n === document.activeElement), true);
     await page.keyboard.type('x');
     assert.match(await page.$eval('tbody', n => n.textContent), /검색 결과가 없습니다/);
     await page.evaluate(() => [...document.querySelectorAll('#cb button')].find(n => n.textContent === '서버 감사 로그 조회').click());
     assert.deepEqual(await page.evaluate(() => window.auditNavCalls), ['mon-audit']);
-  }, { routes: { '/api/v1/vms': { body: { data: [
-    { name: 'alpha', running: 1, ip: '192.0.2.11' },
-    { name: 'beta', running: 1, ip: '192.0.2.22', cpu: 0, memory_max_mb: 1024, memory_used_mb: 0 }
-  ] } } } });
+  }, { routes: { '/api/v1/vms': { body: OPS_VM_LIST }, '/api/v1/monitor/vm-diag': { body: { data: OPS_DIAG } } } });                            
+});
+
+test('운영 센터 VM 메모리는 진단 실패를 미수집이 아니라 실패로 구분한다', async () => {
+  for (const [reply, word] of [[{ status: 500, body: { error: { message: 'x' } } }, '진단 실패'],
+    [{ status: 404, body: { error: { code: 'NOT_FOUND', message: 'Endpoint not found or method not allowed' } } }, '진단 미지원']]) {
+    await withPage([...COMMON, 'ui/modules/monitor.js', 'ui/modules/monitor-vmdiag.js'], async page => {
+      await page.evaluate(async () => {
+        window._L = (ko, en) => I18N.getLang() === 'ko' ? ko : en;
+        window.authToken = 'fixture';
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (url, options) => String(url).endsWith('/api/v1/metrics')
+          ? Promise.resolve(new Response('unavailable', { status: 503 })) : nativeFetch(url, options);
+        await renderOpsTriage(document.getElementById('cb'));
+      });
+      const rows = await page.$$eval('#cb tbody tr', trs => trs.map(n => ({ mem: n.cells[4].textContent,
+        title: (n.cells[4].querySelector('[title]') || {}).title || '' })));
+      assert.equal(rows.length, 3);
+      for (const r of rows) {
+        assert.ok(r.mem.startsWith('—') && r.mem.includes(word), `메모리 칸 ${JSON.stringify(r.mem)} 에 "${word}"`);
+        assert.ok(!r.mem.includes('미수집'));
+      }
+    }, { routes: { '/api/v1/vms': { body: OPS_VM_LIST }, '/api/v1/monitor/vm-diag': reply } });
+  }
+});
+
+                                                                                               
+                                                                              
+test('운영 센터 VM 메모리는 게스트 값이 오래됐으면 지금 값처럼 보이지 않는다', async () => {
+  const list = { data: [
+    { uuid: 'u-stale', name: 'stale', state: 'running', vcpu: 1, memory_mb: 1024 },
+    { uuid: 'u-fresh', name: 'fresh', state: 'running', vcpu: 1, memory_mb: 1024 }
+  ] };
+  const diag = Object.assign({}, OPS_DIAG, { vms: [
+    opsDiagVm('stale', { mem_max_mb: 1024, mem_alloc_mb: 1024, mem_guest_used_mb: 257, mem_rss_mb: 546, guest_stats_age_s: 2954,
+      hints: [{ code: 'guest_stats_stale', level: 'notice', value: 2954, threshold: 30 }] }),
+    opsDiagVm('fresh', { mem_max_mb: 1024, mem_alloc_mb: 1024, mem_guest_used_mb: 256, mem_rss_mb: 500, guest_stats_age_s: 3 })
+  ] });
+  await withPage([...COMMON, 'ui/modules/monitor.js', 'ui/modules/monitor-vmdiag.js'], async page => {
+    await page.evaluate(async () => {
+      window._L = (ko, en) => I18N.getLang() === 'ko' ? ko : en;
+      window.authToken = 'fixture';
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => String(url).endsWith('/api/v1/metrics')
+        ? Promise.resolve(new Response('unavailable', { status: 503 })) : nativeFetch(url, options);
+      await renderOpsTriage(document.getElementById('cb'));
+    });
+    const rows = await page.$$eval('#cb tbody tr', trs => trs.map(n => ({ name: n.cells[0].textContent, mem: n.cells[4].textContent,
+      title: (n.cells[4].querySelector('[title]') || {}).title || '' })));
+    const stale = rows.find(r => r.name.includes('stale'));
+    const fresh = rows.find(r => r.name.includes('fresh'));
+    assert.match(stale.mem, /^— RSS 546 MiB/);
+    assert.ok(!stale.mem.includes('%'), `오래된 값이 막대로 보이면 안 된다: ${stale.mem}`);
+    assert.match(stale.title, /게스트 값 오래됨\(2954초 전\)/);
+    assert.equal(fresh.mem, '25%');                                    
+  }, { routes: { '/api/v1/vms': { body: list }, '/api/v1/monitor/vm-diag': { body: { data: diag } } } });
 });
