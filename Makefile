@@ -1064,6 +1064,7 @@ check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $
 	@python3 tests/test_cli_vm_owner.py
 	@python3 tests/test_vm_read_scope_contract.py
 	@python3 tests/test_cli_iso_list.py
+	@python3 tests/test_vm_memstats_readonly.py
 	@python3 tests/test_guest_exec_worker_fixture.py
 	@python3 tests/test_guest_exec_bounds_contract.py
 	@python3 tests/test_vm_boot_autostart_contract.py

@@ -40,8 +40,14 @@
   1 늘어난다. 전에는 dry-run 모드의 발동만 세어 active 모드 호스트에서는 늘 0이었다. 반영 뒤 active 호스트에서 이 계열이
   0에서 늘기 시작하므로, 이 값을 "dry-run에서 걸렸을 횟수"로 보던 패널·알림은 발동 수로 읽는다. 실제 조치 수는 그대로
   `purecvisor_healing_actions_total{policy,action}`이다. C 단위 시험 `/self_healing_restart/trigger_counted_in_active_mode`.
-- RPC·REST·DB 스키마·`daemon.conf` 형식 변경은 없다. 제품 버전 문자열은 `2.2.1`을 유지하며 새 버전이나 태그는
-  발급하지 않았다.
+- (2026-11-19) `vm.memory.stats`가 조회만 한다. 전에는 조회할 때마다 그 VM의 게스트 balloon 통계 주기를 5초로 바꿔, 한 번
+  조회한 VM은 재시작 전까지 주기가 바뀐 채 남았다. 응답에 `guest_stats`(bool, 추가 필드)를 더했다 — 게스트가 보고한
+  값이 하나라도 있으면 `true`이고, 없는 게스트 값은 전처럼 응답에서 빠진다. **CLI 출력 변경:** `pcvctl vm memory-stats`는
+  빠진 값을 `0` 대신 `-`로 찍고(plain·CSV 포함), `guest_stats`가 `false`면 표 아래에 "게스트 메모리 통계 없음" 안내를
+  한 줄 더한다. `-`를 숫자로 읽던 스크립트는 고쳐야 한다. Web UI 메모리 통계 창도 같은 안내를 보이고, 없음 `-`과 실제
+  0을 구분한다. 계약 시험 `tests/test_vm_memstats_readonly.py`(`check-server-defect-contracts`).
+- `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식 변경이 없다. 제품 버전
+  문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
 
 ## 2.2.1 기능 릴리스 — 2026-11-18
 

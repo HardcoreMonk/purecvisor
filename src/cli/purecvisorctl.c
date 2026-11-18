@@ -3323,15 +3323,15 @@ void cmd_vm_memory_stats(int argc, char *argv[]) {
                               "available_kb","usable_kb","swap_in","swap_out"};
         const char *labels[] = {"Actual Balloon (KB)","RSS (KB)","Unused (KB)",
                                 "Available (KB)","Usable (KB)","Swap In","Swap Out"};
+        gchar vals[7][32];
+        for (int i = 0; i < 7; i++) {
+            if (json_object_has_member(res, keys[i])) g_snprintf(vals[i], 32, "%lld", (long long)json_object_get_int_member(res, keys[i]));
+            else g_strlcpy(vals[i], "-", 32);
+        }
         if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
             const char *hdrs[] = {"METRIC","VALUE"};
             PcvTable *t = ptbl_new(hdrs, 2);
-            for (int i = 0; i < 7; i++) {
-                gchar vbuf[32];
-                g_snprintf(vbuf, sizeof(vbuf), "%lld",
-                    (long long)json_object_get_int_member_with_default(res, keys[i], 0));
-                ptbl_row(t, labels[i], vbuf);
-            }
+            for (int i = 0; i < 7; i++) ptbl_row(t, labels[i], vals[i]);
             g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
             ptbl_free(t);
         } else {
@@ -3341,14 +3341,12 @@ void cmd_vm_memory_stats(int argc, char *argv[]) {
             printf("%s%-22s │ %s%s\n", cc(CYBER_CYAN),
                 "METRIC", "VALUE", cc(CYBER_RESET));
             printf("─────────────────────────┼──────────────────\n");
-            for (int i = 0; i < 7; i++) {
-                printf(" %s%-22s%s │ %s%lld%s\n",
-                    cc(CYBER_YELLOW), labels[i], cc(CYBER_RESET),
-                    cc(CYBER_GREEN),
-                    (long long)json_object_get_int_member_with_default(res, keys[i], 0),
-                    cc(CYBER_RESET));
-            }
+            for (int i = 0; i < 7; i++)
+                printf(" %s%-22s%s │ %s%s%s\n", cc(CYBER_YELLOW), labels[i], cc(CYBER_RESET), cc(CYBER_GREEN), vals[i], cc(CYBER_RESET));
             printf("─────────────────────────┴──────────────────\n");
+            if (json_object_has_member(res, "guest_stats") && !json_object_get_boolean_member(res, "guest_stats"))
+                printf("%s 게스트 메모리 통계 없음 — 게스트가 balloon 통계를 보고하지 않습니다(통계 주기 0 또는 드라이버 없음). "
+                       "이 조회는 VM 설정을 바꾸지 않습니다.%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET));
         }
     }
     g_object_unref(parser); g_free(resp);

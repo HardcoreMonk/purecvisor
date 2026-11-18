@@ -852,9 +852,6 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
                                                 
                                                               
                                                                
-    virDomainSetMemoryStatsPeriod(dom, 5, VIR_DOMAIN_AFFECT_LIVE);
-
-                           
     virDomainMemoryStatStruct stats[VIR_DOMAIN_MEMORY_STAT_NR];
     int nr_stats = virDomainMemoryStats(dom, stats, VIR_DOMAIN_MEMORY_STAT_NR, 0);
 
@@ -872,8 +869,20 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
                                     
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "vm", name);
+    gboolean guest_stats = FALSE;
 
     for (int i = 0; i < nr_stats; i++) {
+        switch (stats[i].tag) {
+        case VIR_DOMAIN_MEMORY_STAT_UNUSED:
+        case VIR_DOMAIN_MEMORY_STAT_AVAILABLE:
+        case VIR_DOMAIN_MEMORY_STAT_USABLE:
+        case VIR_DOMAIN_MEMORY_STAT_SWAP_IN:
+        case VIR_DOMAIN_MEMORY_STAT_SWAP_OUT:
+            guest_stats = TRUE;
+            break;
+        default:
+            break;
+        }
         switch (stats[i].tag) {
         case VIR_DOMAIN_MEMORY_STAT_ACTUAL_BALLOON:
             json_object_set_int_member(obj, "actual_balloon_kb", (gint64)stats[i].val);
@@ -900,6 +909,7 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
             break;
         }
     }
+    json_object_set_boolean_member(obj, "guest_stats", guest_stats);
 
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, obj);

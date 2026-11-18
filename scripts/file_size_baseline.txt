@@ -1,6 +1,6 @@
 # 파일 크기 래칫 기준선 — 상한 1,500줄을 넘는 기존 파일의 현재 줄 수.
 # 줄이는 방향만 허용한다. 갱신은 scripts/check_file_size_ratchet.py --tighten (값을 올리지 않는다).
-8477	src/cli/purecvisorctl.c
+8475	src/cli/purecvisorctl.c
 7718	src/modules/network/ovs_overlay.c
 5206	src/modules/network/network_manager.c
 4368	ui/modules/monitor.js
