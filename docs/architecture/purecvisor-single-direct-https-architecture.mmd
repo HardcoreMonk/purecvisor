@@ -28,11 +28,12 @@ flowchart TB
         subgraph core ["GMainLoop control plane"]
             direction LR
             mainLoop["Bootstrap and lifecycle"]
-            dispatcher["Dispatcher: policy, RBAC, owner scope, O(1) routing"]
+            dispatcher["Dispatcher: policy, RBAC, owner scope, VM read scope, O(1) routing"]
             handlers["Domain RPC handlers"]
             syncPath["Immediate JSON-RPC response"]
             workerPool["GTask bounded worker pool"]
-            completion["Job result, audit, WebSocket completion"]
+            offloadLanes["Offload lanes: 7 lanes incl. SCOPE_READ"]
+            completion["Job result with actor, audit, scoped WebSocket fanout"]
         end
 
         subgraph domains ["도메인 모듈"]
@@ -41,14 +42,14 @@ flowchart TB
             networkDomain["Network: bridge, Local VPC, OVS and OVN, SG, QoS"]
             storageDomain["Storage: ZFS, snapshot, backup, iSCSI, cloud jobs"]
             securityDomain["Security: JWT, TOTP, RBAC, audit, HIDS, HIPS, BPF LSM audit"]
-            monitorDomain["Monitoring: host telemetry, process status, Prometheus"]
+            monitorDomain["Monitoring: host telemetry, process status, VM diagnostics sampler, Prometheus"]
             opsDomain["Operations: telemetry, alerts, Web Push, AI healing, plugins"]
         end
     end
 
     subgraph persistence ["로컬 영속 상태"]
         direction LR
-        coreDb["Core / identity / security / network DBs (SQLite WAL, 7 files)<br/>vm_state.db, pcv_audit.db, pcv_jobs.db, rbac.db<br/>pcv_security.db, security_groups.db, vpc.db"]
+        coreDb["Core / identity / security / network DBs (SQLite WAL, 7 files)<br/>vm_state.db, pcv_audit.db, pcv_jobs.db, rbac.db<br/>(rbac.db keeps deleted_user_names tombstones)<br/>pcv_security.db, security_groups.db, vpc.db"]
         operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]
         resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]
         desiredStore["Desired state: networks, overlay, QoS, BPF, backups"]
@@ -66,7 +67,7 @@ flowchart TB
     webUi <-->|"HTTPS: static UI and REST"| restApi
     webUi <-->|"WebSocket TLS"| wsApi
     apiClient <-->|"HTTPS"| restApi
-    promClient -->|"HTTPS metrics scrape"| restApi
+    promClient -->|"HTTPS metrics scrape, VM series by caller scope"| restApi
     pcvctl <-->|"Local socket"| udsApi
     grpcClient <-->|"Binary RPC"| grpcApi
 
@@ -79,6 +80,8 @@ flowchart TB
 
     dispatcher -->|"Validated request"| handlers
     handlers -->|"Short operation"| syncPath
+    handlers -->|"Blocking sync read"| offloadLanes
+    offloadLanes -->|"Reply on main loop"| syncPath
     handlers -->|"Long operation"| workerPool
     workerPool -->|"Worker callback"| completion
 
@@ -121,7 +124,7 @@ flowchart TB
 
     class webUi,pcvctl,apiClient,grpcClient,promClient clientNode;
     class udsApi,restApi,grpcApi,wsApi ingressNode;
-    class mainLoop,dispatcher,handlers,syncPath,workerPool,completion runtimeNode;
+    class mainLoop,dispatcher,handlers,syncPath,workerPool,offloadLanes,completion runtimeNode;
     class workloadDomain,networkDomain,storageDomain,securityDomain,monitorDomain,opsDomain domainNode;
     class configStore,kernelLsm,coreDb,operationsDb,resourceDb,desiredStore dataNode;
     class virtPlatform,storagePlatform,networkPlatform,securityPlatform,accelPlatform hostNode;

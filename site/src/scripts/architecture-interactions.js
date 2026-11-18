@@ -5,6 +5,7 @@ const controlNodes = Object.freeze([
   "handlers",
   "syncPath",
   "workerPool",
+  "offloadLanes",
   "completion"
 ]);
 const domainNodes = Object.freeze([

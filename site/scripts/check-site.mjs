@@ -523,25 +523,26 @@ const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("NGINX architecture", architectureSvgText);
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "a470fc321a2c7372c8f98ea202fb92f2e1e8f8bd058e70505700bc87777b3af8") {
+if (architectureSvgHash !== "dfa49011a90704c4aedc1aa75559ff03ed71b1b8f356790564c97e0b54292b27") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "efd7ee48237069831db389d509d1fed8a12697f3e849b739821807097571a231") {
+if (architectureStructureHash !== "c1b299bd31a2be4b48038470875dd291d5e45b9b655ef543fcb8ecadc4460833") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 2009.1953125 2653"',
+  'viewBox="4 4 1998.2109375 2744.60009765625"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
-  'my-svg-flowchart-monitorDomain-22',
-  'my-svg-flowchart-coreDb-24',
-  'my-svg-flowchart-operationsDb-25',
-  'my-svg-flowchart-resourceDb-26',
-  'my-svg-flowchart-securityDomain-21',
-  'my-svg-flowchart-accelPlatform-32',
+  'my-svg-flowchart-monitorDomain-23',
+  'my-svg-flowchart-coreDb-25',
+  'my-svg-flowchart-operationsDb-26',
+  'my-svg-flowchart-resourceDb-27',
+  'my-svg-flowchart-securityDomain-22',
+  'my-svg-flowchart-accelPlatform-33',
+  'my-svg-flowchart-offloadLanes-17',
   'vm_state.db',
   'pcv_audit.db',
   'pcv_jobs.db',
@@ -588,17 +589,17 @@ const directArchitectureSvg = await readFile(path.join(distRoot, directArchitect
 const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("direct HTTPS architecture", directArchitectureSvgText);
 const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
-if (directArchitectureSvgHash !== "8baadb1686cc3a381064bf8ab425850aba1c6fbfa00c41e20de9e57cb755720a") {
+if (directArchitectureSvgHash !== "3e51d1c9950caf1328952c11754764c1229895a0af440c997852fe6225efb8f8") {
   throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
 }
 const directArchitectureStructure = directArchitectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const directArchitectureStructureHash = createHash("sha256").update(directArchitectureStructure).digest("hex");
-if (directArchitectureStructureHash !== "07bdc51bb3199598cf8d5dc9afcf782d5f69a5a8d3e1b76615d075c0fa5dac82") {
+if (directArchitectureStructureHash !== "365d05c6cf0ee603c5f38029f338fbad08e5cacc0487e6471a13e08e1862fcae") {
   throw new Error(`direct HTTPS architecture SVG structure/content mismatch: ${directArchitectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 1935.1484375 2523.699951171875"',
+  'viewBox="4 4 1935.1484375 2645.300048828125"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
   'id="my-svg-clients"',
@@ -615,13 +616,14 @@ for (const marker of [
   'id="my-svg-L_promClient_restApi_0"',
   'id="my-svg-flowchart-restApi-8"',
   'id="my-svg-flowchart-wsApi-10"',
-  'id="my-svg-flowchart-completion-16"',
-  'id="my-svg-flowchart-workloadDomain-17"',
-  'id="my-svg-flowchart-networkDomain-18"',
-  'id="my-svg-flowchart-storageDomain-19"',
-  'id="my-svg-flowchart-securityDomain-20"',
-  'id="my-svg-flowchart-monitorDomain-21"',
-  'id="my-svg-flowchart-opsDomain-22"',
+  'id="my-svg-flowchart-completion-17"',
+  'id="my-svg-flowchart-offloadLanes-16"',
+  'id="my-svg-flowchart-workloadDomain-18"',
+  'id="my-svg-flowchart-networkDomain-19"',
+  'id="my-svg-flowchart-storageDomain-20"',
+  'id="my-svg-flowchart-securityDomain-21"',
+  'id="my-svg-flowchart-monitorDomain-22"',
+  'id="my-svg-flowchart-opsDomain-23"',
   "vm_state.db",
   "pcv_audit.db",
   "pcv_jobs.db",
@@ -631,12 +633,12 @@ for (const marker of [
   "vpc.db",
   "pcv_webpush.db",
   "resource_registry.db",
-  'id="my-svg-flowchart-resourceDb-25"',
-  'id="my-svg-flowchart-desiredStore-26"',
-  'id="my-svg-flowchart-virtPlatform-27"',
-  'id="my-svg-flowchart-storagePlatform-28"',
-  'id="my-svg-flowchart-networkPlatform-29"',
-  'id="my-svg-flowchart-securityPlatform-30"',
+  'id="my-svg-flowchart-resourceDb-26"',
+  'id="my-svg-flowchart-desiredStore-27"',
+  'id="my-svg-flowchart-virtPlatform-28"',
+  'id="my-svg-flowchart-storagePlatform-29"',
+  'id="my-svg-flowchart-networkPlatform-30"',
+  'id="my-svg-flowchart-securityPlatform-31"',
   "DPDK"
 ]) {
   if (!directArchitectureSvgText.includes(marker)) {
@@ -678,8 +680,11 @@ for (const marker of [
   'webUi <-->|"HTTPS: static UI and REST"| restApi',
   'webUi <-->|"WebSocket TLS"| wsApi',
   'apiClient <-->|"HTTPS"| restApi',
-  'promClient -->|"HTTPS metrics scrape"| restApi',
-  'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
+  'promClient -->|"HTTPS metrics scrape, VM series by caller scope"| restApi',
+  'monitorDomain["Monitoring: host telemetry, process status, VM diagnostics sampler, Prometheus"]',
+  'offloadLanes["Offload lanes: 7 lanes incl. SCOPE_READ"]',
+  'handlers -->|"Blocking sync read"| offloadLanes',
+  'offloadLanes -->|"Reply on main loop"| syncPath',
   'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
   'resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]',
   'storageDomain --> resourceDb',
@@ -703,7 +708,10 @@ for (const marker of [
   'subgraph edgeGateway ["외부 TLS 경계"]',
   'nginx["nginx TLS termination"]',
   'nginx <-->|"Static UI and REST"| restApi',
-  'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
+  'monitorDomain["Monitoring: host telemetry, process status, VM diagnostics sampler, Prometheus"]',
+  'offloadLanes["Offload lanes: 7 lanes incl. SCOPE_READ"]',
+  'handlers -->|"Blocking sync read"| offloadLanes',
+  'offloadLanes -->|"Reply on main loop"| syncPath',
   'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
   'resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]',
   'storageDomain --> resourceDb',

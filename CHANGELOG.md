@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-11-18 2.2.1 이후 main 변경
+
+새 릴리스가 아니다. 아래 변경은 2.2.1 태그 뒤 공개 main에 들어갔다.
+
+- `make bpf`가 두 BPF 소스와 `build/bpf/vmlinux.h`를 사용자별 고정 스테이징 경로(`BPF_STAGE`, 기본
+  `/tmp/purecvisor-bpf-stage-<uid>`)에 복사해 그 안에서 컴파일한다(`flock`으로 동시 빌드를 줄 세움). clang 21 BPF
+  백엔드가 `.BTF` 타입 번호 순서를 작업 디렉터리의 실제 절대 경로에 따라 다르게 내서, 같은 소스라도 체크아웃 경로마다
+  `pcv_lsm.bpf.o` 바이트가 달랐다(공유 브리지 오브젝트는 이미 같았다). 이제 같은 호스트·커널·빌드 사용자에서는 경로와
+  무관하게 같은 바이트가 나온다. 배포 계약 시험(`test_deploy_runtime_prereq_contract.sh`)이 고정 경로 컴파일을
+  단언한다. 게시된 2.2.1 BPF tarball은 바뀌지 않으며, 다음 릴리스의 BPF 객체가 이 방식으로 빌드된다.
+- 데몬을 띄우는 통합 시험이 공용 격리 데몬 하네스(`tests/integration/lib/pcv_isolated_daemon.sh`)를 쓴다. 시험용
+  데몬을 사설 user·net·pid·ipc 네임스페이스와 운영 상태 경로를 가린 bwrap 샌드박스에서 띄운다. 이전 형태의 시험 13개
+  (API 키 role 집행, 백업 보존, CLI 인자 적용, graceful drain, JSON ingress 경계, QoS 재수화, 세션 revoke, 스냅샷
+  검증, TOTP 로그인, 사용자 세션 revoke, `vm.batch` 팬아웃, `vm.create` ISO 검증, VM 잠금 교차 해제)는 호스트
+  네트워크 네임스페이스에서 데몬을 띄워 VPC 기동 수렴(nft)이 권한 오류로 멈췄고 데몬 기동 뒤 단계가 실행되지 않았다.
+  2.2.1 기능의 E2E 4개(VM 진단, 주체 이름 공간, VM 읽기 범위, 부팅 뒤 자동 시작)를 더했고, `scripts/run_auto_tests.sh`가
+  같은 probe로 하네스를 쓸 수 없는 호스트에서는 사유와 함께 SKIP한다. Ubuntu의 `bwrap-userns-restrict` AppArmor
+  환경에서는 `sudo scripts/install_test_bwrap_profile.sh`로 시험 전용 bwrap 사본과 그 사본에만 적용되는 프로파일을
+  설치한다(`--remove`로 제거). 상태 폴더가 LSM 감시 경로와 다른 tmpfs인지 보는 검사와 그 계약 시험
+  (`scripts/tests/test_iso_state_fs_contract.py`)을 더했다. 절차는 검증 정책 4.27절.
+- 전체 아키텍처 그림 두 장(직접 HTTPS·NGINX)에 오프로드 레인 노드(동기 RPC 7레인)와 "Blocking sync read"·"Reply on main
+  loop" 연결, dispatcher의 VM 읽기 범위, Monitoring의 VM 진단 표본기, `rbac.db`의 지운 이름 묘비
+  (`deleted_user_names`), Job 결과의 행위자와 범위별 WebSocket 분배, Prometheus 수집의 호출자 범위를 더해 다시
+  렌더했다. 가이드 1.2절 본문도 같은 내용을 적는다.
+- RPC·REST·DB 스키마·`daemon.conf` 형식 변경은 없다. 제품 버전 문자열은 `2.2.1`을 유지하며 새 버전이나 태그는
+  발급하지 않았다.
+
 ## 2.2.1 기능 릴리스 — 2026-11-18
 
 2.2.0 이후의 Single Edge 기능·보안·안정성 변경을 담은 기능 릴리스다. ADMIN이 아닌 계정의 VM 읽기 범위, 사용자·API

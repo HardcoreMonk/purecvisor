@@ -143,10 +143,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   균형 줄바꿈이고 영어판은 크기·폭을 줄여 두 줄로 맞춘다. `site/scripts/check-site.mjs`가 이 계약을 확인한다.
 - NGINX 모드 SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-full-architecture.mmd`가 소유한다. SVG 파일은
-  `2009.1953125×2653` viewBox와 node·edge·label·좌표를 유지한다.
+  `1998.2109375×2744.60009765625` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
-  `efd7ee48237069831db389d509d1fed8a12697f3e849b739821807097571a231`, 배포 파일 SHA-256은
-  `a470fc321a2c7372c8f98ea202fb92f2e1e8f8bd058e70505700bc87777b3af8`로 고정한다.
+  `c1b299bd31a2be4b48038470875dd291d5e45b9b655ef543fcb8ecadc4460833`, 배포 파일 SHA-256은
+  `dfa49011a90704c4aedc1aa75559ff03ed71b1b8f356790564c97e0b54292b27`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 상세 overview의
@@ -197,9 +197,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `purecvisor-single-full-architecture.svg`를 사용하며 선택한 panel 하나만 표시한다. 직접
   HTTPS SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-direct-https-architecture.mmd`가 소유한다. 이 SVG의
-  viewBox는 `1935.1484375×2523.699951171875`, 구조·내용 SHA-256은
-  `07bdc51bb3199598cf8d5dc9afcf782d5f69a5a8d3e1b76615d075c0fa5dac82`, 배포 파일 SHA-256은
-  `8baadb1686cc3a381064bf8ab425850aba1c6fbfa00c41e20de9e57cb755720a`로 고정한다.
+  viewBox는 `1935.1484375×2645.300048828125`, 구조·내용 SHA-256은
+  `365d05c6cf0ee603c5f38029f338fbad08e5cacc0487e6471a13e08e1862fcae`, 배포 파일 SHA-256은
+  `3e51d1c9950caf1328952c11754764c1229895a0af440c997852fe6225efb8f8`로 고정한다.
   본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
   로컬 SQLite DB 9개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
   한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.

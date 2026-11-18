@@ -132,7 +132,7 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
         </div>
       </div>
       <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1935.1484375" height="2523.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1935.1484375" height="2645.300048828125" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note"><code>purecvisorsd</code>가 외부 <code>:443</code>의 HTTPS와 WebSocket TLS를 직접 종료하는 기본 모드입니다.<br>별도 NGINX 프로세스가 없습니다.</figcaption>
     </figure>
@@ -148,7 +148,7 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
         </div>
       </div>
       <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="2009.1953125" height="2653" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1998.2109375" height="2744.60009765625" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note">NGINX가 외부 <code>:443</code>을 소유하고 <code>purecvisorsd</code>의 loopback REST·WebSocket으로 전달하는 선택형 모드입니다.<br>ADR-0029의 host-loopback 신뢰 경계가 성립하는 전용 호스트에서만 사용합니다.</figcaption>
     </figure>
@@ -170,12 +170,15 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 
 1. `pcvctl`은 로컬 UDS로, Web UI와 REST client는 선택한 HTTPS 모드로 요청합니다.<br>
 선택형 gRPC는 token과 고정 caller role을 검증한 뒤 같은 RPC 정책으로 수렴합니다.
-2. transport가 인증 주체를 확정하면 dispatcher가 method policy, RBAC와 VM·컨테이너 owner-scope를 검사합니다.
+2. transport가 인증 주체를 확정하면 dispatcher가 method policy, RBAC와 VM·컨테이너 owner-scope를 검사합니다.<br>
+ADMIN이 아닌 계정의 VM 읽기는 VM 읽기 범위(10.2절)로 거릅니다.
 3. dispatcher는 `GHashTable`에서 O(1)로 도메인 핸들러를 찾아 검증된 요청만 전달합니다.
-4. 짧은 작업은 canonical JSON-RPC 응답으로 즉시 완료합니다.
+4. 짧은 작업은 canonical JSON-RPC 응답으로 즉시 완료합니다.<br>
+메인 루프를 막을 수 있는 동기 RPC(libvirt·호스트·범위 읽기와 네트워크·스토리지·VM 장치·컨테이너 변경)는 오프로드 레인 7개에서 실행하고, 응답은 메인 루프로 돌아와 보냅니다.
 5. 긴 작업은 Job ID가 포함된 accepted 응답을 먼저 보내고 제한된 `GTask` 워커에서 실행합니다.<br>
 상태 registry를 사용하는 경로만 `pcv_jobs.db` 행을 생성하며, 일부 경로는 합성 Job ID를 사용합니다.
-6. worker callback은 실제 결과를 경로별 상태 저장소, `pcv_audit.db`, daemon log와 WebSocket 완료 이벤트에 남깁니다.<br>
+6. worker callback은 실제 결과(요청한 행위자 포함)를 경로별 상태 저장소, `pcv_audit.db`, daemon log와 WebSocket 완료 이벤트에 남깁니다.<br>
+VM 이벤트는 그 VM을 볼 수 있는 연결에만 보냅니다.<br>
 클라이언트는 WebSocket 또는 polling으로 최종 상태를 확인하며, **accepted 응답은 실제 성공을 뜻하지 않습니다.**
 
 #### 1.2.3 서비스 도메인
@@ -184,7 +187,7 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 - **Network**: Linux bridge, Local VPC, OVS·OVN, Security Group과 QoS
 - **Storage**: ZFS, snapshot, backup·restore, iSCSI와 로컬 백업 작업
 - **Security**: JWT, TOTP, RBAC, audit, HIDS·HIPS와 BPF LSM audit
-- **Monitoring**: host telemetry, process status와 Prometheus metrics
+- **Monitoring**: host telemetry, process status, VM 진단 표본기와 Prometheus metrics
 - **Operations**: telemetry, alert, Web Push, AI healing과 plugin
 
 Monitoring 경로는 `handler_monitor`, telemetry, process monitor와 eBPF telemetry가 제공하는
@@ -5639,6 +5642,7 @@ LSM은 열린 경로 문자열만 보므로, 운영 서비스가 아닌 곳(격�
 
 - 카운터는 지표 `pcv_bpf_lsm_foreign_fs_total`로 노출됩니다. 첫 건에만 INFO 로그가 한 번 남습니다.
 - 감시 경로 아래에 새 마운트가 생기거나 사라지면(`mountinfo` 변경 통지) 집합을 다시 만듭니다. 장치를 알 수 없는 열기와 `bprm_check_security` 사건은 지금까지처럼 사건으로 제출됩니다.
+- 시험 규칙: 격리 데몬을 띄우는 harness(`tests/integration/lib/pcv_isolated_daemon.sh`)는 상태 폴더(`$STATE`, `TMPDIR` 아래)가 감시 경로와 **다른 tmpfs**일 때만 시작합니다. 감시 경로와 같은 파일시스템이거나 tmpfs가 아니면 `FAIL:` 사유와 함께 시작하지 않습니다. 그래서 `TMPDIR`은 tmpfs(기본 `/tmp`)로 둡니다. 격리 데몬 시험은 운영 중인 호스트가 아니라 시험용 호스트에서 돌립니다.
 
 #### 운영자 단건 종결
 
@@ -7970,6 +7974,11 @@ git commit --no-verify -m "fix: 긴급 수정"
 2,675 PASS·22 SKIP과 audit startup 5 PASS, 브라우저 UI 시험 755 PASS, 패키지 검사, 격리된
 Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발 호스트의 실제 업그레이드·되돌림을
 확인했습니다. 컨테이너 검증에는 systemd 부팅, 실제 KVM 작업과 커널 BPF 적재가 포함되지 않습니다.
+
+**2026-11-18 2.2.1 이후 공개 main:** 새 릴리스 없이 2.2.1 뒤의 후속 변경을 담습니다. BPF 오브젝트를 고정 스테이징 경로에서 컴파일해
+체크아웃 경로와 무관하게 같은 바이트로 빌드하고, 데몬을 띄우는 통합 시험 17개를 격리 데몬 하네스로 옮겼으며, 전체 아키텍처 그림 두 장에
+오프로드 레인·VM 읽기 범위·VM 진단 표본기·지운 이름 묘비를 더했습니다. 변경 목록은 `CHANGELOG.md` 맨 위 '2026-11-18 2.2.1 이후 main 변경'
+항목을 따릅니다. RPC·REST·DB 스키마·`daemon.conf` 형식과 제품 버전 문자열 `2.2.1`은 바뀌지 않았습니다.
 
 **2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
 도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.
