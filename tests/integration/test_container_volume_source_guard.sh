@@ -39,6 +39,9 @@ pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 [ -x "$PCVCTL_BIN" ] || skip "pcvctl 바이너리 없음 ($PCVCTL_BIN) — make cli"
 pcv_iso_check_bin "$PCVCTL_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
+PCVCTL_OWNER="$(stat -L -c %u "$PCVCTL_BIN" 2>/dev/null)"
+[ "$PCVCTL_OWNER" = "$(id -u)" ] || skip "pcvctl 소유자(uid ${PCVCTL_OWNER:-?})가 시험 실행 사용자(uid $(id -u))와 다름 — 샌드박스는 실행 사용자만 uid 0으로 매핑해 훅 실행체($PCVCTL_BIN)가 root 소유로 보이지 않는다(제품은 root 소유 훅만 인정 → −32002). 빌드한 사용자로 실행하거나 실행 사용자 소유 사본을 PCVCTL_BIN=… 으로 줄 것(root 실행이면 root 소유 사본)"
+
 pick_free_port() {
     local p
     for p in 28098 29098 31098 33098 37098 41098 43098; do

@@ -223,8 +223,9 @@ check "${r1%%|*}/${r2%%|*}/${r3%%|*}" "409/409/409" "M3a: 셀프 가입 grpc·ky
                                                                                                              
 g_map="$(grpc_call /purecvisor.v1.VmService/List '{}')"
 g_raw="$(grpc_call vm.list '{}')"
-[ -n "$g_map" ] && [ "$g_map" = "$g_raw" ] && printf '%s' "$g_map" | jq -e 'type == "array"' >/dev/null 2>&1 \
-    && pass "M8a: 매핑 이름·유효 원문 이름 같은 응답(VM 목록 배열 — 소유자 없는 VM은 OPERATOR 범위 밖)" || fail "M8a: gRPC 응답 '$(printf '%s' "$g_map" | head -c 80)' / '$(printf '%s' "$g_raw" | head -c 80)'"
+[ -n "$g_map" ] && [ "$g_map" = "$g_raw" ] \
+    && printf '%s' "$g_map" | jq -e 'type == "array" and all(.[]; ((.name? // .) | tostring) != "test")' >/dev/null 2>&1 \
+    && pass "M8a: 매핑 이름·유효 원문 이름 같은 응답(VM 목록 배열, 소유자 없는 test VM은 OPERATOR 범위 밖)" || fail "M8a: gRPC 응답 '$(printf '%s' "$g_map" | head -c 80)' / '$(printf '%s' "$g_raw" | head -c 80)'"
 A0="$(max_audit)"
 check "$(grpc_call 'bad name!' '{}')" '{"error":"invalid method"}' "M8b: 문법 밖 이름 → invalid method 프레임"
 check "$(grpc_call '/purecvisor.v1.X/Y' '{}')" '{"error":"invalid method"}' "M8c: 매핑 안 된 경로 → invalid method 프레임"
@@ -246,7 +247,19 @@ check "$W" "same-name user/key pairs=1" "M7a: 기동 집계 같은 이름 쌍 1(
 grep -q "ov1\| ow1" <(grep 'rbac principal names' "$DLOG") && fail "M7b: 기동 집계 줄에 이름이 있다" || pass "M7b: 기동 집계 줄에 이름 없음"
 code="$(iso_curl -s --max-time 10 -o "$STATE/who.out" -w '%{http_code}' -H "X-API-Key: $KEYPLAIN" "$BASE_URL/auth/whoami" 2>/dev/null)"
 check "$code/$(jq -r '.data.tenant // empty' "$STATE/who.out" 2>/dev/null)" "200/---" "M7c: 옛 겹침 키 인증 200·whoami 테넌트 \"---\""
-skipc "M7d: SKIP(옛 겹침 키의 테넌트 판정은 이 시험에서 다루지 않는다)"
+check "$(row "$(user_create tm1)")/$(row "$(user_create tm2)")" "|/|" "M7d-0: 테넌트 대조 사용자 tm1·tm2 생성"
+for u in tm1 tm2; do uds auth.user.tenant.set "$(jq -nc --arg u "$u" '{username:$u, tenant:"ta"}')" >/dev/null; done
+check "$(row "$(uds vm.owner.set '{"name":"test","owner":"tm1"}')")" "|" "M7d-1: vm.owner.set test → tm1(테넌트 ta)"
+vm_seen() {
+    local code
+    code="$(iso_curl -s --max-time 10 -o "$STATE/vms.out" -w '%{http_code}' "$@" "$BASE_URL/vms" 2>/dev/null)"
+    printf '%s/%s' "$code" "$(jq -e '[(.data // .result) | .. | strings | select(. == "test")] | length > 0' "$STATE/vms.out" >/dev/null 2>&1 && echo yes || echo no)"
+}
+TM2_TOK="$(iso_curl -s --max-time 6 -X POST "$BASE_URL/auth/token" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --rawfile p "$STATE/pw/u-tm2" '{username:"tm2", password:$p}')" 2>/dev/null | jq -r '.access_token // empty' 2>/dev/null)"
+check "$(vm_seen -H "Authorization: Bearer $TM2_TOK")" "200/yes" "M7d-2: 대조 — 같은 테넌트 VIEWER tm2(JWT)는 tm1 소유 test VM을 본다"
+check "$(vm_seen -H "X-API-Key: $KEYPLAIN")" "200/no" \
+    "M7d: 옛 겹침 키 ov1은 같은 이름 사용자 ov1의 테넌트(ta)를 빌리지 않는다 — tm1 소유 test VM 안 보임(키 테넌트 없음)"
 check "$(ecode "$(user_delete ov1)")" "" "M7e: 옛 겹침 사용자 ov1 삭제(묘비)"
 kill_daemon; : > "$DLOG"
 boot || { fail "M7: 두 번째 재기동 실패"; tail -30 "$DLOG"; exit 1; }
