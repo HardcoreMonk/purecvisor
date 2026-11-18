@@ -122,7 +122,7 @@ const OPS_DIAG = { schema: 1, scope: 'all',
   host: { logical_cpus: 8, physical_cores: 4, mem_total_mb: 16384, allocation: {}, psi: {} },
   vms: [
     opsDiagVm('alpha', { quality: 'partial', missing: ['guest_memory'], mem_guest_used_mb: null, mem_guest_available_mb: null, mem_rss_mb: 1536 }),
-    opsDiagVm('beta', { mem_max_mb: 1024, mem_alloc_mb: 1024, mem_guest_used_mb: 0, mem_rss_mb: 300 }),
+    opsDiagVm('beta', { mem_max_mb: 1024, mem_alloc_mb: 1024, mem_guest_used_mb: 0, mem_rss_mb: 300, cpu_pct: 0, cpu_host_pct: 0 }),
     opsDiagVm('gamma', { state: 'shutoff', quality: 'stopped', vcpus: 1, mem_max_mb: 512, mem_alloc_mb: null, mem_guest_used_mb: null, mem_rss_mb: null })
   ] };
 
@@ -142,6 +142,7 @@ test('운영 센터는 누락 수치를 만들지 않고 실제 0·검색·조�
       values: [...host.querySelectorAll('.ops-triage-metric-value')].map(n => n.textContent),
       rows: [...host.querySelectorAll('tbody tr')].map(n => [...n.cells].map(c => c.textContent)),
       memTitles: [...host.querySelectorAll('tbody tr')].map(n => (n.cells[4].querySelector('[title]') || {}).title || ''),
+      cpuTitles: [...host.querySelectorAll('tbody tr')].map(n => (n.cells[3].querySelector('[title]') || {}).title || ''),
       text: host.textContent, tabs: host.querySelectorAll('[role="tablist"]').length
     }));
     assert.deepEqual(initial.values.slice(0, 2), ['미수집', '미수집']);
@@ -155,6 +156,13 @@ test('운영 센터는 누락 수치를 만들지 않고 실제 0·검색·조�
     assert.match(initial.rows[2][4], /^—/);
     assert.match(initial.memTitles[2], /정지 VM/);
     assert.ok(!initial.rows.some(r => r[4].includes('미수집')), 'VM 메모리 칸에 미수집이 남지 않는다');
+
+    assert.equal(initial.rows[0][3], '5.0%');
+    assert.match(initial.cpuTitles[0], /^vCPU 대비 5\.0% · 호스트 대비 0\.5%$/);
+    assert.equal(initial.rows[1][3], '0.0%');
+    assert.match(initial.rows[2][3], /^—/);
+    assert.match(initial.cpuTitles[2], /정지 VM/);
+    assert.ok(!initial.rows.some(r => r[3].includes('미수집')), 'VM CPU 칸에 미수집이 남지 않는다');
     assert.ok(!/로그인 시도 증가|scrape 지연 확인|32GB 중 13.1GB/.test(initial.text));
     assert.equal(initial.tabs, 0);
     await page.type('.ops-triage-field', 'bet');
@@ -179,12 +187,13 @@ test('운영 센터 VM 메모리는 진단 실패를 미수집이 아니라 실�
           ? Promise.resolve(new Response('unavailable', { status: 503 })) : nativeFetch(url, options);
         await renderOpsTriage(document.getElementById('cb'));
       });
-      const rows = await page.$$eval('#cb tbody tr', trs => trs.map(n => ({ mem: n.cells[4].textContent,
+      const rows = await page.$$eval('#cb tbody tr', trs => trs.map(n => ({ mem: n.cells[4].textContent, cpu: n.cells[3].textContent,
         title: (n.cells[4].querySelector('[title]') || {}).title || '' })));
       assert.equal(rows.length, 3);
       for (const r of rows) {
         assert.ok(r.mem.startsWith('—') && r.mem.includes(word), `메모리 칸 ${JSON.stringify(r.mem)} 에 "${word}"`);
         assert.ok(!r.mem.includes('미수집'));
+        assert.ok(r.cpu.startsWith('—') && r.cpu.includes(word), `CPU 칸 ${JSON.stringify(r.cpu)} 에 "${word}"`);
       }
     }, { routes: { '/api/v1/vms': { body: OPS_VM_LIST }, '/api/v1/monitor/vm-diag': reply } });
   }
@@ -219,5 +228,30 @@ test('운영 센터 VM 메모리는 게스트 값이 오래됐으면 지금 값�
     assert.ok(!stale.mem.includes('%'), `오래된 값이 막대로 보이면 안 된다: ${stale.mem}`);
     assert.match(stale.title, /게스트 값 오래됨\(2954초 전\)/);
     assert.equal(fresh.mem, '25%');                                    
+  }, { routes: { '/api/v1/vms': { body: list }, '/api/v1/monitor/vm-diag': { body: { data: diag } } } });
+});
+
+test('운영 센터 VM CPU는 값이 없으면 이유를 붙인 —, 100 초과는 원래 값을 title 에 둔다', async () => {
+  const list = { data: ['warm', 'nocpu', 'hot'].map(n => ({ uuid: 'u-' + n, name: n, state: 'running', vcpu: 2, memory_mb: 1024 })) };
+  const diag = Object.assign({}, OPS_DIAG, { vms: [
+    opsDiagVm('warm', { quality: 'warming_up', reason: 'first_sample', cpu_pct: null, cpu_host_pct: null }),
+    opsDiagVm('nocpu', { quality: 'partial', missing: ['cpu'], cpu_pct: null, cpu_host_pct: null }),
+    opsDiagVm('hot', { cpu_pct: 130.4, cpu_host_pct: 32.6 })
+  ] });
+  await withPage([...COMMON, 'ui/modules/monitor.js', 'ui/modules/monitor-vmdiag.js'], async page => {
+    await page.evaluate(async () => {
+      window._L = (ko, en) => I18N.getLang() === 'ko' ? ko : en;
+      window.authToken = 'fixture';
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => String(url).endsWith('/api/v1/metrics')
+        ? Promise.resolve(new Response('unavailable', { status: 503 })) : nativeFetch(url, options);
+      await renderOpsTriage(document.getElementById('cb'));
+    });
+    const rows = Object.fromEntries(await page.$$eval('#cb tbody tr', trs => trs.map(n => [n.cells[0].textContent.trim(),
+      { cpu: n.cells[3].textContent, title: (n.cells[3].querySelector('[title]') || {}).title || '' }])));
+    assert.match(rows.warm.cpu, /^—/); assert.match(rows.warm.title, /첫 표본/);
+    assert.match(rows.nocpu.cpu, /^—/); assert.match(rows.nocpu.title, /CPU 시간을 받지 못했습니다/);
+    assert.equal(rows.hot.cpu, '100%');
+    assert.equal(rows.hot.title, 'vCPU 대비 130.4% · 호스트 대비 32.6%');
   }, { routes: { '/api/v1/vms': { body: list }, '/api/v1/monitor/vm-diag': { body: { data: diag } } } });
 });

@@ -215,6 +215,17 @@
   function last() { return LAST; }
 
                                                                 
+  var THR = null, THR_AT = 0;
+  function throttledFetch(minGapMs) {
+    var now = Date.now();
+    if (minGapMs && now - THR_AT < minGapMs) return Promise.resolve(null);
+    THR_AT = now;
+    return fetchDiag().then(function (d) { THR = d; return d; });
+  }
+  function throttledLast() { return THR; }
+
+  function dashCells(v) { return { cpu: opsCpu(v, THR), mem: opsMem(v, THR) }; }
+
   function legacyVms(diag) {
     if (!diag || !diag.ok) return [];
     return diag.data.vms.map(function (r) {
@@ -241,16 +252,22 @@
                                                                                 
                                                                                                 
                                                                              
-  function opsMem(v, diag) {
+  function _opsRec(v, diag) {
     if (!diag || !diag.ok) {
       var unsup = !!diag && diag.err === 'unsupported';
-      return { pct: null, note: unsup ? '진단 미지원' : '진단 실패',
-               title: unsup ? '이 데몬은 VM 진단을 지원하지 않습니다' : 'VM 진단을 불러오지 못했습니다' };
+      return { cell: { pct: null, note: unsup ? '진단 미지원' : '진단 실패',
+                       title: unsup ? '이 데몬은 VM 진단을 지원하지 않습니다' : 'VM 진단을 불러오지 못했습니다' } };
     }
     var name = v.name || v.vm;
     var rec = diag.data.vms.filter(function (r) { return r.name === name; })[0];
-    if (!rec) return { pct: null, note: null, title: '이 VM 의 진단 기록이 없습니다' };
-    if (_isStopped(rec)) return { pct: null, note: null, title: reasonText(rec, null, diag.data) };
+    if (!rec) return { cell: { pct: null, note: null, title: '이 VM 의 진단 기록이 없습니다' } };
+    if (_isStopped(rec)) return { cell: { pct: null, note: null, title: reasonText(rec, null, diag.data) } };
+    return { rec: rec };
+  }
+  function opsMem(v, diag) {
+    var o = _opsRec(v, diag);
+    if (o.cell) return o.cell;
+    var rec = o.rec;
     var used = rec.mem_guest_used_mb, alloc = rec.mem_alloc_mb, rss = rec.mem_rss_mb;
     var stale = _staleAge(rec);
     if (stale === null && _num(used) && used >= 0 && _num(alloc) && alloc > 0)
@@ -268,8 +285,18 @@
     return _num(age) ? Math.round(age) : null;
   }
                                                                  
+  function opsCpu(v, diag) {
+    var o = _opsRec(v, diag);
+    if (o.cell) return o.cell;
+    var rec = o.rec;
+    if (_num(rec.cpu_pct) && rec.cpu_pct >= 0)
+      return { pct: rec.cpu_pct, note: null,
+               title: 'vCPU 대비 ' + fmtPct(rec.cpu_pct) + (_num(rec.cpu_host_pct) && rec.cpu_host_pct >= 0 ? ' · 호스트 대비 ' + fmtPct(rec.cpu_host_pct) : '') };
+    return { pct: null, note: null, title: reasonText(rec, 'cpu', diag.data) };
+  }
+
   function opsRows(vms, diag) {
-    return (vms || []).map(function (v) { return Object.assign({}, v, { _mem: opsMem(v, diag) }); });
+    return (vms || []).map(function (v) { return Object.assign({}, v, { _mem: opsMem(v, diag), _cpu: opsCpu(v, diag) }); });
   }
                                                                                                         
   function opsMemCell(m, barFn) {
@@ -539,7 +566,7 @@
   }
 
   PCV.vmdiag = {
-    fetch: fetchDiag, refresh: refresh, last: last, legacyVms: legacyVms, opsMem: opsMem, opsRows: opsRows, opsMemCell: opsMemCell,
+    fetch: fetchDiag, refresh: refresh, last: last, throttledFetch: throttledFetch, throttledLast: throttledLast, dashCells: dashCells, legacyVms: legacyVms, opsMem: opsMem, opsCpu: opsCpu, opsRows: opsRows, opsMemCell: opsMemCell,
     countText: countText, countOrNull: countOrNull, vmRunSegment: vmRunSegment,
     overviewSection: overviewSection, allocationCard: allocationCard, vmTable: vmTable, rollupSegment: rollupSegment,
     statusLine: statusLine, storageMemCards: storageMemCards, reasonText: reasonText, hintSentence: hintSentence,

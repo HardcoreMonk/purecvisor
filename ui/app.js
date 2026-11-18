@@ -1258,12 +1258,11 @@ function _renderDashWorkloads(host) {
                                                         
   var ctrs = (window._shellSlow && _shellSlow.raw) ? (_shellSlow.raw.ctrs || []) : [];
   var items = _dashVms.map(function (v) {
-    var maxMb = Number(v.memory_max_mb || v.memory_mb || 0);
-    var usedMb = Number(v.memory_used_mb || v.mem_used_mb || 0);
+    var dc = PCV.vmdiag ? PCV.vmdiag.dashCells(v) : null;
     return {
       name: v.name, kind: 'vm', state: _mapWlState(v.state), raw: v.state || '?',
-      cpu: v.live_cpu_pct == null ? null : Number(v.live_cpu_pct),
-      mem: (maxMb > 0 && usedMb > 0) ? Math.round(usedMb / maxMb * 100) : null,
+      cpu: dc ? dc.cpu.pct : (v.live_cpu_pct == null ? null : Number(v.live_cpu_pct)), cpuTitle: dc && dc.cpu.title,
+      mem: dc ? dc.mem.pct : null, memTitle: dc && dc.mem.title,
       meta: 'vm · ' + (v.vcpu || '?') + ' vCPU',
       vm: v
     };
@@ -1307,10 +1306,10 @@ function _renderDashWorkloads(host) {
                                                               
                                                   
                                                           
-  function pctCell(v) {
-    if (v === null || !isFinite(v)) return mk('td', { class: 'color-muted' }, '—');
+  function pctCell(v, why) {
+    if (v === null || !isFinite(v)) return mk('td', { class: 'color-muted', title: why || null }, '—', why ? mk('span', { class: 'sr-only' }, ' ' + why) : null);
     var n = Math.round(v);
-    return mk('td', null, mk('div', { class: 'flex items-center gap-4' },
+    return mk('td', { title: why || null }, mk('div', { class: 'flex items-center gap-4' },
       mk('div', { class: 'dash2-wl-gauge' }, HN.gauge({ value: n, warn: 80, crit: 95, inline: true })),
       mk('span', { class: 'dash2-wl-meta' }, n + '%')));
   }
@@ -1355,8 +1354,8 @@ function _renderDashWorkloads(host) {
           mk('b', null, it.name),
           mk('div', { class: 'dash2-wl-meta' }, it.meta)))),
       mk('td', null, HN.statusPill(tone, it.raw)),
-      pctCell(it.cpu),
-      pctCell(it.mem),
+      pctCell(it.cpu, it.cpuTitle),
+      pctCell(it.mem, it.memTitle),
       mk('td', null, HN.spark(series, { tone: tone })),
       mk('td', { style: 'text-align:right' }, qa));
   });
@@ -1506,7 +1505,7 @@ async function renderDashboard(b) {
     });
   }
                      
-  await collectHostMetrics();
+  await Promise.all([collectHostMetrics(), PCV.vmdiag && PCV.vmdiag.throttledFetch(5000)]);
   try {
     var r = await fetchGet(API_BASE + '/vms').catch(function (e) { return { error: { message: e.message } }; });
     window.vmListError = (r && r.error) || null;
@@ -2187,7 +2186,7 @@ async function _collectShellSlow() {
     }),
     fetchGet(EP.NET_LIST()).then(function (r) {
       s.raw.networks = unwrapList(r);
-    })
+    }), currentTab === 'dashboard' && PCV.vmdiag ? PCV.vmdiag.throttledFetch(10000) : null
   ]);
   s.collected = true;
                                                         
@@ -2196,6 +2195,7 @@ async function _collectShellSlow() {
     var f = document.getElementById('dash-feed'); if (f) _renderDashFeed(f);
     var h = document.getElementById('dash-healing'); if (h) _renderDashHealing(h);
     var g = document.getElementById('dash-gauges'); if (g) _renderDashGauges(g);
+    var w = document.getElementById('dash-workloads'); if (w) _renderDashWorkloads(w);
   }
   _pushShellSnapshot();
 }

@@ -293,6 +293,35 @@ test('memory stats: 현재 창의 전송 오류와 RPC 오류를 표시한다', 
   });
 });
 
+test('memory stats: 게스트 통계 없음은 안내하고 없음과 실제 0 을 구분한다', async () => {
+  await withPage(GUEST_MODS, async page => {
+    await bootGuest(page);
+    const rows = await page.evaluate(async () => {
+      const out = [];
+      for (const data of [{ vm: 'vm-a', guest_stats: false, actual_balloon_kb: 2097152, rss_kb: 1048576 },
+                          { vm: 'vm-a', guest_stats: true, actual_balloon_kb: 2097152, rss_kb: 1048576, unused_kb: 0,
+                            available_kb: 2000000, usable_kb: 1500000, swap_in: 0, swap_out: 0 },
+                          { vm: 'vm-a', actual_balloon_kb: 2097152 }]) {
+        guestHandler = () => ({ data });
+        await showMemStats();
+        const body = document.getElementById('mem-stats-body');
+        const val = label => [...body.querySelectorAll('.row, div')].map(n => n.textContent)
+          .find(t => t.startsWith(label) && t.length < label.length + 20) || '';
+        out.push({ text: body.textContent, unused: val('Unused'), swapIn: val('Swap In'), swapOut: val('Swap Out') });
+        closeModal(true);
+      }
+      return out;
+    });
+    assert.match(rows[0].text, /게스트 메모리 통계 없음/);
+    assert.match(rows[0].text, /VM 설정을 바꾸지 않습니다/);
+    assert.match(rows[0].swapIn, /-$/); assert.match(rows[0].swapOut, /-$/); assert.match(rows[0].unused, /-$/);
+    assert.match(rows[0].text, /2\.00 GB/);
+    assert.doesNotMatch(rows[1].text, /게스트 메모리 통계 없음/);
+    assert.match(rows[1].unused, /0 KB$/); assert.match(rows[1].swapIn, /0 KB$/);
+    assert.doesNotMatch(rows[2].text, /게스트 메모리 통계 없음/);
+  });
+});
+
 test('blkioGet: 닫힌 창과 같은 창의 이전 조회는 최신 입력·오류를 덮지 않는다', async () => {
   await withPage(GUEST_MODS, async page => {
     await bootGuest(page);

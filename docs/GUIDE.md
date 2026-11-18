@@ -2073,18 +2073,23 @@ echo '{"jsonrpc":"2.0","method":"vm.memory.stats","params":{"name":"web-prod"},"
 
 Web UI CPU 핀 화면도 같습니다. vCPU 번호와 물리 CPU 목록(예: `0-3,6`)을 넣어 한 번에 vCPU 하나씩 고정합니다.
 
-메모리 통계 응답 예시:
+메모리 통계 응답 예시(`result`, 단위 KiB):
 
 ```json
 {
-  "actual": 4194304,
-  "rss": 3145728,
-  "unused": 1048576,
-  "available": 4194304,
+  "vm": "web-prod",
+  "guest_stats": true,
+  "actual_balloon_kb": 4194304,
+  "rss_kb": 3145728,
+  "unused_kb": 1048576,
+  "available_kb": 4030464,
+  "usable_kb": 2981888,
   "swap_in": 0,
   "swap_out": 0
 }
 ```
+
+이 조회는 VM 설정을 바꾸지 않는다(2.2.1 뒤 공개 main부터 — 2.2.1까지는 조회할 때마다 게스트 balloon 통계 주기를 5초로 바꿨다). 게스트가 통계를 보고하지 않으면(통계 주기 0, balloon 드라이버 없음) `guest_stats`가 `false`이고 게스트 값(`unused_kb`, `available_kb`, `usable_kb`, `swap_in`, `swap_out`)이 빠진다. `actual_balloon_kb`와 `rss_kb`는 호스트 쪽 값이라 그대로 나온다. PureCVisor가 만든 VM은 통계 주기 10초가 기본이다. Web UI와 `pcvctl vm memory-stats`는 빠진 값을 `-`로 보이고 "게스트 메모리 통계 없음"을 한 줄 알린다.
 
 #### NIC 관리
 
@@ -4687,6 +4692,11 @@ Web UI에서는 다음 화면이 이 응답을 쓴다. 값이 없는 칸은 `—
 - **새 VM 계열**(라벨 `vm="이름"`, 실행 VM이면서 그 묶음이 이번 표본에 있을 때만, 이름 순 앞 64대): counter `purecvisor_vm_cpu_seconds_total`·`purecvisor_vm_vcpu_delay_seconds_total`·`purecvisor_vm_cpu_throttled_seconds_total`·`purecvisor_vm_cpu_throttled_periods_total`·`purecvisor_vm_cpu_periods_total`·`purecvisor_vm_disk_{read,write}_bytes_total`·`purecvisor_vm_disk_{read,write}_requests_total`·`purecvisor_vm_disk_{read,write}_time_seconds_total`, gauge `purecvisor_vm_memory_{alloc,guest_used,rss}_bytes`(값 없으면 생략). 기존 VM 네트워크 4종도 같은 조건이라 정지 VM의 0 계열이 없고, 표본기가 libvirt를 읽지 못하는 동안에는 갱신되지 않다가 정리된다. 기존 `vm_name=` 라벨 계열은 그대로다.
 - **새 호스트·표본기 계열:** `purecvisor_host_vcpu_allocated{scope="running|defined"}`·`purecvisor_host_memory_allocated_bytes{scope="running_max|defined_max|running_alloc"}`·`purecvisor_host_logical_cpus`, `purecvisor_vm_diag_sample_age_seconds`·`purecvisor_vm_diag_vms{quality}`·`purecvisor_vm_diag_truncated`·`purecvisor_vm_diag_prom_truncated`(64대 밖이라 VM 계열을 내지 않은 실행 VM 수).
 - **되돌릴 때:** 이 변경 전 데몬으로 되돌리면 새 데몬이 저장한 계수 체크포인트(`/var/lib/purecvisor/prom_counters.json`)의 라벨별 counter 때문에 렌더마다 `Metric type mismatch` 경고가 찍힐 수 있다. 반영 전에 그 파일 사본을 두고, 원복 때 이전 데몬을 띄우기 전에 사본으로 되돌린다.
+
+#### Prometheus 출력 변경(2.2.1 뒤 공개 main, 자가치유 발동 계수)
+
+- **발동 계수의 뜻이 바뀌었다:** `purecvisor_healing_policy_triggered_total{policy}`는 전에는 dry-run(연습) 모드의 발동만 셌고 active(실전) 모드에서는 늘 0이었다. 이제 모드와 무관하게 정책이 발동할 때마다 그 정책 라벨이 1 늘어난다. "발동"은 쿨다운·차단기·레이트 리밋을 통과해 정책이 실행 단계에 들어간 것이다. restart 대상 VM이 재시작 브레이커에 막혀 건너뛴 경우도 발동으로 센다. 실제로 조치한 횟수는 그대로 `purecvisor_healing_actions_total{policy,action}`이다.
+- **영향:** active 모드 호스트에서는 반영 뒤 이 계열이 0에서 늘기 시작한다. 이 값으로 "dry-run에서 걸렸을 횟수"를 보던 패널·알림은 모드 구분 없이 발동 수로 읽는다. 저장소 안에는 이 이름을 쓰는 알림 규칙·Grafana JSON이 없다.
 
 ### 8.2 프로세스 모니터
 
@@ -7978,7 +7988,10 @@ Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발
 **2026-11-18 2.2.1 이후 공개 main:** 새 릴리스 없이 2.2.1 뒤의 후속 변경을 담습니다. BPF 오브젝트를 고정 스테이징 경로에서 컴파일해
 체크아웃 경로와 무관하게 같은 바이트로 빌드하고, 데몬을 띄우는 통합 시험 17개를 격리 데몬 하네스로 옮겼으며, 전체 아키텍처 그림 두 장에
 오프로드 레인·VM 읽기 범위·VM 진단 표본기·지운 이름 묘비를 더했습니다. 변경 목록은 `CHANGELOG.md` 맨 위 '2026-11-18 2.2.1 이후 main 변경'
-항목을 따릅니다. RPC·REST·DB 스키마·`daemon.conf` 형식과 제품 버전 문자열 `2.2.1`은 바뀌지 않았습니다.
+항목을 따릅니다. 2026-11-19에는 자가치유 발동 계수가 모드와 무관하게 세도록 바뀌었고(지표 의미 변경, 8.1절),
+`vm.memory.stats`가 VM 설정을 바꾸지 않는 조회가 되며 응답에 `guest_stats`를 더했습니다. 이벤트 센터·대시보드의 VM CPU·메모리 칸은
+VM 진단 응답으로 채워집니다. 응답 필드 하나를 더한 것 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식과 제품 버전 문자열 `2.2.1`이
+바뀌지 않았습니다.
 
 **2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
 도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.

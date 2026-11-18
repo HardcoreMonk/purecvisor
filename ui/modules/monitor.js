@@ -346,8 +346,7 @@ async function fetchAllMetrics() {
   const all = await Promise.all(MON_NODES.map(async (nd) => {
     try {
       const txt = await _fetchMetricsText(_buildMetricsUrl(nd.ip));
-        const m = { node: nd.name, ip: nd.ip, cores: {}, memInfo: {}, filesystems: [], disks: {}, netdevs: {}, hwmon: [], sockstat: {}, vmstat: {}, pressure: {}, zfsLocks: _newZfsLocks() };
-      const vms = [];
+      const m = { node: nd.name, ip: nd.ip, vms: [], cores: {}, memInfo: {}, filesystems: [], disks: {}, netdevs: {}, hwmon: [], sockstat: {}, vmstat: {}, pressure: {}, zfsLocks: _newZfsLocks() };
       txt.split('\n').forEach(l => {
         if (l.startsWith('#') || !l.trim()) return;
         const sp = l.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(\{(?:[^}"]|"(?:[^"\\]|\\.)*")*\})?\s+(.+)$/);
@@ -399,7 +398,6 @@ async function fetchAllMetrics() {
           _recordZfsLockMetric(m, k, lb, v);
         }
       });
-      m.vms = vms;
       if (!monHist[nd.ip]) monHist[nd.ip] = { cpu: [], mem: [], disk: [], netRx: [], netTx: [], ts: [] };
       const hi = monHist[nd.ip]; hi.cpu.push(m.cpu || 0); hi.mem.push(m.mem || 0); hi.disk.push(m.disk || 0); hi.ts.push(Date.now());
       const phys = Object.entries(m.netdevs).filter(([d]) => !['lo', 'ovs-system', 'br-int'].includes(d));
@@ -633,7 +631,7 @@ function _opsVmRows(sourceVms, emptyText) {
       name: v.name || v.vm || '-',
       role: v.role || (v.node ? '호스트 ' + v.node : 'VM 자산'),
       ip: v.ip_addr || v.ip || v.addr || '-',
-      cpu: cpuPct,
+      cpu: cpuPct, cpuDiag: v._cpu || null,
       mem: memPct, memDiag: v._mem || null,
       state: v.state || (v.running === 1 ? 'running' : 'unknown'),
       running: v.running
@@ -651,7 +649,7 @@ function _opsVmRows(sourceVms, emptyText) {
         v.name)),
       el('td', null, v.role),
       el('td', { class: 'ops-mono' }, v.ip),
-      el('td', null, _opsBar(v.cpu)),
+      el('td', null, v.cpuDiag && PCV.vmdiag ? PCV.vmdiag.opsMemCell(v.cpuDiag, _opsBar) : _opsBar(v.cpu)),
       el('td', null, v.memDiag && PCV.vmdiag ? PCV.vmdiag.opsMemCell(v.memDiag, _opsBar) : _opsBar(v.mem)),
       el('td', null, _opsVmStatus(v)));
   });
@@ -719,14 +717,7 @@ async function renderOpsTriage(b) {
     apiVms = [];
   }
 
-  var metricVms = all.flatMap(function(n) {
-    return (n.vms || []).map(function(v) {
-      return Object.assign({}, v, { node: n.node || n.ip });
-    });
-  });
-  var sourceVms = metricVms.length ? metricVms : apiVms;
-  var displayVms = PCV.vmdiag ? PCV.vmdiag.opsRows(sourceVms, diag) : sourceVms;
-  haveVmData = haveVmData || metricVms.length > 0;
+  var displayVms = PCV.vmdiag ? PCV.vmdiag.opsRows(apiVms, diag) : apiVms;
   var usableMetrics = all.filter(function(n) { return !n.error; });
   function averageMetric(key) {
     var values = usableMetrics.map(function(n) { return _opsPct(n[key]); })

@@ -157,6 +157,7 @@ const MODS_DASH = [
   'ui/modules/metrics.js',
   'ui/modules/security.js',
   'ui/modules/monitor.js',
+  'ui/modules/monitor-vmdiag.js',
   'ui/modules/vm.js',
   'ui/modules/vm-console.js',
   'ui/modules/vm-lifecycle.js',
@@ -750,6 +751,85 @@ test('renderDashboard: 워크로드 err 매핑(crashed → crit dot/pill) + 상�
                                                                   
                                                      
                                                           
+function wlDiagVm(name, over) {
+  return Object.assign({ name, uuid: 'u-' + name, state: 'running', quality: 'ok', reason: null, missing: [], vcpus: 4,
+    mem_max_mb: 4096, mem_alloc_mb: 4096, mem_guest_used_mb: 1024, mem_guest_available_mb: 3072, mem_rss_mb: 2000,
+    cpu_pct: 42, cpu_host_pct: 10.5, hints: [] }, over);
+}
+const WL_DIAG = { schema: 1, scope: 'all',
+  sampler: { state: 'ok', observed_at_ms: 1794757394000, age_ms: 2000, interval_ms: 5000, tracked: 3, truncated: 0, error: null },
+  host: { logical_cpus: 16, physical_cores: 8, mem_total_mb: 65536, allocation: {}, psi: {} },
+  vms: [wlDiagVm('vm-run'), wlDiagVm('vm-stop', { state: 'shutoff', quality: 'stopped', cpu_pct: null, mem_alloc_mb: null, mem_guest_used_mb: null }),
+        wlDiagVm('vm-bad', { cpu_pct: 0, mem_guest_used_mb: 0, mem_alloc_mb: 2048 })] };
+
+async function dashWorkloadCells(page) {
+  return page.evaluate(() => Object.fromEntries(Array.from(document.querySelectorAll('#dash-workloads tbody tr'), row => {
+    const td = row.querySelectorAll('td');
+    return [row.querySelector('b').textContent, { cpu: td[2].textContent, mem: td[3].textContent, cpuTitle: td[2].title, memTitle: td[3].title }];
+  })));
+}
+
+test('renderDashboard: 워크로드 CPU·메모리는 진단 응답 값, 실제 0 은 0%, 정지 VM 은 이유 붙은 —', async () => {
+  await withPage([], async (page, { port, requests }) => {
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(String(error)));
+    await bootDash(page, port);
+    await page.evaluate(async () => {
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      await window.renderDashboard(host);
+    });
+    const c = await dashWorkloadCells(page);
+    assert.deepEqual(pageErrors, []);
+    assert.match(c['vm-run'].cpu, /^42%/); assert.equal(c['vm-run'].cpuTitle, 'vCPU 대비 42.0% · 호스트 대비 10.5%');
+    assert.match(c['vm-run'].mem, /^25%/); assert.match(c['vm-run'].memTitle, /게스트 사용 추정/);
+    assert.match(c['vm-bad'].cpu, /^0%/); assert.match(c['vm-bad'].mem, /^0%/);
+    assert.match(c['vm-stop'].cpu, /^—/); assert.match(c['vm-stop'].cpuTitle, /정지 VM/);
+    assert.match(c['vm-stop'].mem, /^—/);
+    assert.equal(requests.filter(r => r.path === '/api/v1/monitor/vm-diag').length, 1, '진입 때 한 번');
+  }, { routes: { ...DASH_ROUTES, '/api/v1/monitor/vm-diag': { body: { data: WL_DIAG } } } });
+});
+
+test('renderDashboard: 진단 조회 실패면 워크로드 CPU·메모리는 0 이 아니라 — + 진단 실패', async () => {
+  await withPage([], async (page, { port }) => {
+    await bootDash(page, port);
+    await page.evaluate(async () => {
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      await window.renderDashboard(host);
+    });
+    const c = await dashWorkloadCells(page);
+    for (const n of ['vm-run', 'vm-bad']) {
+      assert.match(c[n].cpu, /^—/, n); assert.match(c[n].mem, /^—/, n);
+      assert.match(c[n].cpuTitle, /VM 진단을 불러오지 못했습니다/, n);
+      assert.ok(!/31/.test(c[n].cpu), 'vm.list 의 옛 live_cpu_pct 로 떨어지지 않는다');
+    }
+  }, { routes: { ...DASH_ROUTES, '/api/v1/monitor/vm-diag': { status: 500, body: { error: { message: 'down' } } } } });
+});
+
+test('_collectShellSlow: 진단 재조회는 대시보드에 있을 때만, 직후 중복 없이 표를 갱신', async () => {
+  let reply = { data: WL_DIAG };
+  await withPage([], async (page, { port, requests }) => {
+    await bootDash(page, port);
+    await page.evaluate(async () => {
+      window.authToken = 'test-token';
+      window.currentTab = 'dashboard';
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      await window.renderDashboard(host);
+    });
+    const diagReqs = () => requests.filter(r => r.path === '/api/v1/monitor/vm-diag').length;
+    assert.equal(diagReqs(), 1);
+    await page.evaluate(() => window._collectShellSlow());
+    assert.equal(diagReqs(), 1, '진입 직후(10초 안) 느린 폴러는 다시 보내지 않는다');
+    reply = { data: Object.assign({}, WL_DIAG, { vms: [wlDiagVm('vm-run', { cpu_pct: 77 })] }) };
+    await page.evaluate(() => { const real = Date.now; Date.now = () => real() + 11_000; return window._collectShellSlow(); });
+    assert.equal(diagReqs(), 2);
+    assert.match((await dashWorkloadCells(page))['vm-run'].cpu, /^77%/, '느린 폴러가 표를 다시 그린다');
+    await page.evaluate(() => { const real = Date.now; Date.now = () => real() + 22_000; window.currentTab = 'summary'; return window._collectShellSlow(); });
+    assert.equal(diagReqs(), 2, '다른 화면에서는 진단을 받지 않는다');
+  }, { routes: { ...DASH_ROUTES, '/api/v1/monitor/vm-diag': () => ({ body: reply }) } });
+});
                                            
 const NOW_SEC = () => Math.floor(Date.now() / 1000);
 

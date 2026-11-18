@@ -3,7 +3,7 @@
 8475	src/cli/purecvisorctl.c
 7718	src/modules/network/ovs_overlay.c
 5206	src/modules/network/network_manager.c
-4368	ui/modules/monitor.js
+4359	ui/modules/monitor.js
 3276	src/modules/daemons/alert_engine.c
 3245	src/modules/auth/pcv_rbac.c
 2948	src/modules/lxc/lxc_driver.c

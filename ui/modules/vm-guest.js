@@ -178,25 +178,29 @@ async function showMemStats() {
     if (r.error) throw new Error(r.error.message || 'Failed');
     var d = unwrapData(r);
     var fmtKb = function(kb) {
-      if (!kb && kb !== 0) return '-';
+      if (typeof kb !== 'number' || !isFinite(kb) || kb < 0) return '-';
       if (kb >= 1048576) return (kb / 1048576).toFixed(2) + ' GB';
       if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MB';
       return kb + ' KB';
     };
     var mk = PCV.uxlib.el;
     var grid = mk('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12px' },
-      mk('div', null, HN.row('Actual Balloon', mk('span', { class: 'color-accent' }, fmtKb(d.actual_balloon_kb || d.actual)))),
-      mk('div', null, HN.row('RSS', mk('span', { class: 'color-green' }, fmtKb(d.rss_kb || d.rss)))),
-      mk('div', null, HN.row('Unused', mk('span', { class: 'color-muted' }, fmtKb(d.unused_kb || d.unused)))),
-      mk('div', null, HN.row('Available', mk('span', { class: 'color-cyan' }, fmtKb(d.available_kb || d.available)))),
-      mk('div', null, HN.row('Swap In', fmtKb(d.swap_in_kb || d.swap_in || 0))),
+      mk('div', null, HN.row('Actual Balloon', mk('span', { class: 'color-accent' }, fmtKb(d.actual_balloon_kb ?? d.actual)))),
+      mk('div', null, HN.row('RSS', mk('span', { class: 'color-green' }, fmtKb(d.rss_kb ?? d.rss)))),
+      mk('div', null, HN.row('Unused', mk('span', { class: 'color-muted' }, fmtKb(d.unused_kb ?? d.unused)))),
+      mk('div', null, HN.row('Available', mk('span', { class: 'color-cyan' }, fmtKb(d.available_kb ?? d.available)))),
+      mk('div', null, HN.row('Swap In', fmtKb(d.swap_in_kb ?? d.swap_in))),
                                                                  
                                                                                            
                                                         
                                                  
                                   
-      mk('div', null, HN.row('Swap Out', fmtKb(d.swap_out_kb || d.swap_out || 0))));
+      mk('div', null, HN.row('Swap Out', fmtKb(d.swap_out_kb ?? d.swap_out))));
     PCV.uxlib.clearEl(el);
+    if (d.guest_stats === false) {
+      el.appendChild(PCV.uxlib.msg('warn', { tag: 'p', cls: 'mb-8' },
+        '게스트 메모리 통계 없음 — 게스트가 balloon 통계를 보고하지 않습니다(통계 주기 0 또는 드라이버 없음). 이 조회는 VM 설정을 바꾸지 않습니다.'));
+    }
     el.appendChild(mk('div', { style: 'border:1px solid var(--border);border-radius:6px;padding:12px' }, grid));
   } catch (e) {
     if (_vmGuestModalOpen(body)) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
