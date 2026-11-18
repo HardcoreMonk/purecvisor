@@ -30,12 +30,17 @@
                                               
  
                                              
-                                                                  
+                                                                    
+                                                                       
+                                                                                 
                                                                     
                                                                 
                                  
  
-                                                             
+                                                                         
+                                                                        
+                                                                    
+                      
  
                                                              
                                              
@@ -51,6 +56,8 @@ info() { echo -e "${CYAN}[INFO]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} CMP-3 E2E: $*"; exit 0; }
 
@@ -60,11 +67,8 @@ command -v python3  >/dev/null 2>&1 || skip "python3 미설치"
 command -v setsid   >/dev/null 2>&1 || skip "setsid 미설치"
 command -v jq       >/dev/null 2>&1 || skip "jq 미설치"
 
-                             
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
                      
 if [ ! -x "$DAEMON_BIN" ]; then
@@ -72,6 +76,8 @@ if [ ! -x "$DAEMON_BIN" ]; then
     make -C "$REPO" daemon >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                          
 pick_free_port() {
@@ -87,6 +93,7 @@ PORT="$(pick_free_port)" || skip "빈 포트 확보 실패"
 
                                                             
 STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-cmp3.XXXXXX")"
+pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
 mkdir -p "$STATE/var-lib" "$STATE/etc" "$STATE/mockbin"
 SOCK="$STATE/var-lib/daemon.sock"
 VM="se-isocheck-001"
@@ -173,12 +180,8 @@ EOF
 }
 
 boot() {                           
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --ro-bind "$STATE/mockbin/zfs" /usr/sbin/zfs \

@@ -5,7 +5,7 @@
                                                                    
                                                  
  
-                                                                          
+                                                                   
                                                                              
                                                                   
                                                          
@@ -13,7 +13,7 @@
  
                                                                 
                                                                        
-                                                     
+                                                  
  
                                                                        
                                                                       
@@ -33,22 +33,29 @@
                                  
  
                                                                      
-                                                                  
+                                                                    
+                                                                       
+                                                                                 
                                                                     
                                                             
-                                                                       
+                                                                                
+                                                                      
+                        
                                                             
                                                                          
                                              
  
-                                                               
+                                                                                
+                                                                        
+                                                                    
+                      
                                   
  
                                                           
                                              
  
-
-
+                                                                    
+                                                                             
 
 set -uo pipefail
 
@@ -62,30 +69,32 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="${PCV_DAEMON_BIN:-$REPO/bin/purecvisorsd}"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} graceful-drain 효과-테스트: $*"; exit 0; }
 
                                                              
 command -v bwrap  >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
-command -v nc     >/dev/null 2>&1 || skip "nc(netcat) 미설치"
+command -v python3 >/dev/null 2>&1 || skip "python3 미설치(UDS 클라이언트)"
 command -v setsid >/dev/null 2>&1 || skip "setsid 미설치"
 command -v mkfifo >/dev/null 2>&1 || skip "mkfifo 미설치"
 
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
 if [ ! -x "$DAEMON_BIN" ]; then
     info "데몬 바이너리 없음 — make single 시도"
     make -C "$REPO" single >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                           
 STATE=""; SOCK=""; BP=""; DPID=""
 
-send_rpc() { echo "$1" | timeout 5 nc -U "$SOCK" 2>/dev/null || true; }
+send_rpc() { echo "$1" | pcv_iso_uds_nc "$SOCK" 5 2>/dev/null || true; }
 
 kill_daemon() {                                                        
     [ -n "${BP:-}" ] || return 0
@@ -107,6 +116,7 @@ fresh_boot() {
     kill_daemon
     [ -n "${STATE:-}" ] && rm -rf "$STATE" 2>/dev/null || true
     STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-drain.XXXXXX")"
+    pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
     mkdir -p "$STATE/var-lib" "$STATE/etc"
     SOCK="$STATE/var-lib/daemon.sock"
     cat > "$STATE/etc/daemon.conf" <<EOF
@@ -120,15 +130,8 @@ jwt_secret = graceful-drain-effect-fixed-secret-not-for-prod-0001
 log_level = info
 drain_timeout = 10
 EOF
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --unshare-net \
-        --cap-add CAP_NET_ADMIN \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
-        --tmpfs /run \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --setenv PCV_LIBVIRT_URI test:///default \
@@ -136,14 +139,15 @@ EOF
         --chdir / \
         "$DAEMON_BIN" > "$STATE/daemon.log" 2>&1 < /dev/null &
     BP="$!"
-
+                                                             
 
     local i
     for i in $(seq 1 60); do [ -S "$SOCK" ] && break; sleep 0.5; done
     [ -S "$SOCK" ] || return 1
     for i in $(seq 1 20); do
         local p; p="$(send_rpc '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"probe"}')"
-        [ -n "$p" ] && { DPID="$(pgrep -P "$BP" 2>/dev/null | head -1)"; return 0; }
+                                                            
+        [ -n "$p" ] && { DPID="$(pcv_iso_daemon_pid "$BP")"; return 0; }
         sleep 0.5
     done
     return 1
@@ -197,7 +201,7 @@ else
 fi
 
                                                                     
-                                                                           
+                                                                      
                                                                    
                                                          
                                                 
@@ -224,7 +228,7 @@ fi
                                                                            
                                                                               
                                                   
-
+                                                   
                                                                  
 echo -e "\n${CYAN}── Scenario B: SIGTERM inflight 대기 ──${NC}"
 if ! fresh_boot; then
@@ -237,14 +241,14 @@ else
         fail "B: 데몬 PID 확인 불가 — 실제 SIGTERM 검증을 완료할 수 없음"
     else
         REQ="$STATE/req.fifo"; RESP="$STATE/resp.out"; mkfifo "$REQ"
-                                                                    
-                                                              
-        nc -U "$SOCK" < "$REQ" > "$RESP" 2>/dev/null &
+                                                                      
+                                                                
+        pcv_iso_uds_nc "$SOCK" < "$REQ" > "$RESP" 2>/dev/null &
         exec 7>"$REQ"
         sleep 0.8
 
-                                                              
-                                                 
+                                                                         
+                                                                          
         kill -TERM "$DPID" 2>/dev/null
         sleep 1.3
 
@@ -260,8 +264,8 @@ else
             echo "---- daemon.log (마지막 15줄) ----"; tail -15 "$STATE/daemon.log" 2>/dev/null
         fi
 
-
-
+                                                          
+                                                         
         RESP_TERM_RESUME="$(send_rpc '{"jsonrpc":"2.0","method":"node.resume","params":{},"id":"term-resume"}')"
         if echo "$RESP_TERM_RESUME" | grep -Eq '"code"[[:space:]]*:[[:space:]]*-32004'; then
             pass "B-S2b: SIGTERM 중 node.resume → BUSY (종료 취소 거짓 성공 없음)"
@@ -289,7 +293,7 @@ else
             echo "---- RESP ----"; cat "$RESP" 2>/dev/null; echo
             echo "---- daemon.log (drain) ----"; grep -iE 'drain|in-flight|Timeout' "$STATE/daemon.log" 2>/dev/null | tail -8
         fi
-
+                                                   
         for _i in $(seq 1 300); do
             kill -0 "$DPID" 2>/dev/null || break
             sleep 0.1

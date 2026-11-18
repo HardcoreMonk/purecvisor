@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
                                                                                 
-                                            
+                                                                 
+                                                          
                                                            
                                                 
  
                                                         
                                                                              
-                                                  
+                                             
                                                                   
+                                                                      
  
                                                          
                                                             
@@ -22,29 +24,36 @@
  
                       
                                                                       
-                                                                 
+                                                                  
                                                              
+                                                                          
+                    
  
                                                                 
-                                                                    
-                                                                      
+                                                                     
+                                                                       
  
                
                                                               
-                                                              
+                                                                
                                                                         
                                                                        
                                                                        
                           
  
                                                       
-                                                                             
-                                                 
-                                                                       
                                                                     
-                                           
+                                                                       
+                                                                                 
+                                                                 
+                                                                       
+                                                                     
+                                            
  
-                                                        
+                                                                         
+                                                                        
+                                                                    
+                      
                                                          
                                                         
 
@@ -60,42 +69,48 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="${PCV_DAEMON_BIN:-$REPO/bin/purecvisorsd}"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} qos-rehydrate 효과-테스트: $*"; exit 0; }
 
                                                              
 command -v bwrap  >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
-command -v nc     >/dev/null 2>&1 || skip "nc(netcat) 미설치"
+command -v python3 >/dev/null 2>&1 || skip "python3 미설치(UDS 클라이언트)"
 command -v setsid >/dev/null 2>&1 || skip "setsid 미설치"
 
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
 if [ ! -x "$DAEMON_BIN" ]; then
     info "데몬 바이너리 없음 — make single 시도"
     make -C "$REPO" single >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                               
-IFACE='vnet0'
+IFACE='pcvbr9'                                       
+STALE_VNET='vnet3'                                        
+SESSION_VNET='vnet7'
 RATE=100                                                
 BURST=256             
 
                                                             
 STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-qosrehydrate.XXXXXX")"
+pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
 mkdir -p "$STATE/var-lib" "$STATE/etc" "$STATE/mockbin" "$STATE/sysnet"
 SOCK="$STATE/var-lib/daemon.sock"
 TC_LOG="$STATE/var-lib/tc_mock.log"                             
 
-                                                              
+                                                               
 for n in $(ls /sys/class/net 2>/dev/null); do
     [ "$n" = "$IFACE" ] && continue
     mkdir -p "$STATE/sysnet/$n"
 done
 mkdir -p "$STATE/sysnet/lo"          
+mkdir -p "$STATE/sysnet/$STALE_VNET"                                  
 
                                                             
 cat > "$STATE/mockbin/tc" <<'MOCKEOF'
@@ -121,7 +136,7 @@ drain_timeout = 1
 reconcile_interval_sec = 1
 EOF
 
-                                                                 
+                                                                                  
 cat > "$STATE/var-lib/qos_rules.json" <<EOF
 {
   "${IFACE}:egress": {
@@ -129,12 +144,18 @@ cat > "$STATE/var-lib/qos_rules.json" <<EOF
     "direction": "egress",
     "rate_mbps": ${RATE},
     "burst_kb": ${BURST}
+  },
+  "${STALE_VNET}:ingress": {
+    "interface": "${STALE_VNET}",
+    "direction": "ingress",
+    "rate_mbps": 5,
+    "burst_kb": ${BURST}
   }
 }
 EOF
 
                                                            
-send_rpc() { echo "$1" | nc -U "$SOCK" 2>/dev/null || true; }
+send_rpc() { echo "$1" | pcv_iso_uds_nc "$SOCK" 2>/dev/null || true; }
 
                                                             
 kill_daemon() {
@@ -160,12 +181,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 boot() {
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --bind "$STATE/sysnet" /sys/class/net \
@@ -209,23 +226,23 @@ fi
 pass "S1: 격리 데몬 기동 + UDS 소켓($SOCK) 프로브 응답 (서빙 확인)"
 
                                                                  
-                                              
-                                                   
-                                                 
+                                               
+                                                    
+                                                  
                                                   
                                                                  
 sleep 3                                              
 if [ -f "$TC_LOG" ] && grep -Fq "class replace dev ${IFACE}" "$TC_LOG"; then
-    fail "S2(Phase1): vnet0 부재인데 'class replace dev ${IFACE}' 이 기록됨 — 존재게이트 미작동"
+    fail "S2(Phase1): ${IFACE} 부재인데 'class replace dev ${IFACE}' 이 기록됨 — 존재게이트 미작동"
     echo "---- tc_mock.log ----"; cat "$TC_LOG" 2>/dev/null
 else
-    pass "S2(Phase1): vnet0 부재 → tc 미발사 (존재게이트가 skip; 거짓 카운터/무동작 tc 제거)"
+    pass "S2(Phase1): ${IFACE} 부재 → tc 미발사 (존재게이트가 skip; 거짓 카운터/무동작 tc 제거)"
 fi
 
                                                                  
-                                         
+                                          
+                                                                 
                                                                 
-                                                               
                                                
                                                                  
 touch "$STATE/sysnet/${IFACE}"
@@ -254,6 +271,56 @@ if [ -f "$TC_LOG" ] && grep -Fq "qdisc replace dev ${IFACE}" "$TC_LOG"; then
     pass "S3': mock tc 가 egress qdisc/class replace 로 실제 호출됨 (셸 미경유 argv 증거)"
 else
     note "S3': egress qdisc replace 증거 미검출 — class 단언이 이미 load-bearing 이므로 참고용"
+fi
+
+                                                                 
+                                                           
+                                                                 
+                   
+                                                                 
+if grep -Fq "dev ${STALE_VNET}" "$TC_LOG" 2>/dev/null; then
+    fail "S4: 저장된 ${STALE_VNET} 규칙에 tc 가 발사됨 — 이름을 재사용한 다른 VM 에 적용되는 회귀"
+else
+    pass "S4: 저장된 ${STALE_VNET} 규칙에 tc 미발사"
+fi
+if grep -Fq "${STALE_VNET}" "$STATE/var-lib/qos_rules.json"; then
+    fail "S4': 저장된 ${STALE_VNET} 키가 파일에 남아 있음"
+else
+    pass "S4': 저장된 ${STALE_VNET} 키가 파일에서 버려짐"
+fi
+if grep -F "${STALE_VNET}" "$STATE/daemon.log" | grep -Fq "폐기"; then
+    pass "S4'': 버린 키를 로그에 남김"
+else
+    fail "S4'': 버린 ${STALE_VNET} 키의 WARN 이 로그에 없음"
+fi
+
+                                                                 
+                                                         
+                                                                 
+mkdir -p "$STATE/sysnet/${SESSION_VNET}"
+RESP="$(send_rpc '{"jsonrpc":"2.0","method":"network.qos.set","params":{"interface":"'"$SESSION_VNET"'","rate_mbps":9},"id":"s5"}')"
+info "S5: network.qos.set(${SESSION_VNET}) 응답: $RESP"
+if grep -Fq "class replace dev ${SESSION_VNET}" "$TC_LOG" 2>/dev/null; then
+    pass "S5: ${SESSION_VNET} 규칙이 현재 세션에 적용됨"
+else
+    fail "S5: ${SESSION_VNET} 규칙이 현재 세션에 적용되지 않음"
+fi
+if grep -Fq "${SESSION_VNET}" "$STATE/var-lib/qos_rules.json"; then
+    fail "S5': ${SESSION_VNET} 규칙이 파일에 저장됨"
+else
+    pass "S5': ${SESSION_VNET} 규칙은 저장되지 않음"
+fi
+if printf '%s' "$RESP" | grep -Eq '"persisted"[[:space:]]*:[[:space:]]*false'; then
+    pass "S5'': 응답이 persisted=false 를 알림"
+else
+    fail "S5'': 응답에 persisted=false 없음: $RESP"
+fi
+RESP="$(send_rpc '{"jsonrpc":"2.0","method":"network.qos.set","params":{"interface":"'"$IFACE"'","rate_mbps":'"$RATE"'},"id":"s5b"}')"
+if printf '%s' "$RESP" | grep -Eq '"persisted"[[:space:]]*:[[:space:]]*true' &&
+   grep -Fq "${IFACE}:egress" "$STATE/var-lib/qos_rules.json"; then
+    pass "S5''': 브리지 규칙은 계속 저장됨"
+else
+    fail "S5''': 브리지 규칙 저장 실패: $RESP"
 fi
 
                                                                  

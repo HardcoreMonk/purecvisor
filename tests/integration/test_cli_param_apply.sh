@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-
-
                                                                                   
                                                     
                                                                 
@@ -17,8 +15,10 @@
                                
  
                                                           
-                                                                          
-                                                             
+                                                                             
+                                                          
+                                                                     
+                                                      
                                                                                     
                                                              
                                                                        
@@ -48,7 +48,9 @@
                  
  
                                                                            
-                                                                  
+                                                                    
+                                                                       
+                                                                                 
                                                                     
                                                            
                                                 
@@ -58,7 +60,10 @@
                                                                          
                                      
  
-                                                               
+                                                                                
+                                                                        
+                                                                    
+                      
                                   
  
                                                     
@@ -76,30 +81,32 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="${PCV_DAEMON_BIN:-$REPO/bin/purecvisorsd}"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} CLI param-apply 효과-테스트: $*"; exit 0; }
 
                                                              
 command -v bwrap  >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
-command -v nc     >/dev/null 2>&1 || skip "nc(netcat) 미설치"
+command -v python3 >/dev/null 2>&1 || skip "python3 미설치(UDS 클라이언트)"
 command -v setsid >/dev/null 2>&1 || skip "setsid 미설치"
 command -v mkfifo >/dev/null 2>&1 || skip "mkfifo 미설치"
 
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
 if [ ! -x "$DAEMON_BIN" ]; then
     info "데몬 바이너리 없음 — make single 시도"
     make -C "$REPO" single >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                           
 STATE=""; SOCK=""; BP=""; DPID=""
 
-send_rpc() { echo "$1" | timeout 5 nc -U "$SOCK" 2>/dev/null || true; }
+send_rpc() { echo "$1" | pcv_iso_uds_nc "$SOCK" 5 2>/dev/null || true; }
 
 kill_daemon() {
     [ -n "${BP:-}" ] || return 0
@@ -124,6 +131,7 @@ fresh_boot() {
     kill_daemon
     [ -n "${STATE:-}" ] && rm -rf "$STATE" 2>/dev/null || true
     STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-cliparam.XXXXXX")"
+    pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
     mkdir -p "$STATE/var-lib" "$STATE/etc"
     SOCK="$STATE/var-lib/daemon.sock"
     cat > "$STATE/etc/daemon.conf" <<EOF
@@ -147,12 +155,8 @@ EOF
                                                       
     RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --tmpfs "$RUNTIME_DIR" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
@@ -168,7 +172,8 @@ EOF
     [ -S "$SOCK" ] || return 1
     for i in $(seq 1 20); do
         local p; p="$(send_rpc '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"probe"}')"
-        [ -n "$p" ] && { DPID="$(pgrep -P "$BP" 2>/dev/null | head -1)"; return 0; }
+                                                            
+        [ -n "$p" ] && { DPID="$(pcv_iso_daemon_pid "$BP")"; return 0; }
         sleep 0.5
     done
     return 1
@@ -181,12 +186,12 @@ echo -e "${CYAN}═════════════════════�
 
                                                                  
                                                                             
-                                                                     
-                                                
+                                                                         
+                                                                      
                                                        
-                                              
+                                                                         
+                                                                  
                                                                  
-
 echo -e "\n${CYAN}── Scenario A: CLI-17 container.set_bandwidth ──${NC}"
 if ! fresh_boot; then
     fail "A-S1: 격리 데몬 기동 실패"
@@ -218,7 +223,7 @@ if ! fresh_boot; then
     fail "B-S1: 격리 데몬 기동 실패"
 else
     pass "B-S1: 격리 데몬 기동"
-    RESP_SET="$(send_rpc '{"jsonrpc":"2.0","method":"container.health.set","params":{"name":"med-cli23","type":"tcp","target":"127.0.0.1:80","interval_sec":10},"id":"b1"}')"
+    RESP_SET="$(send_rpc '{"jsonrpc":"2.0","method":"container.health.set","params":{"name":"med-cli23","type":"tcp","target":"80","interval_sec":10},"id":"b1"}')"
     info "B-S2: health.set(interval_sec=10) resp = ${RESP_SET}"
     RESP_GET="$(send_rpc '{"jsonrpc":"2.0","method":"container.health.get","params":{"name":"med-cli23"},"id":"b2"}')"
     info "B-S3: health.get resp = ${RESP_GET}"
@@ -229,7 +234,7 @@ else
     fi
 
                                                               
-    send_rpc '{"jsonrpc":"2.0","method":"container.health.set","params":{"name":"med-cli23b","type":"tcp","target":"127.0.0.1:80","interval_sec":3},"id":"b3"}' >/dev/null
+    send_rpc '{"jsonrpc":"2.0","method":"container.health.set","params":{"name":"med-cli23b","type":"tcp","target":"80","interval_sec":3},"id":"b3"}' >/dev/null
     RESP_CLAMP="$(send_rpc '{"jsonrpc":"2.0","method":"container.health.get","params":{"name":"med-cli23b"},"id":"b4"}')"
     info "B-S4: clamp resp = ${RESP_CLAMP}"
     if echo "$RESP_CLAMP" | grep -Eq '"interval_sec"[[:space:]]*:[[:space:]]*5'; then
@@ -254,7 +259,7 @@ else
     pass "C-S1: 격리 데몬 기동"
     REQ="$STATE/req.fifo"; RESP="$STATE/resp.out"; mkfifo "$REQ"
                                                        
-    nc -U "$SOCK" < "$REQ" > "$RESP" 2>/dev/null &
+    pcv_iso_uds_nc "$SOCK" < "$REQ" > "$RESP" 2>/dev/null &
     exec 7>"$REQ"
     sleep 0.8
 

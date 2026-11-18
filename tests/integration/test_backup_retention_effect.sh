@@ -45,13 +45,19 @@
                                                               
  
                                             
-                                                                             
-                                                    
+                                                                    
+                                                                       
+                                                                                 
+                                                                    
                                                                               
-                                                               
+                                                                     
+                                                                        
                                                                   
  
-                                                                
+                                                                                 
+                                                                        
+                                                                    
+                      
                                                             
                                              
 
@@ -67,25 +73,27 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="${PCV_DAEMON_BIN:-$REPO/bin/purecvisorsd}"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} backup-retention 효과-테스트: $*"; exit 0; }
 
                                                              
 command -v bwrap   >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
-command -v nc      >/dev/null 2>&1 || skip "nc(netcat) 미설치"
+command -v python3 >/dev/null 2>&1 || skip "python3 미설치(UDS 클라이언트)"
 command -v setsid  >/dev/null 2>&1 || skip "setsid 미설치"
 command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 미설치(create 예약 audit 반사실 불가)"
 
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
 if [ ! -x "$DAEMON_BIN" ]; then
     info "데몬 바이너리 없음 — make single 시도"
     make -C "$REPO" single >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                               
 VM='pcvtest'
@@ -94,6 +102,7 @@ DS="$POOL/$VM"
 
                                                             
 STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-bkretention.XXXXXX")"
+pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
 mkdir -p "$STATE/var-lib" "$STATE/etc" "$STATE/mockbin"
 SOCK="$STATE/var-lib/daemon.sock"
 MOCK_LOG="$STATE/var-lib/zfs_mock.log"                           
@@ -155,7 +164,7 @@ incr_retention_count = 1
 EOF
 
                                                                  
-send_rpc() { echo "$1" | nc -U "$SOCK" 2>/dev/null || true; }
+send_rpc() { echo "$1" | pcv_iso_uds_nc "$SOCK" 2>/dev/null || true; }
 
                                                             
 kill_daemon() {
@@ -181,12 +190,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 boot() {
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --ro-bind "$STATE/mockbin/zfs" /usr/sbin/zfs \

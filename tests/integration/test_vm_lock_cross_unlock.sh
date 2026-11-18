@@ -5,20 +5,20 @@
                                                                
                                                 
  
-                                            
-                                                                         
-                                                                           
-                                                                      
+                                     
+                                                                  
+                                                                   
+                                                              
                                                                         
                                                                              
-                                                                      
-                                                                   
+                                                                     
                                                                   
-                                                   
+                                                               
+                                                    
                                             
-                                           
-                                                             
-                                                        
+                                                      
+                                                                   
+                         
  
                          
                                                                          
@@ -27,25 +27,30 @@
                                                              
                                                                
                                                    
-                                                   
-                                                                            
+                                               
+                                                                      
                         
-                                                                        
+                                                                          
                                                                        
-                                                         
+                                                           
                               
-                                                                 
+                                                              
                                                             
  
-                                                      
-                                                                  
+                                                             
                                                                     
+                                                                        
+                                                                         
+                      
                                                                      
                                                             
                                                               
                                                                        
  
-                                                              
+                                                                          
+                                                                        
+                                                                    
+                      
  
                                                          
                                              
@@ -62,6 +67,8 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} VM 락 교차 unlock E2E: $*"; exit 0; }
 
@@ -71,11 +78,8 @@ command -v sqlite3  >/dev/null 2>&1 || skip "sqlite3 미설치"
 command -v python3  >/dev/null 2>&1 || skip "python3 미설치"
 command -v setsid   >/dev/null 2>&1 || skip "setsid 미설치"
 
-                             
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
                      
 if [ ! -x "$DAEMON_BIN" ]; then
@@ -83,6 +87,8 @@ if [ ! -x "$DAEMON_BIN" ]; then
     make -C "$REPO" daemon >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                          
 pick_free_port() {
@@ -98,6 +104,7 @@ PORT="$(pick_free_port)" || skip "빈 포트 확보 실패"
 
                                                             
 STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-cmp1.XXXXXX")"
+pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
 mkdir -p "$STATE/var-lib" "$STATE/etc"
 DB="$STATE/var-lib/vm_state.db"
 SOCK="$STATE/var-lib/daemon.sock"
@@ -106,24 +113,25 @@ SOCK="$STATE/var-lib/daemon.sock"
 SUF="$$-$RANDOM"
 VM_LOCKED="cmp1-locked-$SUF"                      
 VM_REGRESS="cmp1-regress-$SUF"                   
-                                               
+                                        
 CLONE_SRC_A="cmp7-src-a-$SUF"                                              
 CLONE_TGT_A="cmp7-tgt-a-$SUF"                           
 CLONE_SRC_B="cmp7-src-b-$SUF"                                         
 CLONE_TGT_B="cmp7-tgt-b-$SUF"                                           
-                                                               
+                                                       
                                                                     
                                                            
                                                           
                                                           
 HOTPLUG_VM="test"                                                
 
+                                                           
+                                                         
                                                             
-                                                                  
-                                                                      
                                                     
-                                                             
-LOCK_PID="$$"
+                                                                   
+                   
+LOCK_PID="1"
 
                                                          
 cat > "$STATE/uds_call.py" <<'PYEOF'
@@ -196,12 +204,8 @@ EOF
 }
 
 boot() {                           
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --setenv PCV_LIBVIRT_URI test:///default \
@@ -248,7 +252,7 @@ fi
 
                                                                  
                                                 
-                                                                     
+                                                                                         
                                                                  
 NOW="$(date +%s)"
 sq "INSERT INTO vm_locks (vm_id, op_type, pid, locked_at) VALUES ('$VM_LOCKED', 3, $LOCK_PID, $NOW);"
@@ -261,8 +265,8 @@ else
 fi
 
                                                                  
-                                                   
-                                                              
+                                             
+                                                        
                                        
                                                                  
 lim_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.limit\",\"params\":{\"vm_id\":\"$VM_LOCKED\",\"cpu\":50},\"id\":\"limit1\"}")"
@@ -277,7 +281,7 @@ fi
 
                                                                  
                                              
-                                                            
+                                                              
                                                                  
 stop_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.stop\",\"params\":{\"vm_id\":\"$VM_LOCKED\"},\"id\":\"stop-blocked\"}")"
 info "S5: vm.stop(락 보유 VM) 응답 = ${stop_resp:-<empty>}"
@@ -304,7 +308,7 @@ fi
 
                                                                  
                                                    
-                                                                 
+                                                                
                                                 
                                                                  
 pre_regress="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$VM_REGRESS';")"
@@ -323,7 +327,7 @@ final_locked="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$VM_LOCKED';")"
 info "최종: DELETING 락(count=$final_locked) / 무회귀 VM 락(count=$cnt_regress)"
 
                                                                  
-                                                                 
+                                                                      
                                                                       
                                                          
                                                             
@@ -343,7 +347,7 @@ else
 fi
 
                                                                  
-                                                                 
+                                                                      
                                                          
                                                                 
                                                                           
@@ -367,7 +371,7 @@ else
 fi
 
                                                                  
-                                                                        
+                                                                         
                                                                  
                                                                   
                                                            
@@ -393,7 +397,7 @@ else
 fi
 
                                                                  
-                                                                    
+                                                                     
                                                                     
                                                                          
                                                                 

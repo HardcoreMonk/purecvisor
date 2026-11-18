@@ -19,21 +19,31 @@
                                                                     
                                                 
                                                                      
+                                                                                
+                                                                      
+                                          
  
                                                                 
                                        
                                                                    
-                                                                              
+                                                                                            
                                                                                   
                                                                          
  
-                                    
-                                                                  
+                                                             
                                                                     
+                                                                        
+                                                                         
+                      
                                                                   
                                                                      
+                                                              
+                                                                        
  
-                                                                          
+                                                                                      
+                                                                        
+                                                                    
+                      
  
                                                         
                                              
@@ -50,6 +60,8 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
 skip() { echo -e "${YELLOW}[SKIP]${NC} SEC-3 E2E: $*"; exit 0; }
 
@@ -60,11 +72,8 @@ command -v curl     >/dev/null 2>&1 || skip "curl 미설치"
 command -v python3  >/dev/null 2>&1 || skip "python3 미설치"
 command -v setsid   >/dev/null 2>&1 || skip "setsid 미설치"
 
-                             
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
                      
 if [ ! -x "$DAEMON_BIN" ]; then
@@ -72,6 +81,8 @@ if [ ! -x "$DAEMON_BIN" ]; then
     make -C "$REPO" daemon >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                                
 pick_free_port() {
@@ -91,6 +102,7 @@ ADMIN_PW='Sec3RoleEnforceE2ePw-not-for-prod'
 
                                                             
 STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-sec3.XXXXXX")"
+pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
 mkdir -p "$STATE/var-lib" "$STATE/etc"
 RBAC_DB="$STATE/var-lib/rbac.db"
 
@@ -130,23 +142,26 @@ drain_timeout = 1
 EOF
 }
 
+                                                                    
+                                                            
+                                                              
+iso_curl() { pcv_iso_exec "$(cat "$STATE/bwrap.pid" 2>/dev/null)" curl "$@"; }
+
 boot() {                                  
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --setenv PCV_LIBVIRT_URI test:///default \
         --chdir / \
         "$DAEMON_BIN" > "$STATE/daemon.log" 2>&1 < /dev/null &
     echo "$!" > "$STATE/bwrap.pid"
-    local i c
+    local i
     for i in $(seq 1 60); do
-        c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$BASE/health" 2>/dev/null || true)"
-        [ "$c" = "200" ] && return 0
+                                                                     
+                                                                           
+                                                                           
+        pcv_iso_rest_ready "$(cat "$STATE/bwrap.pid" 2>/dev/null)" "$BASE/health" >/dev/null && return 0
         sleep 0.5
     done
     return 1
@@ -154,36 +169,30 @@ boot() {
 
                                                                   
 login_token() {                                           
-    curl -s --max-time 6 -X POST "$BASE/auth/token" \
+    iso_curl -s --max-time 6 -X POST "$BASE/auth/token" \
         -H 'Content-Type: application/json' \
         -d "{\"username\":\"$1\",\"password\":\"$2\"}" 2>/dev/null \
       | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
 }
-apikey_create_error() {
-    curl -s --max-time 6 -X POST "$BASE/auth/apikeys" \
+apikey_create_error() {                                                                             
+    iso_curl -s --max-time 6 -X POST "$BASE/auth/apikeys" \
         -H "Authorization: Bearer $1" -H 'Content-Type: application/json' \
         -d "{\"name\":\"$2\",\"role\":$3}" 2>/dev/null \
       | python3 -c "import sys,json;e=json.load(sys.stdin).get('error');print('ok' if e is None else '%s %s' % (e.get('code'), e.get('message')))" 2>/dev/null || true
 }
-seed_apikey() {
+seed_apikey() {                                                                      
     local key hash
     key="pcv_$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
     hash="$(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
     sqlite3 "$RBAC_DB" "INSERT INTO api_keys (key_hash, client_name, role) VALUES ('$hash', '$1', $2);" || return 1
     printf '%s' "$key"
 }
-create_apikey() {                                                           
-    curl -s --max-time 6 -X POST "$BASE/auth/apikeys" \
-        -H "Authorization: Bearer $1" -H 'Content-Type: application/json' \
-        -d "{\"name\":\"$2\",\"role\":$3}" 2>/dev/null \
-      | python3 -c "import sys,json;print(json.load(sys.stdin).get('data',{}).get('api_key',''))" 2>/dev/null || true
-}
 key_get_code() {                                                    
-    curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
+    iso_curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
         -H "X-API-Key: $1" "$BASE/$2" 2>/dev/null || echo 000
 }
 key_whoami_role() {                                      
-    curl -s --max-time 6 -H "X-API-Key: $1" "$BASE/auth/whoami" 2>/dev/null \
+    iso_curl -s --max-time 6 -H "X-API-Key: $1" "$BASE/auth/whoami" 2>/dev/null \
       | python3 -c "import sys,json;print(json.load(sys.stdin).get('data',{}).get('role',''))" 2>/dev/null || true
 }
 
@@ -203,7 +212,7 @@ if ! boot; then
     echo -e "\n${RED}데몬 기동 실패로 중단${NC}"; exit 1
 fi
 TOK="$(login_token admin "$ADMIN_PW")"
-code_admin="$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
+code_admin="$(iso_curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
     -H "Authorization: Bearer $TOK" "$BASE/auth/whoami" 2>/dev/null || echo 000)"
 if [ -n "$TOK" ] && [ "$code_admin" = "200" ]; then
     pass "R1: 데몬 기동 + admin login → token + 인증 GET /auth/whoami → $code_admin"
@@ -214,7 +223,7 @@ else
 fi
 
                                                                   
-code_admin_users="$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
+code_admin_users="$(iso_curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
     -H "Authorization: Bearer $TOK" "$BASE/auth/users" 2>/dev/null || echo 000)"
 if [ "$code_admin_users" = "200" ]; then
     pass "R1b: admin 토큰 GET /auth/users → 200 (admin-gated 엔드포인트 baseline)"
@@ -223,7 +232,8 @@ else
 fi
 
                                                                  
-                                                                          
+                                                                           
+                                                                              
                                                                  
 dup="$(apikey_create_error "$TOK" "admin" 0)"
 if [ "$dup" = "-32002 name is already used by a user account" ]; then

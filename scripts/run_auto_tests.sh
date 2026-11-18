@@ -153,12 +153,14 @@ run_test() {
     local clean_output
     clean_output=$(printf '%s\n' "$output" | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g')
 
-
-
+                                                         
+                                                            
+                                                                               
+                                                             
     local pass fail_count skip_count
     read -r pass fail_count skip_count < <(printf '%s\n' "$clean_output" | awk '
         /^[[:space:]]*(ok |not ok |1\.\.0)/ && /#[[:space:]]*[Ss][Kk][Ii][Pp]([[:space:]]|$)/ { skip++; next }
-        /^[[:space:]]*(SKIP([[:space:]]|$)|\[SKIP\])/ { skip++; next }
+        /^[[:space:]]*(SKIP(:|[[:space:]]|$)|\[SKIP\])/ { skip++; next }
         /^[[:space:]]*(ok |PASS([[:space:]]|$)|\[PASS\])/ { pass++; next }
         /^[[:space:]]*(not ok |FAIL([[:space:]]|$)|\[FAIL\])/ { fail++ }
         END { print pass+0, fail+0, skip+0 }
@@ -220,6 +222,70 @@ edition_service_hint() {
     fi
 }
 
+                                                                             
+                                                                       
+                                                                           
+                                                          
+                                                                           
+                                                                                    
+                                                         
+                                                              
+                                                            
+run_isolated_test() {
+    local name="$1"
+    shift
+    if [ -z "${ISOLATED_DAEMON_OK:-}" ]; then
+        ISOLATED_DAEMON_OK=0
+        ISOLATED_DAEMON_REASON="격리 데몬 하네스 부재($INTEG_DIR/lib/pcv_isolated_daemon.sh)"
+        if [ -f "$INTEG_DIR/lib/pcv_isolated_daemon.sh" ]; then
+                                                                            
+            . "$INTEG_DIR/lib/pcv_isolated_daemon.sh"
+            if pcv_iso_capable; then
+                ISOLATED_DAEMON_OK=1
+                                                                          
+                                                                      
+                                                             
+                if ! ISOLATED_DAEMON_STATE_ERR="$(pcv_iso_check_state_fs "${TMPDIR:-/tmp}" 2>&1)"; then
+                    ISOLATED_DAEMON_OK=2
+                fi
+            fi
+            ISOLATED_DAEMON_REASON="$PCV_ISO_SKIP_REASON"
+        fi
+    fi
+    if [ "$ISOLATED_DAEMON_OK" -eq 1 ]; then
+        run_test "$name" "$@"
+        return
+    fi
+    if [ "$ISOLATED_DAEMON_OK" -eq 2 ]; then
+        echo ""
+        echo -e "  ${RED}FAIL${NC}  $name — ${ISOLATED_DAEMON_STATE_ERR}"
+        TOTAL_FAIL=$((TOTAL_FAIL + 1))
+        TIER_RESULTS="${TIER_RESULTS}\n  ${RED}FAIL${NC}  $name (격리 상태 폴더가 운영 LSM 감시 경로와 같은 fs)"
+        return
+    fi
+    echo ""
+    echo -e "  ${YELLOW}SKIP${NC}  $name — ${ISOLATED_DAEMON_REASON}"
+    TOTAL_SKIP=$((TOTAL_SKIP + 1))
+    TIER_RESULTS="${TIER_RESULTS}\n  ${YELLOW}SKIP${NC}  $name (격리 데몬 실행 불가)"
+}
+
+                                                                                  
+                                                                        
+                                                                 
+                                       
+run_root_namespace_test() {
+    local name="$1"
+    shift
+    if [ "$(id -u)" -eq 0 ]; then
+        run_test "$name" "$@"
+        return
+    fi
+    echo ""
+    echo -e "  ${YELLOW}SKIP${NC}  $name — 자체 unshare 격리에 root 필요(비root 실행)"
+    TOTAL_SKIP=$((TOTAL_SKIP + 1))
+    TIER_RESULTS="${TIER_RESULTS}\n  ${YELLOW}SKIP${NC}  $name (root 필요)"
+}
+
                                                                  
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  PureCVisor 자동화 테스트 러너${NC}"
@@ -245,57 +311,98 @@ if $RUN_TIER1; then
     run_test "프론트엔드 API 전송 보안 기본값 (격리 HTTP)" \
         "T1" bash "$INTEG_DIR/test_frontend_api_transport_contract.sh"
 
+                                                                        
+                                                               
+                                                              
                                                           
-                                                            
+                                                      
     case "$HOST" in
         localhost|127.0.0.1|"")
-            run_test "SEC-2 부트스트랩 fallback 백도어 차단 (격리 데몬)" \
+            run_root_namespace_test "SEC-2 부트스트랩 fallback 백도어 차단 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_sec2_bootstrap_fallback.sh"
 
-                                                                  
+                                                            
                                                       
                                    
-            run_test "VM 락 교차 unlock 차단 (격리 데몬)" \
+            run_isolated_test "VM 락 교차 unlock 차단 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_vm_lock_cross_unlock.sh"
+            run_isolated_test "vm.batch 팬아웃·정식 진입점 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_vm_batch_fanout.sh"
 
-                                                                
+                                                          
                                                             
                                    
-            run_test "세션 revoke 강제 로그아웃 실동작 (격리 데몬)" \
+            run_isolated_test "세션 revoke 강제 로그아웃 실동작 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_session_revoke.sh"
 
-                                                                        
+                                                                            
                                                                     
                                                                  
-            run_test "refresh-remint 사용자 세션 취소 re-mint 거부 (격리 데몬)" \
+            run_isolated_test "refresh-remint 사용자 세션 취소 re-mint 거부 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_user_sessions_revoke.sh"
 
-                                                                    
+                                                                                    
+                                                                       
+                                                        
+
+                                                                                              
+                                                                                
+                                                                                        
+
+                                                                                                    
+                                                                                     
+                                                                                        
+
+                                                                                                       
+                                                                                                  
+                                                                                                           
+
+                                                        
                                                              
                                                                          
-            run_test "JSON ingress 경계 크래시0 (격리 데몬)" \
+            run_isolated_test "JSON ingress 경계 크래시0 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_json_ingress_boundary.sh"
 
                                                                     
                                                                      
                                                            
                                                                
-            run_test "STO-2 스냅샷 prune 데이터유실 방지 (격리 데몬)" \
+            run_isolated_test "STO-2 스냅샷 prune 데이터유실 방지 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_backup_retention_effect.sh"
 
-                                                                       
+                                                                                  
+                                                                                     
+                                                                      
+
+                                                                
                                                                        
                                                                         
                                                             
-            run_test "graceful drain 실배선 (격리 데몬)" \
+            run_isolated_test "graceful drain 실배선 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_graceful_drain_effect.sh"
 
                                                                                    
                                                                                     
                                                            
                                                                                 
-            run_test "SEC-3 API Key 저장 role 집행 (격리 데몬)" \
+            run_isolated_test "SEC-3 API Key 저장 role 집행 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_apikey_role_enforce.sh"
+
+                                                                                                       
+                                                                                          
+                                                                                                    
+                                                                                                  
+
+                                                                                                          
+                                                                                             
+
+                                                                                           
+                                                                                                    
+                                                                                           
+
+                                                                                        
+                                                                                                
+                                                                                          
 
                                                                         
                                                                             
@@ -303,8 +410,36 @@ if $RUN_TIER1; then
                                                                             
                                                                       
                                          
-            run_test "CMP-3 vm.create ISO 검증 배선 (격리 데몬)" \
+            run_isolated_test "CMP-3 vm.create ISO 검증 배선 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_vm_create_iso_validation.sh"
+
+                                                                                       
+                                                                   
+                                                                    
+
+                                                                                                    
+                                                                                        
+                                                                                          
+
+                                                                                               
+                                                                         
+                                                                        
+
+                                                                                           
+                                                                             
+                                                                                     
+
+                                                                                                       
+                                                                                                
+                                                                          
+
+                                                                                               
+                                                                                     
+
+                                                                                       
+                                                                              
+                                                                    
+                                                                     
 
                                                                             
                                                                            
@@ -312,8 +447,14 @@ if $RUN_TIER1; then
                                                                             
                                                                         
                               
-            run_test "NET-4 QoS 재수화 늦은 vnet 재적용 (격리 데몬)" \
+            run_isolated_test "NET-4 QoS 재수화 늦은 vnet 재적용 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_qos_rehydrate_effect.sh"
+
+                                                                                                      
+                                                                   
+
+                                                                                                       
+                                                                                    
 
                                                                 
                                                                     
@@ -321,8 +462,78 @@ if $RUN_TIER1; then
                                                                              
                                                                              
                                            
-            run_test "TOTP 2FA REST 2단계 로그인 (격리 데몬)" \
+            run_isolated_test "TOTP 2FA REST 2단계 로그인 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_totp_login.sh"
+
+                                                                                                              
+                                                                                             
+                                                                              
+                                                                                          
+                                                               
+
+                                                                                                          
+                                                                                               
+                                                                                                  
+                                                                                                          
+                                                                                                                         
+                                         
+                                                
+
+                                                                                                           
+                                                                                                               
+                                                                                                          
+                                                                                                             
+                                                                                                           
+                                                                                                         
+                                   
+
+                                                                                              
+                                                                                         
+                                                                                                            
+                                                                                        
+                                                                
+
+                                                                                                                
+                                                                                                                         
+                                                                                                             
+                                                                                                                     
+                                                                                               
+                                                                                                     
+                                                
+
+                                                                                                                
+                                                                                                   
+                                                                                                    
+                                                                                                   
+
+                                                                                                            
+                                                                                                       
+                                                                                                       
+                                                                                           
+
+                                                                                                           
+                                                                                                                    
+                                                                                                           
+
+                                                                                                    
+                                                                                                     
+                                                                                                                
+            run_isolated_test "부팅 뒤 자동 시작 판정 (격리 데몬 5회 기동)" "T1" bash "$INTEG_DIR/test_vm_boot_autostart_boot.sh"
+            run_isolated_test "VM 진단 표본기 (격리 데몬)" "T1" bash "$INTEG_DIR/test_monitor_vm_diag.sh"
+            run_isolated_test "주체 이름 공간 (격리 데몬)" "T1" bash "$INTEG_DIR/test_principal_name_namespace.sh"
+            run_isolated_test "비ADMIN VM 읽기 범위 (격리 데몬)" "T1" bash "$INTEG_DIR/test_vm_read_tenant_scope.sh"
+
+                                                                                                        
+                                                                                         
+                                                                      
+
+                                                                                                            
+                                                                                                     
+
+                                                                                                                          
+                                                                                                             
+                                                                                                  
+                                                                            
             ;;
     esac
 

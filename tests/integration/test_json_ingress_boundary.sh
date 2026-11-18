@@ -2,19 +2,19 @@
                                                                                                    
                                                                          
                                                                    
-                                              
+                                                 
  
-                                                                
+                                              
                                                                              
                                                                 
                                                                 
-                                                                     
+                                                                       
                                                       
                                                 
                                                                       
                                           
  
-                                                   
+                                           
                                                   
                                                                  
                                                         
@@ -23,15 +23,21 @@
                                                               
                                
  
-                                          
+                                                             
+                                                                    
+                                                                        
+                                                                         
+                      
+                                                                     
                                                                   
                                                                     
-                                                                     
-                                                        
  
-                                                                             
+                                                                                         
+                                                                        
+                                                                    
+                      
  
-                                                       
+                                                          
                                              
 
 set -uo pipefail
@@ -46,8 +52,10 @@ note() { echo -e "${YELLOW}[NOTE]${NC} $*"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
+                                                                
+. "$SCRIPT_DIR/lib/pcv_isolated_daemon.sh"
 
-skip() { echo -e "${YELLOW}[SKIP]${NC} 게이트#2 JSON ingress E2E: $*"; exit 0; }
+skip() { echo -e "${YELLOW}[SKIP]${NC} JSON ingress E2E: $*"; exit 0; }
 
                                                              
 command -v bwrap    >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
@@ -56,11 +64,8 @@ command -v python3  >/dev/null 2>&1 || skip "python3 미설치"
 command -v setsid   >/dev/null 2>&1 || skip "setsid 미설치"
 python3 -c 'import websockets' >/dev/null 2>&1 || skip "python3 websockets 모듈 미설치 (WS 클라이언트 불가)"
 
-                             
-if ! bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / --dev /dev --proc /proc \
-        /bin/true >/dev/null 2>&1; then
-    skip "비특권 사용자 네임스페이스(uid-map) 불가 — 이 호스트에서 격리 데몬 기동 불가"
-fi
+                                              
+pcv_iso_capable || skip "$PCV_ISO_SKIP_REASON"
 
                      
 if [ ! -x "$DAEMON_BIN" ]; then
@@ -68,6 +73,8 @@ if [ ! -x "$DAEMON_BIN" ]; then
     make -C "$REPO" daemon >/dev/null 2>&1 || true
 fi
 [ -x "$DAEMON_BIN" ] || skip "데몬 바이너리 빌드 실패 ($DAEMON_BIN)"
+                                                              
+pcv_iso_check_bin "$DAEMON_BIN" || skip "$PCV_ISO_SKIP_REASON"
 
                                                                
 pick_free_port() {
@@ -92,6 +99,7 @@ OVERSIZE=1258291
 
                                                             
 STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-json-ingress.XXXXXX")"
+pcv_iso_check_state_fs "$STATE" || { rm -rf "$STATE"; exit 1; }                                                   
 mkdir -p "$STATE/var-lib" "$STATE/etc"
 
                                                              
@@ -147,7 +155,8 @@ except Exception as e:
     sys.exit(0 if mode in ("deep", "big") else 2)
 PYEOF
 
-ws_client() { python3 "$STATE/ws_client.py" "$@" 2>&1; }
+                                                                  
+ws_client() { pcv_iso_exec "$(cat "$STATE/bwrap.pid" 2>/dev/null)" python3 "$STATE/ws_client.py" "$@" 2>&1; }
 
 kill_daemon() {                                                             
     [ -f "$STATE/bwrap.pid" ] || return 0
@@ -185,23 +194,26 @@ drain_timeout = 1
 EOF
 }
 
+                                                                    
+                                                            
+                                                              
+iso_curl() { pcv_iso_exec "$(cat "$STATE/bwrap.pid" 2>/dev/null)" curl "$@"; }
+
 boot() {                                  
-    setsid bwrap \
-        --unshare-user --uid 0 --gid 0 \
-        --ro-bind / / \
-        --dev /dev \
-        --proc /proc \
-        --tmpfs /tmp \
+    setsid "$PCV_ISO_BWRAP" \
+        "${PCV_ISO_BWRAP_ARGS[@]}" \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --setenv PCV_LIBVIRT_URI test:///default \
         --chdir / \
         "$DAEMON_BIN" > "$STATE/daemon.log" 2>&1 < /dev/null &
     echo "$!" > "$STATE/bwrap.pid"
-    local i c
+    local i
     for i in $(seq 1 60); do
-        c="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$BASE/health" 2>/dev/null || true)"
-        [ "$c" = "200" ] && return 0
+                                                                     
+                                                                           
+                                                                           
+        pcv_iso_rest_ready "$(cat "$STATE/bwrap.pid" 2>/dev/null)" "$BASE/health" >/dev/null && return 0
         sleep 0.5
     done
     return 1
@@ -209,31 +221,33 @@ boot() {
 
 daemon_pid() { cat "$STATE/bwrap.pid" 2>/dev/null || echo ""; }
 daemon_alive() { local bp; bp="$(daemon_pid)"; [ -n "$bp" ] && kill -0 "$bp" 2>/dev/null; }
-health_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$BASE/health" 2>/dev/null || echo 000; }
+                                                                       
+                                                                     
+health_code() { pcv_iso_rest_ready "$(daemon_pid)" "$BASE/health" 4; }
 
 login_token() {                                           
-    curl -s --max-time 6 -X POST "$BASE/auth/token" \
+    iso_curl -s --max-time 6 -X POST "$BASE/auth/token" \
         -H 'Content-Type: application/json' \
         -d "{\"username\":\"$1\",\"password\":\"$2\"}" 2>/dev/null \
       | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true
 }
 login_code() {                               
-    curl -s -o /dev/null -w '%{http_code}' --max-time 6 -X POST "$BASE/auth/token" \
+    iso_curl -s -o /dev/null -w '%{http_code}' --max-time 6 -X POST "$BASE/auth/token" \
         -H 'Content-Type: application/json' \
         -d "{\"username\":\"$1\",\"password\":\"$2\"}" 2>/dev/null || echo 000
 }
 auth_get_code() {                                
-    curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
+    iso_curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
         -H "Authorization: Bearer $1" "$BASE/$2" 2>/dev/null || echo 000
 }
                                                           
 post_body_file_code() {                         
-    curl -s -o /dev/null -w '%{http_code}' --max-time 8 -X POST "$BASE/$1" \
+    iso_curl -s -o /dev/null -w '%{http_code}' --max-time 8 -X POST "$BASE/$1" \
         -H 'Content-Type: application/json' --data-binary "@$2" 2>/dev/null || echo 000
 }
 
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  게이트#2 JSON ingress 크래시0 E2E                  ${NC}"
+echo -e "${CYAN}  JSON ingress 경계 크래시0 E2E         ${NC}"
 echo -e "${CYAN}  binary=$DAEMON_BIN${NC}"
 echo -e "${CYAN}  port=$PORT  ws=$WS_URL${NC}"
 echo -e "${CYAN}  state=$STATE${NC}"
@@ -269,15 +283,15 @@ else
 fi
 
                                                                  
-                                         
+                                  
                                                                  
 deep_out="$(ws_client deep "$WS_URL" "$DEEP_N")"; deep_rc=$?
 info "A3: WS deep($DEEP_N) 전송 결과 = ${deep_out} (rc=$deep_rc)"
 sleep 0.5
-alive_after_deep=no; hc_after_deep=000
+alive_after_deep=no; hc_after_deep=000; hs_after_deep=no
 daemon_alive && alive_after_deep=yes
-hc_after_deep="$(health_code)"
-if [ "$alive_after_deep" = "yes" ] && [ "$hc_after_deep" = "200" ]; then
+hc_after_deep="$(health_code)" && hs_after_deep=yes
+if [ "$alive_after_deep" = "yes" ] && [ "$hs_after_deep" = "yes" ]; then
     pass "A3(핵심): 깊은 중첩($DEEP_N) 사전인증 WS 프레임 후 데몬 생존(pid alive) + 계속 서빙(health=$hc_after_deep)"
 else
     fail "A3(핵심): deep 프레임 후 데몬 crash 의심 (alive=$alive_after_deep health=$hc_after_deep) — 가드 미적용/스택오버플로우"
@@ -290,10 +304,10 @@ fi
 big_out="$(ws_client big "$WS_URL" "$OVERSIZE")"; big_rc=$?
 info "A4: WS big($OVERSIZE) 전송 결과 = ${big_out} (rc=$big_rc)"
 sleep 0.5
-alive_after_big=no; hc_after_big=000
+alive_after_big=no; hc_after_big=000; hs_after_big=no
 daemon_alive && alive_after_big=yes
-hc_after_big="$(health_code)"
-if [ "$alive_after_big" = "yes" ] && [ "$hc_after_big" = "200" ]; then
+hc_after_big="$(health_code)" && hs_after_big=yes
+if [ "$alive_after_big" = "yes" ] && [ "$hs_after_big" = "yes" ]; then
     pass "A4: 과대(>1MB) 사전인증 WS 프레임 후 데몬 생존 + 계속 서빙(health=$hc_after_big)"
 else
     fail "A4: big 프레임 후 데몬 crash 의심 (alive=$alive_after_big health=$hc_after_big)"
@@ -329,9 +343,9 @@ python3 -c "import sys; sys.stdout.write('[\"'+'A'*($OVERSIZE-4)+'\"]')" > "$STA
 rest_big_code="$(post_body_file_code "auth/token" "$STATE/big_body.json")"
 info "A6: rest_deep=$rest_deep_code rest_deep+validcreds=$rest_deepvalid_code rest_big=$rest_big_code"
 
-alive_after_rest=no; hc_after_rest=000
+alive_after_rest=no; hc_after_rest=000; hs_after_rest=no
 daemon_alive && alive_after_rest=yes
-hc_after_rest="$(health_code)"
+hc_after_rest="$(health_code)" && hs_after_rest=yes
                                
 lg_after="$(login_code admin "$ADMIN_PW")"
 
@@ -341,7 +355,7 @@ rest_deep_nz=0;   case "$rest_deep_code"      in 2*) rest_deep_nz=0 ;; *) rest_d
 rest_dv_nz=0;     case "$rest_deepvalid_code" in 2*) rest_dv_nz=0 ;;   *) rest_dv_nz=1 ;; esac
 rest_big_nz=0;    case "$rest_big_code"       in 2*) rest_big_nz=0 ;;  *) rest_big_nz=1 ;; esac
 if [ "$rest_deep_nz" = "1" ] && [ "$rest_dv_nz" = "1" ] && [ "$rest_big_nz" = "1" ] \
-   && [ "$alive_after_rest" = "yes" ] && [ "$hc_after_rest" = "200" ] && [ "$lg_after" = "200" ]; then
+   && [ "$alive_after_rest" = "yes" ] && [ "$hs_after_rest" = "yes" ] && [ "$lg_after" = "200" ]; then
     pass "A6(REST 적대적): 깊은($rest_deep_code)/유효자격+깊은($rest_deepvalid_code)/과대($rest_big_code) body 모두 거부(비2xx) + 데몬 생존(health=$hc_after_rest) + 이후 정상 로그인 $lg_after"
 else
     fail "A6(REST 적대적): deep=$rest_deep_code deepvalid=$rest_deepvalid_code big=$rest_big_code alive=$alive_after_rest health=$hc_after_rest login_after=$lg_after"

@@ -771,6 +771,25 @@ USB 영구 할당·Windows `vm.guest.exec`와 호스트 장치 목록은 libvirt
 
 ---
 
+### 4.27 격리 데몬 E2E와 시험용 bwrap 예외
+
+데몬을 띄우는 `tests/integration/`의 통합 시험(목록은 `scripts/run_auto_tests.sh`의 `run_isolated_test` 호출과
+VM 진단·주체 이름 공간·VM 읽기 범위 시험)은 공용 하네스 `tests/integration/lib/pcv_isolated_daemon.sh`로 시험용
+데몬을 bwrap 샌드박스(사설 user·net·pid·ipc 네임스페이스, 운영 상태 경로는 빈 tmpfs로 가림) 안에서 띄운다.
+root로 실행해도 운영 데몬의 소켓·감사 로그·nft·BPF·프로세스에 닿지 않는 것이 계약이다. 사설 net 네임스페이스
+덕분에 데몬의 VPC 기동 수렴(nft)이 호스트 네임스페이스에서 권한 오류로 멈추지 않는다.
+
+1. Ubuntu의 `bwrap-userns-restrict` AppArmor 프로파일이 있는 호스트에서는 샌드박스 capability가 거부돼
+   하네스 probe(`pcv_iso_capable`)가 실패하고 시험은 사유와 함께 SKIP한다. SKIP을 PASS로 기록하지 않는다.
+2. 관리자가 `sudo scripts/install_test_bwrap_profile.sh`를 실행하면 전용 사본 `/usr/local/lib/purecvisor-test/bwrap`과
+   그 사본에만 userns를 허용하는 프로파일 `purecvisor-test-bwrap`, apt `DPkg::Post-Invoke` 재동기화 훅이 설치된다.
+   시스템 `/usr/bin/bwrap`과 다른 프로그램의 제한은 그대로다. 하네스는 사본이 시스템 bwrap과 바이트가 같을 때만 쓴다.
+3. 예외 제거는 `sudo scripts/install_test_bwrap_profile.sh --remove`다(시험은 다시 SKIP).
+4. 데몬 바이너리까지의 상위 디렉터리가 world-traversable이 아니면 각 시험이 `pcv_iso_check_bin`으로 사유와 함께
+   SKIP한다. 자동 러너(`scripts/run_auto_tests.sh`)도 같은 probe를 써서 러너·스크립트 판정이 어긋나지 않게 한다.
+5. 상태 폴더(`TMPDIR` 아래)는 LSM 감시 경로와 다른 tmpfs여야 한다(`pcv_iso_check_state_fs`, 계약 시험
+   `scripts/tests/test_iso_state_fs_contract.py`). 아니면 시험이 `FAIL:` 사유와 함께 시작하지 않는다.
+
 ## 5. Level 2: 단일 노드 실행 검증
 
 ### 5.1 필수 대상
