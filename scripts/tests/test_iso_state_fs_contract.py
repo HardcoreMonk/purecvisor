@@ -171,7 +171,7 @@ class StateFsCallSiteContractTest(unittest.TestCase):
 
     def test_every_harness_script_checks_state_right_after_mktemp(self):
         scripts = _harness_scripts()
-        self.assertGreaterEqual(len(scripts), 45)
+        self.assertGreaterEqual(len(scripts), 48)
         missing = []
         for p in scripts:
             lines = p.read_text().splitlines()

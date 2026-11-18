@@ -28,6 +28,10 @@
   보안 사건 운영자 종결, 스냅샷 잠금 갱신·rollback 재기동 진입점, `vm.delete` Job, UUID 표기 VM 이름 거부, VPC 관리 대역
   보호·OVN 실패 폭발 반경·테넌트 주소 풀. `scripts/run_auto_tests.sh` Tier 1이 모두 `run_isolated_test`로 부른다.
   시험만 더했고 제품 코드는 바뀌지 않았다.
+- 격리 데몬 하네스 시험 3개를 더 실었다: 컨테이너 명령 실행 격리(출력 상한·환경 차단·종료), 무인증 OPTIONS·401 반복 뒤
+  데몬 생존, 컨테이너 볼륨 원본 링크 거절과 시작 전 재검사. `scripts/run_auto_tests.sh` Tier 1에 넣었다. 볼륨 원본
+  시험은 샌드박스 훅 경로에 묶는 `pcvctl`이 시험을 실행하는 사용자 소유여야 한다(root로 실행하면 root 소유 사본을
+  `PCVCTL_BIN`으로 준다). 시험만 더했다.
 - 전체 아키텍처 그림 두 장(직접 HTTPS·NGINX)에 오프로드 레인 노드(동기 RPC 7레인)와 "Blocking sync read"·"Reply on main
   loop" 연결, dispatcher의 VM 읽기 범위, Monitoring의 VM 진단 표본기, `rbac.db`의 지운 이름 묘비
   (`deleted_user_names`), Job 결과의 행위자와 범위별 WebSocket 분배, Prometheus 수집의 호출자 범위를 더해 다시

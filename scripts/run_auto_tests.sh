@@ -471,6 +471,8 @@ if $RUN_TIER1; then
                                                                               
                                                                     
                                                                      
+            run_isolated_test "무인증 OPTIONS·401 데몬 생존 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_rest_options_preflight.sh"
 
                                                                             
                                                                            
@@ -505,6 +507,7 @@ if $RUN_TIER1; then
                                                                               
                                                                                           
                                                                
+            run_isolated_test "컨테이너 볼륨 원본 링크 거절·시작 전 재검사 (격리 데몬)" "T1" bash "$INTEG_DIR/test_container_volume_source_guard.sh"
 
                                                                                                           
                                                                                                
@@ -513,6 +516,7 @@ if $RUN_TIER1; then
                                                                                                                          
                                          
                                                 
+            run_isolated_test "컨테이너 명령 실행 격리 — 상한·환경 차단·종료 (격리 데몬)" "T1" bash "$INTEG_DIR/test_container_exec_isolation.sh"
 
                                                                                                            
                                                                                                                
