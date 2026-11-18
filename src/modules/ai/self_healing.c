@@ -748,6 +748,11 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
     gboolean effective_dry_run = (p->policy_dry_run >= 0)
         ? (gboolean)p->policy_dry_run : G.dry_run;
 
+    gchar trig_label[PCV_PROM_LABELS_MAX];
+    G.total_triggered++;
+    if (pcv_prom_labels_build(trig_label, sizeof(trig_label), "policy", p->name, NULL))
+        pcv_prom_inc_labels("purecvisor_healing_policy_triggered_total", trig_label);
+
     if (effective_dry_run) {                                                 
                                                                    
         if (restart_with_target)
@@ -762,11 +767,6 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
         gchar detail[384];
         g_snprintf(detail, sizeof(detail), "[DRY_RUN] action=%s reason=%s", p->action, reason);
         pcv_audit_log("ai-ops", "healing_dry_run", p->name, detail, 0, 0, "local");
-
-        gchar metric_label[PCV_PROM_LABELS_MAX];
-        gboolean label_ok = pcv_prom_labels_build(metric_label, sizeof(metric_label), "policy", p->name, NULL);
-        G.total_triggered++;
-        if (label_ok) pcv_prom_inc_labels("purecvisor_healing_policy_triggered_total", metric_label);
 
         gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
         _record_healing_action(p->action, restart_with_target ? target_vm : p->name,
@@ -804,7 +804,6 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
 
                                                           
                                                                         
-            G.total_triggered++;
             return;
         }
 
@@ -813,7 +812,6 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
             p->name, target_vm, reason);
         _dispatch_vm_restart(p->name, target_vm, reason);
 
-        G.total_triggered++;
         _rate_record();
                                                        
                                                                                     
@@ -853,7 +851,6 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
 
                                                                            
                                                                    
-    G.total_triggered++;
     if (action_executed) G.total_executed++;
     gchar lbl[PCV_PROM_LABELS_MAX];
     gboolean lbl_ok = pcv_prom_labels_build(lbl, sizeof(lbl), "policy", p->name, "action", p->action, NULL);

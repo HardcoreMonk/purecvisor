@@ -36,6 +36,10 @@
   loop" 연결, dispatcher의 VM 읽기 범위, Monitoring의 VM 진단 표본기, `rbac.db`의 지운 이름 묘비
   (`deleted_user_names`), Job 결과의 행위자와 범위별 WebSocket 분배, Prometheus 수집의 호출자 범위를 더해 다시
   렌더했다. 가이드 1.2절 본문도 같은 내용을 적는다.
+- (2026-11-19) **지표 의미 변경:** `purecvisor_healing_policy_triggered_total{policy}`가 이제 모드와 무관하게 정책 발동마다
+  1 늘어난다. 전에는 dry-run 모드의 발동만 세어 active 모드 호스트에서는 늘 0이었다. 반영 뒤 active 호스트에서 이 계열이
+  0에서 늘기 시작하므로, 이 값을 "dry-run에서 걸렸을 횟수"로 보던 패널·알림은 발동 수로 읽는다. 실제 조치 수는 그대로
+  `purecvisor_healing_actions_total{policy,action}`이다. C 단위 시험 `/self_healing_restart/trigger_counted_in_active_mode`.
 - RPC·REST·DB 스키마·`daemon.conf` 형식 변경은 없다. 제품 버전 문자열은 `2.2.1`을 유지하며 새 버전이나 태그는
   발급하지 않았다.
 

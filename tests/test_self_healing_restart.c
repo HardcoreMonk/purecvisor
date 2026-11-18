@@ -172,6 +172,40 @@ test_alert_only_spares_rate_budget(void)
     }
 }
 
+guint pcv_test_prom_inc_count(const gchar *key);
+#define TRIG_KEY(pol) "purecvisor_healing_policy_triggered_total{policy=\"" pol "\"}"
+
+static void
+test_trigger_counted_in_active_mode(void)
+{
+    if (!g_test_subprocess()) {
+        g_test_trap_subprocess(NULL, 10 * G_USEC_PER_SEC, 0);
+        g_test_trap_assert_passed();
+        return;
+    }
+    pcv_healing_init();
+    pcv_healing_set_mode(FALSE);
+    pcv_test_vm_start_set_result(PCV_VM_START_ALREADY_ACTIVE);
+
+    guint cpu0 = pcv_test_prom_inc_count(TRIG_KEY("cpu-overload"));
+    guint unr0 = pcv_test_prom_inc_count(TRIG_KEY("vm-unresponsive"));
+    guint mem0 = pcv_test_prom_inc_count(TRIG_KEY("mem-pressure"));
+
+    pcv_healing_on_anomaly("purecvisor_host_cpu_percent", 95.0, 4.0, 3.0, NULL);
+    g_assert_cmpuint(pcv_test_prom_inc_count(TRIG_KEY("cpu-overload")), ==, cpu0 + 1);
+
+    pcv_healing_on_anomaly("purecvisor_host_cpu_percent", 96.0, 4.0, 3.0, NULL);
+    g_assert_cmpuint(pcv_test_prom_inc_count(TRIG_KEY("cpu-overload")), ==, cpu0 + 1);
+
+    pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0, "trig-count-vm-a");
+    while (g_main_context_iteration(NULL, FALSE)) { }
+    g_assert_cmpuint(pcv_test_prom_inc_count(TRIG_KEY("vm-unresponsive")), ==, unr0 + 1);
+
+    pcv_healing_set_mode(TRUE);
+    pcv_healing_on_anomaly("purecvisor_host_memory_percent", 95.0, 4.0, 3.0, NULL);
+    g_assert_cmpuint(pcv_test_prom_inc_count(TRIG_KEY("mem-pressure")), ==, mem0 + 1);
+}
+
 void
 test_self_healing_restart_register(void)
 {
@@ -188,4 +222,6 @@ test_self_healing_restart_register(void)
                     test_restart_dispatch_runs_on_main_loop);
     g_test_add_func("/self_healing_restart/alert_only_spares_rate_budget",
                     test_alert_only_spares_rate_budget);
+    g_test_add_func("/self_healing_restart/trigger_counted_in_active_mode",
+                    test_trigger_counted_in_active_mode);
 }
