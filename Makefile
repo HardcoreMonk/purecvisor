@@ -852,8 +852,13 @@ BPFTOOL      ?= $(if $(BPFTOOL_DETECTED),$(BPFTOOL_DETECTED),bpftool)
                                                   
 
 
+BPF_STAGE    ?= /tmp/purecvisor-bpf-stage-$(shell id -u)
 BPF_CFLAGS   := -g -O2 -target bpf -D__TARGET_ARCH_x86 -Isrc/bpf -Ibuild/bpf -Wall \
-	-Wno-missing-declarations -ffile-prefix-map=$(CURDIR)=.
+	-Wno-missing-declarations -ffile-prefix-map=$(BPF_STAGE)=.
+bpf_cc = flock "$(BPF_STAGE).lock" sh -ec 'rm -rf "$(BPF_STAGE)"; \
+	mkdir -p "$(BPF_STAGE)/src/bpf" "$(BPF_STAGE)/build/bpf"; \
+	cp src/bpf/*.c src/bpf/*.h "$(BPF_STAGE)/src/bpf/"; cp $(BPF_VMLINUX) "$(BPF_STAGE)/build/bpf/"; \
+	cd "$(BPF_STAGE)"; $(CLANG) $(BPF_CFLAGS) -c $(1) -o out.o; cp out.o "$(CURDIR)/$(2)"; rm -rf "$(BPF_STAGE)"'
 
 $(BPF_VMLINUX): FORCE
 	@mkdir -p build/bpf
@@ -865,14 +870,14 @@ $(BPF_VMLINUX): FORCE
 $(BPF_OBJ): $(BPF_SRC) src/bpf/pcv_bpf_shared.h $(BPF_VMLINUX)
 	@mkdir -p build/bpf
 	@command -v $(CLANG) >/dev/null || { echo "❌ clang 미설치 (sudo apt install clang)"; exit 1; }
-	$(CLANG) $(BPF_CFLAGS) -c $(BPF_SRC) -o $@
+	$(call bpf_cc,$(BPF_SRC),$@)
 
 	@$(BPFTOOL) btf dump file $@ format raw >/dev/null 2>&1 || { echo "❌ BPF .o에 BTF 부재 — CO-RE 불가"; exit 1; }
 
 $(BPF_SHARED_OBJ): $(BPF_SHARED_SRC) src/bpf/pcv_shared_bridge.h $(BPF_VMLINUX)
 	@mkdir -p build/bpf
 	@command -v $(CLANG) >/dev/null || { echo "❌ clang 미설치 (sudo apt install clang)"; exit 1; }
-	$(CLANG) $(BPF_CFLAGS) -c $(BPF_SHARED_SRC) -o $@
+	$(call bpf_cc,$(BPF_SHARED_SRC),$@)
 	@$(BPFTOOL) btf dump file $@ format raw >/dev/null 2>&1 || { echo "❌ shared bridge BPF .o에 BTF 부재 — CO-RE 불가"; exit 1; }
 
 $(BPF_MANIFEST): $(BPF_OBJECTS) include/purecvisor/version.h

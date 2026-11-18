@@ -2434,4 +2434,14 @@ then
   fail "deploy.sh install must place -t before -- (GNU install reads options after -- as files)"
 fi
 
+if ! grep -qE '^BPF_STAGE[[:space:]]*\?=[[:space:]]*/' "$ROOT_DIR/Makefile" ||
+   ! awk '/^BPF_CFLAGS[[:space:]]*:=/{f=1} f{print} f&&!/\\$/{exit}' "$ROOT_DIR/Makefile" |
+     grep -qF -- '-ffile-prefix-map=$(BPF_STAGE)=.'; then
+  fail "BPF_CFLAGS must map the fixed BPF_STAGE directory (-ffile-prefix-map=\$(BPF_STAGE)=.) for path-independent BPF objects"
+fi
+if [ "$(grep -cE '^[[:space:]]+\$\(call bpf_cc,\$\(BPF_(SHARED_)?SRC\),\$@\)$' "$ROOT_DIR/Makefile")" != 2 ] ||
+   grep -qE '^[[:space:]]+\$\(CLANG\)[[:space:]]+\$\(BPF_CFLAGS\)' "$ROOT_DIR/Makefile"; then
+  fail "both BPF objects must compile via \$(call bpf_cc,...) in BPF_STAGE, not \$(CLANG) \$(BPF_CFLAGS) in the checkout"
+fi
+
 printf 'PASS: deploy runtime prerequisite contract\n'
