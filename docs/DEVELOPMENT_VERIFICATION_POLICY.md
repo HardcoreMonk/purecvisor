@@ -773,8 +773,8 @@ USB 영구 할당·Windows `vm.guest.exec`와 호스트 장치 목록은 libvirt
 
 ### 4.27 격리 데몬 E2E와 시험용 bwrap 예외
 
-데몬을 띄우는 `tests/integration/`의 통합 시험(목록은 `scripts/run_auto_tests.sh`의 `run_isolated_test` 호출과
-VM 진단·주체 이름 공간·VM 읽기 범위 시험)은 공용 하네스 `tests/integration/lib/pcv_isolated_daemon.sh`로 시험용
+데몬을 띄우는 `tests/integration/`의 통합 시험(목록은 `scripts/run_auto_tests.sh`의 `run_isolated_test` 호출)은
+공용 하네스 `tests/integration/lib/pcv_isolated_daemon.sh`로 시험용
 데몬을 bwrap 샌드박스(사설 user·net·pid·ipc 네임스페이스, 운영 상태 경로는 빈 tmpfs로 가림) 안에서 띄운다.
 root로 실행해도 운영 데몬의 소켓·감사 로그·nft·BPF·프로세스에 닿지 않는 것이 계약이다. 사설 net 네임스페이스
 덕분에 데몬의 VPC 기동 수렴(nft)이 호스트 네임스페이스에서 권한 오류로 멈추지 않는다.
@@ -789,6 +789,9 @@ root로 실행해도 운영 데몬의 소켓·감사 로그·nft·BPF·프로세
    SKIP한다. 자동 러너(`scripts/run_auto_tests.sh`)도 같은 probe를 써서 러너·스크립트 판정이 어긋나지 않게 한다.
 5. 상태 폴더(`TMPDIR` 아래)는 LSM 감시 경로와 다른 tmpfs여야 한다(`pcv_iso_check_state_fs`, 계약 시험
    `scripts/tests/test_iso_state_fs_contract.py`). 아니면 시험이 `FAIL:` 사유와 함께 시작하지 않는다.
+6. 하네스 밖 도구가 더 필요한 시험이 있다(WebSocket 단언은 python3 `websockets` 모듈, 화면 본문 대조는 `npm ci`로
+   설치한 puppeteer, OVN 폭발 반경은 OVS·OVN 도구와 NB 스키마, 시험 플러그인은 C 컴파일러와 `pkg-config`). 없으면
+   그 시험이 사유와 함께 SKIP한다.
 
 ## 5. Level 2: 단일 노드 실행 검증
 

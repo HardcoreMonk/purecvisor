@@ -20,6 +20,14 @@
   환경에서는 `sudo scripts/install_test_bwrap_profile.sh`로 시험 전용 bwrap 사본과 그 사본에만 적용되는 프로파일을
   설치한다(`--remove`로 제거). 상태 폴더가 LSM 감시 경로와 다른 tmpfs인지 보는 검사와 그 계약 시험
   (`scripts/tests/test_iso_state_fs_contract.py`)을 더했다. 절차는 검증 정책 4.27절.
+- 격리 데몬 하네스로 도는 통합 시험 28개를 더 실었다: 비동기 작업 감사 행위자, 지운 주체의 토큰·세션 거부, 세션 단위
+  로그아웃, 백업 복제 SSH 호스트 키 고정, 컨테이너 유닛 시작, LXC unprivileged 생성 정책,
+  CLI·화면 본문·help REST 예시의 실데몬 계약 대조, 데몬 견고성(실패 입력), DPDK 관리 NIC 가드, libvirt DEGRADED 기동,
+  메인 루프 정지 방지 1·2단계, 관리면 노출(수집기 정책·프록시 신뢰), OPERATOR 호스트 자원 참조 경계, 플러그인 API
+  내보내기·종료 콜백, 계수기 정지·교체 직전 저장, 보안 일관성(행위자·역할·테넌트·웹훅),
+  보안 사건 운영자 종결, 스냅샷 잠금 갱신·rollback 재기동 진입점, `vm.delete` Job, UUID 표기 VM 이름 거부, VPC 관리 대역
+  보호·OVN 실패 폭발 반경·테넌트 주소 풀. `scripts/run_auto_tests.sh` Tier 1이 모두 `run_isolated_test`로 부른다.
+  시험만 더했고 제품 코드는 바뀌지 않았다.
 - 전체 아키텍처 그림 두 장(직접 HTTPS·NGINX)에 오프로드 레인 노드(동기 RPC 7레인)와 "Blocking sync read"·"Reply on main
   loop" 연결, dispatcher의 VM 읽기 범위, Monitoring의 VM 진단 표본기, `rbac.db`의 지운 이름 묘비
   (`deleted_user_names`), Job 결과의 행위자와 범위별 WebSocket 분배, Prometheus 수집의 호출자 범위를 더해 다시

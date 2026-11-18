@@ -328,6 +328,8 @@ if $RUN_TIER1; then
                 "T1" bash "$INTEG_DIR/test_vm_lock_cross_unlock.sh"
             run_isolated_test "vm.batch 팬아웃·정식 진입점 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_vm_batch_fanout.sh"
+            run_isolated_test "스냅샷 rollback 재기동 정식 진입점 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_snapshot_rollback_restart_entry.sh"
 
                                                           
                                                             
@@ -344,18 +346,26 @@ if $RUN_TIER1; then
                                                                                     
                                                                        
                                                         
+            run_isolated_test "세션 단위 로그아웃 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_logout_scope.sh"
 
                                                                                               
                                                                                 
                                                                                         
+            run_isolated_test "삭제 주체 인증 수단 거부 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_auth_deleted_subject.sh"
 
                                                                                                     
                                                                                      
                                                                                         
+            run_isolated_test "VPC 관리 대역 보호·확인 대기 자동 원복 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_vpc_mgmt_guard.sh"
 
                                                                                                        
                                                                                                   
                                                                                                            
+            run_isolated_test "VPC 테넌트 주소 풀 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_vpc_tenant_pool.sh"
 
                                                         
                                                              
@@ -373,6 +383,7 @@ if $RUN_TIER1; then
                                                                                   
                                                                                      
                                                                       
+            run_isolated_test "복제 SSH 호스트 키 고정 (격리 데몬)" "T1" bash "$INTEG_DIR/test_backup_replicate_hostkey.sh"
 
                                                                 
                                                                        
@@ -392,17 +403,25 @@ if $RUN_TIER1; then
                                                                                           
                                                                                                     
                                                                                                   
+            run_isolated_test "보안 사건 운영자 단건 종결 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_security_event_close.sh"
 
                                                                                                           
                                                                                              
+            run_isolated_test "CLI 계약: agent set 배열·새 컨테이너 이름 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_contract_drift_cli.sh"
 
                                                                                            
                                                                                                     
                                                                                            
+            run_isolated_test "화면 본문·실데몬 계약 대조 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_contract_drift_ui.sh"
 
                                                                                         
                                                                                                 
                                                                                           
+            run_isolated_test "관리면 노출 수집기 정책·프록시 신뢰 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_management_plane_exposure.sh"
 
                                                                         
                                                                             
@@ -416,25 +435,37 @@ if $RUN_TIER1; then
                                                                                        
                                                                    
                                                                     
+            run_isolated_test "UUID 표기 새 VM 이름 거부 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_vm_name_uuid_form.sh"
 
                                                                                                     
                                                                                         
                                                                                           
+            run_isolated_test "LXC unprivileged 생성 정책 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_lxc_unprivileged_policy.sh"
 
                                                                                                
                                                                          
                                                                         
+            run_isolated_test "vm.delete Job 접수·완료·상태 조회 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_vm_delete_job.sh"
 
                                                                                            
                                                                              
                                                                                      
+            run_isolated_test "비동기 감사 행위자·즉시 거절 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_async_audit_actor.sh"
 
                                                                                                        
                                                                                                 
                                                                           
+            run_isolated_test "보안 일관성: 행위자·역할·테넌트·웹훅 판정 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_sec_consistency.sh"
 
                                                                                                
                                                                                      
+            run_isolated_test "help REST 예시 실데몬 대조 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_help_examples_live.sh"
 
                                                                                        
                                                                               
@@ -452,9 +483,13 @@ if $RUN_TIER1; then
 
                                                                                                       
                                                                    
+            run_isolated_test "DPDK 관리 NIC 가드 RPC 경계 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_dpdk_guard_effect.sh"
 
                                                                                                        
                                                                                     
+            run_isolated_test "OVN VPC 실패 폭발 반경 (격리 데몬 + 일회용 NB)" \
+                "T1" bash "$INTEG_DIR/test_vpc_ovn_blast_radius.sh"
 
                                                                 
                                                                     
@@ -486,12 +521,14 @@ if $RUN_TIER1; then
                                                                                                            
                                                                                                          
                                    
+            run_isolated_test "컨테이너 유닛 시작·미설치·실패 원인·헬스·logs·별칭 (격리 데몬)" "T1" bash "$INTEG_DIR/test_container_unit_start.sh"
 
                                                                                               
                                                                                          
                                                                                                             
                                                                                         
                                                                 
+            run_isolated_test "OPERATOR 호스트 자원 참조 경계 (격리 데몬)" "T1" bash "$INTEG_DIR/test_operator_resource_boundary.sh"
 
                                                                                                                 
                                                                                                                          
@@ -500,20 +537,25 @@ if $RUN_TIER1; then
                                                                                                
                                                                                                      
                                                 
+            run_isolated_test "메인 루프 정지 방지 1단계" "T1" bash "$INTEG_DIR/test_mainloop_blocking_phase1.sh"
+            run_isolated_test "메인 루프 정지 방지 2단계" "T1" bash "$INTEG_DIR/test_mainloop_blocking_phase2.sh"
 
                                                                                                                 
                                                                                                    
                                                                                                     
                                                                                                    
+            run_isolated_test "데몬 견고성 (disk.detach·vm.vnc 실패 입력)" "T1" bash "$INTEG_DIR/test_daemon_robustness.sh"
 
                                                                                                             
                                                                                                        
                                                                                                        
                                                                                            
+            run_isolated_test "스냅샷 잠금 갱신 (약 6분)" "T1" bash "$INTEG_DIR/test_snapshot_lock_renew.sh"
 
                                                                                                            
                                                                                                                     
                                                                                                            
+            run_isolated_test "libvirt DEGRADED 기동 판정 (격리 데몬 3회 기동)" "T1" bash "$INTEG_DIR/test_libvirt_degraded_boot.sh"
 
                                                                                                     
                                                                                                      
@@ -526,14 +568,17 @@ if $RUN_TIER1; then
                                                                                                         
                                                                                          
                                                                       
+            run_isolated_test "계수기 정지·교체 직전 저장 (격리 데몬 2회 기동 + SIGUSR2)" "T1" bash "$INTEG_DIR/test_prom_counter_flush.sh"
 
                                                                                                             
                                                                                                      
+            run_isolated_test "플러그인 종료 콜백 (격리 데몬 + 시험 플러그인)" "T1" bash "$INTEG_DIR/test_plugin_shutdown_callback.sh"
 
                                                                                                                           
                                                                                                              
                                                                                                   
                                                                             
+            run_isolated_test "플러그인 API 내보내기·응답 도우미 (격리 데몬 + 시험 플러그인)" "T1" bash "$INTEG_DIR/test_plugin_api_export.sh"
             ;;
     esac
 
