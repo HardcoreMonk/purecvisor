@@ -1,0 +1,10 @@
+Displaying last 60 seconds pmd usage %
+pmd thread numa_id 1 core_id 20:
+  isolated : false
+  port: dpdk-p-dpdk-br0   queue-id:  0 (enabled)   pmd usage: NOT AVAIL
+  port: dpdk-v-pcv-affv-b  queue-id:  0 (enabled)   pmd usage: NOT AVAIL
+  overhead: NOT AVAIL
+pmd thread numa_id 1 core_id 21:
+  isolated : true
+  port: dpdk-v-pcv-affv-a  queue-id:  0 (enabled)   pmd usage: NOT AVAIL
+  overhead: NOT AVAIL

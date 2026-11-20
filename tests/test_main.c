@@ -103,6 +103,7 @@ void test_rpc_offload_register(void);
 void test_proc_state_register(void);
 void test_mainloop_guard_register(void);
 void test_dpdk_register(void);                                   
+void test_dpdk_pmd_register(void);
 void test_sriov_register(void);                                
 void test_uring_register(void);                                    
 void test_handler_params_register(void);                    
@@ -652,6 +653,7 @@ int main(int argc, char *argv[]) {
     test_poll_async_register();
     test_rpc_offload_register();
     test_mainloop_guard_register();
+    test_dpdk_pmd_register();
     test_dpdk_register();                                                   
 
     return g_test_run();

@@ -172,6 +172,13 @@ _ovs_run_locked(const gchar * const *argv, gchar **stdout_out,
                                   DPDK_OVS_COMMAND_TIMEOUT_SEC, error);
 }
 
+gboolean
+pcv_dpdk_ovs_run_locked(const gchar * const *argv, gchar **stdout_out,
+                        gchar **stderr_out, GError **error)
+{
+    return _ovs_run_locked(argv, stdout_out, stderr_out, error);
+}
+
 static gchar *
 _ovs_clean_value(gchar *raw)
 {
@@ -497,6 +504,8 @@ pcv_dpdk_init(void)
     g_mutex_init(&G.mu);
     G.available = _check_dpdk_init();
     G.initialized = TRUE;
+    if (G.available)
+        pcv_dpdk_pmd_cache_init_from_mask();
     PCV_LOG_INFO(DPDK_LOG_DOM, "OVS-DPDK %s",
                  G.available ? "available" : "not available (dpdk-init != true)");
 }
@@ -607,83 +616,6 @@ pcv_dpdk_is_available(void)
 }
 
                                                                      
-
-   
-                                  
-                                                       
-  
-                 
-                             
-                                 
-                                                
-                                  
-  
-                                             
-                                            
-  
-                                                     
-   
-JsonObject *
-pcv_dpdk_status(void)
-{
-    JsonObject *obj = json_object_new();
-    json_object_set_boolean_member(obj, "available", G.available);
-
-    if (!G.available) {
-        json_object_set_int_member(obj, "vdev_count", 0);
-        json_object_set_string_member(obj, "pmd_cpu_mask", "");
-        json_object_set_string_member(obj, "socket_mem", "");
-        return obj;
-    }
-
-                      
-    gchar *pmd = NULL;
-    if (_run_cmd("ovs-vsctl get Open_vSwitch . other_config:pmd-cpu-mask 2>/dev/null",
-                 &pmd, NULL) && pmd) {
-        g_strstrip(pmd);
-                                     
-        gchar *clean = g_strdup(pmd);
-        g_strdelimit(clean, "\"", ' ');
-        g_strstrip(clean);
-        json_object_set_string_member(obj, "pmd_cpu_mask", clean);
-        g_free(clean);
-    } else {
-        json_object_set_string_member(obj, "pmd_cpu_mask", "0x0");
-    }
-    g_free(pmd);
-
-                       
-    gchar *smem = NULL;
-    if (_run_cmd("ovs-vsctl get Open_vSwitch . other_config:dpdk-socket-mem 2>/dev/null",
-                 &smem, NULL) && smem) {
-        g_strstrip(smem);
-        gchar *clean = g_strdup(smem);
-        g_strdelimit(clean, "\"", ' ');
-        g_strstrip(clean);
-        json_object_set_string_member(obj, "socket_mem", clean);
-        g_free(clean);
-    } else {
-        json_object_set_string_member(obj, "socket_mem", "");
-    }
-    g_free(smem);
-
-                         
-    gchar *ports = NULL;
-    gint vdev_count = 0;
-    if (_run_cmd("ovs-vsctl --columns=name,type find interface type=dpdk 2>/dev/null",
-                 &ports, NULL) && ports) {
-                                   
-        gchar **lines = g_strsplit(ports, "\n", -1);
-        for (gint i = 0; lines[i]; i++)
-            if (g_str_has_prefix(g_strstrip(lines[i]), "name"))
-                vdev_count++;
-        g_strfreev(lines);
-    }
-    g_free(ports);
-    json_object_set_int_member(obj, "vdev_count", vdev_count);
-
-    return obj;
-}
 
    
                                              
@@ -1545,6 +1477,8 @@ gboolean
 pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
                                  const gchar *vm_name,
                                  PcvDpdkVhostEndpoint endpoint,
+                                 const PcvDpdkPmdInput *pmd,
+                                 PcvDpdkPmdPlan *plan_out,
                                  GError **error)
 {
     if (!_dpdk_available()) {
@@ -1579,6 +1513,7 @@ pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
     }
     gchar *socket_arg = g_strdup_printf("options:vhost-server-path=%s", socket_path);
     gchar *mtu_arg = NULL, *owner_arg = NULL, *bridge_arg = NULL, *vm_arg = NULL;
+    PcvDpdkPmdPlan plan = { 0 };
 
     g_mutex_lock(&G.mu);
     if (!_dpdk_bridge_contract_locked(bridge_name, &mtu, error))
@@ -1613,19 +1548,23 @@ pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
     owner_arg = g_strdup_printf("external_ids:%s=%s", DPDK_OWNER_KEY, DPDK_OWNER_VHOST);
     bridge_arg = g_strdup_printf("external_ids:%s=%s", DPDK_BRIDGE_KEY, bridge_name);
     vm_arg = g_strdup_printf("external_ids:%s=%s", DPDK_VM_KEY, vm_name);
+    if (pmd)
+        pcv_dpdk_pmd_plan_locked(port_name, exists, pmd, &plan);
+    const gchar * const *x = plan.extra;
     if (!exists) {
         const gchar *argv[] = {
             "ovs-vsctl", "--timeout=10", "--", "add-port", bridge_name, port_name,
             "--", "set", "Interface", port_name, "type=dpdkvhostuserclient",
-            socket_arg, mtu_arg, owner_arg, bridge_arg, vm_arg, NULL
+            socket_arg, mtu_arg, owner_arg, bridge_arg, vm_arg, x[0], x[1], x[2], x[3], x[4],
+            x[5], x[6], x[7], x[8], x[9], x[10], x[11], NULL
         };
         ok = _ovs_run_locked(argv, NULL, NULL, error);
         added_this_call = ok;
     } else {
         const gchar *argv[] = {
             "ovs-vsctl", "--timeout=10", "set", "Interface", port_name,
-            "type=dpdkvhostuserclient", socket_arg, mtu_arg, owner_arg,
-            bridge_arg, vm_arg, NULL
+            "type=dpdkvhostuserclient", socket_arg, mtu_arg, owner_arg, bridge_arg, vm_arg,
+            x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8], x[9], x[10], x[11], NULL
         };
         ok = _ovs_run_locked(argv, NULL, NULL, error);
     }
@@ -1642,6 +1581,8 @@ pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
         g_free(actual_type);
         g_free(actual_path);
     }
+    if (ok)
+        ok = pcv_dpdk_pmd_verify_locked(port_name, &plan, error);
     if (!ok && added_this_call) {
                                                                         
                                                               
@@ -1660,6 +1601,8 @@ pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
 
 out:
     g_mutex_unlock(&G.mu);
+    if (plan_out) *plan_out = plan;
+    else pcv_dpdk_pmd_plan_clear(&plan);
     g_free(vm_arg); g_free(bridge_arg); g_free(owner_arg); g_free(mtu_arg);
     g_free(socket_arg); g_free(socket_path); g_free(port_name);
     return ok;
@@ -1670,7 +1613,7 @@ pcv_dpdk_vm_port_ensure(const gchar *bridge_name, const gchar *vm_name,
                         GError **error)
 {
     return pcv_dpdk_vm_port_ensure_endpoint(
-        bridge_name, vm_name, PCV_DPDK_VHOST_ENDPOINT_CANONICAL, error);
+        bridge_name, vm_name, PCV_DPDK_VHOST_ENDPOINT_CANONICAL, NULL, NULL, error);
 }
 
 gboolean

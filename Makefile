@@ -391,6 +391,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/handler_container_health.c \
     src/modules/dispatcher/handler_container_mode.c \
     src/modules/network/dpdk_manager.c \
+    src/modules/network/dpdk_pmd.c \
     src/modules/network/sriov_manager.c \
     src/modules/storage/iscsi_manager.c \
     src/modules/storage/pcv_iscsi_node_db.c \
@@ -522,6 +523,7 @@ TEST_COMMON_SRCS = \
     tests/test_privdrop.c \
     tests/test_ovn.c \
     tests/test_dpdk.c \
+    tests/test_dpdk_pmd.c \
     tests/test_sriov.c \
     tests/test_uring.c \
     tests/test_handler_params.c \
@@ -753,6 +755,7 @@ TEST_COMMON_SRCS = \
     src/modules/virt/vm_boot_autostart_scan.c \
     src/modules/dispatcher/vnc_port_xml.c \
     src/modules/network/dpdk_manager.c \
+    src/modules/network/dpdk_pmd.c \
     src/modules/network/sriov_manager.c \
     src/modules/network/security_group.c \
     src/modules/network/security_group_nft.c \
@@ -1103,6 +1106,7 @@ check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $
 
 check-dpdk-owned-lifecycle:
 	@python3 scripts/check_dpdk_owned_lifecycle.py
+	@python3 scripts/tests/test_dpdk_owned_lifecycle_pmd.py
 	@python3 scripts/tests/test_dpdk_capacity_preflight.py
 	@python3 tests/test_vm_start_capacity.py
 	@python3 tests/test_vm_start_admission.py

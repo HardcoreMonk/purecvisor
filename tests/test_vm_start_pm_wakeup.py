@@ -77,6 +77,7 @@ class VmStartPmWakeupTests(unittest.TestCase):
                    "src/modules/core/cpu_allocator.c", "src/modules/dispatcher/rpc_utils.c", "src/api/drain.c",
                    "src/modules/dispatcher/rpc_completion.c", "src/utils/pcv_validate.c",
                    "-Wl,--gc-sections", "-Wl,--wrap=cpu_allocator_allocate_exclusive",
+                   "-Wl,--wrap=cpu_allocator_allocate_exclusive_ex",
                    "-Wl,--wrap=cpu_allocator_free_vm_cores",
                    "-Wl,--wrap=soup_websocket_connection_send_text", "-o", str(cls.binary), *flags, *extra]
         result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=60)

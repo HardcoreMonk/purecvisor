@@ -1,0 +1,4 @@
+Displaying last 60 seconds pmd usage %
+pmd thread numa_id 1 core_id 20:
+  isolated : false
+  port: dpdk-p-dpdk-br0   queue-id:  zero (enabled)   pmd usage:  0 %

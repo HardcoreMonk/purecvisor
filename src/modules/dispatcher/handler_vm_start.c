@@ -380,7 +380,7 @@ fail:
 static gboolean
 _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
                                 const gchar *vm_name, gboolean active,
-                                const gchar *actor, GError **error)
+                                PcvDpdkPmdInput *pmd, const gchar *actor, GError **error)
 {
     gchar *bridge = NULL;
     PcvDpdkMetaResult metadata = pcv_vm_dpdk_metadata_read(*dom_io, &bridge);
@@ -491,16 +491,28 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
         ? PCV_DPDK_VHOST_ENDPOINT_ACTIVE_LEGACY
         : PCV_DPDK_VHOST_ENDPOINT_CANONICAL;
     GError *dpdk_error = NULL;
+    PcvDpdkPmdPlan plan = { 0 };
+    if (pmd)
+        pcv_dpdk_pmd_input_prepare(pmd, domain_xml);
     if (!pcv_dpdk_vm_port_ensure_endpoint(
-            bridge, vm_name, endpoint, &dpdk_error)) {
+            bridge, vm_name, endpoint, pmd, &plan, &dpdk_error)) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                     "DPDK vhost port reconcile failed: %s",
                     dpdk_error ? dpdk_error->message : "unknown error");
         g_clear_error(&dpdk_error);
+        pcv_dpdk_pmd_plan_clear(&plan);
         free(domain_xml);
         g_free(bridge);
         return FALSE;
     }
+    pcv_dpdk_pmd_record_start(vm_name, &plan);
+    gchar *pmd_detail = pcv_dpdk_pmd_audit_detail(&plan);
+    if (pmd_detail) {
+        g_message("[vm.start] VM '%s': DPDK vhost PMD %s", vm_name, pmd_detail);
+        pcv_audit_log(actor, "vm.dpdk_vhost.pmd", vm_name, "ok", 0, 0, "local");
+    }
+    g_free(pmd_detail);
+    pcv_dpdk_pmd_plan_clear(&plan);
 
     if (deferred) {
         g_warning("[vm.start] VM '%s': DPDK vhost migration deferred "
@@ -527,8 +539,11 @@ static gboolean
 _prepare_inactive_dpdk_for_start(virDomainPtr *domain_io, gpointer data, GError **error)
 {
     InactiveDpdkPrepare *prepare = data;
-    return _reconcile_dpdk_vhost_for_start(
-        prepare->conn, domain_io, prepare->vm_name, FALSE, prepare->actor, error);
+    PcvDpdkPmdInput pmd = { .vm_numa = -1, .nq = 1 };
+    gboolean ok = _reconcile_dpdk_vhost_for_start(
+        prepare->conn, domain_io, prepare->vm_name, FALSE, &pmd, prepare->actor, error);
+    pcv_dpdk_pmd_input_clear(&pmd);
+    return ok;
 }
 
                                                               
@@ -673,7 +688,7 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
     if (domain_active) {
                                                                      
         if (!_reconcile_dpdk_vhost_for_start(
-                conn, &dom, canonical_name, TRUE, pcv_drain_task_actor(task), &error))
+                conn, &dom, canonical_name, TRUE, NULL, pcv_drain_task_actor(task), &error))
             goto cleanup_dom;
         if (!_wake_pm_suspended_for_start(dom, &error))
             goto cleanup_dom;
@@ -688,6 +703,7 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
                                                            
                                                         
                                                    
+        pcv_dpdk_pmd_cache_refresh();
         g_free(canonical_name);
         g_task_return_boolean(task, TRUE);
         return;
@@ -915,6 +931,7 @@ cleanup_conn:
                                                                     
                                 
         pcv_security_group_sync_vm(ctx->vm_id);
+        pcv_dpdk_pmd_cache_refresh();
         g_task_return_boolean(task, TRUE);
     }
     g_free(canonical_name);
@@ -1157,8 +1174,15 @@ static PcvVmStartSubmit _vm_start_prepare(const PcvVmStartRequest *req, PcvVmSta
                                                                  
         g_message("[vm.start] VM '%s': already active — CPU 할당 선-스킵(F2: 멱등, 유령 할당 방지)", alloc_key);
     } else if (!skip_alloc) {
-        if (!cpu_allocator_allocate_exclusive(global_allocator, alloc_key, numa_node, pin_count,
-                                              &allocated_cpus, &actual_numa_node)) {
+
+        static gint pmd_unknown_warned;
+        PcvPmdCacheState pmd_state = PCV_PMD_CACHE_UNKNOWN;
+        g_autoptr(GArray) pmd_cores = pcv_dpdk_pmd_cache_snapshot(&pmd_state);
+        if (pmd_state == PCV_PMD_CACHE_UNKNOWN && pcv_dpdk_is_available() &&
+            g_atomic_int_compare_and_exchange(&pmd_unknown_warned, 0, 1))
+            g_warning("[vm.start] PMD core cache unknown (pmd-cache-unknown) — CPU allocation does not exclude PMD cores yet");
+        if (!cpu_allocator_allocate_exclusive_ex(global_allocator, alloc_key, numa_node, pin_count, pmd_cores,
+                                                 &allocated_cpus, &actual_numa_node)) {
             g_warning("[vm.start] No isolated cores for '%s' (need %u, %s), starting without CPU pinning",
                       alloc_key, pin_count, pin_source);
             allocated_cpus = NULL;               

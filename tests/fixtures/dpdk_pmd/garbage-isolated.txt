@@ -1,0 +1,3 @@
+Displaying last 60 seconds pmd usage %
+pmd thread numa_id 1 core_id 20:
+  isolated true

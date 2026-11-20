@@ -4097,6 +4097,71 @@ pcvctl dpdk unbind 0000:03:00.0
 > 다시 보일 때만 성공합니다. 장치가 이미 사라졌거나 커널 드라이버로 복원된 상태는
 > 멱등 성공이며, 도구 부재·권한 오류·상태 미변경은 실패로 보고됩니다.
 
+#### 6.8.1 VM 단위 PMD 정렬
+
+DPDK VM은 vhost-user 큐 2개로 만들어집니다. 같은 NUMA에 PMD가 둘 이상이면 OVS가 두 큐를 서로
+다른 PMD에 나눠 맡겨, 게스트의 한 TCP 흐름이 큐를 옮길 때 패킷 순서가 섞이고 상대가 가짜
+재전송을 냅니다. 제품은 **정지 → 시작(`vm.start`)** 때 그 VM의 관리형 port `dpdk-v-<vm>`에
+`other_config:pmd-rxq-affinity`(예: `0:21,1:21`)와 소유 표시 `external_ids:purecvisor-pmd=21`을
+같은 OVS 트랜잭션으로 씁니다. QEMU가 연결되기 전에 쓰므로 첫 연결부터 그 PMD 하나가 VM의 모든
+수신 큐를 맡습니다.
+
+- **고르는 규칙:** VM 메모리 NUMA(INACTIVE XML `numatune`)의 PMD가 후보, 없으면 전체입니다.
+  `pmd-rxq-isolate=true`(OVS 기본)면 NUMA마다 PMD 하나를 물리 포트·비고정 큐 몫으로 남기고
+  고르지 않습니다 — 모든 PMD를 고정하면 비고정 큐가 폴링되지 않아 호스트 DPDK 통신 전체가
+  끊기기 때문입니다. 로컬 후보가 그 예약으로 비면 다른 NUMA의 PMD를 고정합니다(`numa_remote`).
+  이전 값 유지 → 제품 값이 가장 적은 PMD → 낮은 번호 순이고, VM이 PMD보다 많으면 공유합니다.
+  어느 NUMA에서 보든 후보 PMD가 하나뿐이면 아무것도 쓰지 않습니다(`not-needed`). 권고: NUMA당
+  PMD 2개 이상일 때 이 완화가 의미가 있습니다.
+- **쓰지 않는 때:** 실행 중 VM의 `vm.start`(port의 affinity를 바꾸지 않음), `vm.create`, 삭제
+  실패 복원, OVS·데몬 재시작. 비고정 큐는 OVS가 port 연결·affinity 변경마다 전체 재배정하며
+  이것은 무손실입니다.
+- **운영자 값 존중:** port에 직접 건 affinity(항목 코어가 marker와 다르거나 marker가 없음)는
+  제품이 덮거나 지우지 않습니다(`operator`). 특정 VM만 제품 정렬에서 빼려면 그 port에 운영자가
+  직접 affinity를 겁니다. affinity 키만 지우면 marker만 남은 흔적으로 보고 다음 시작에 제품 값이
+  돌아옵니다. `pmd-cpu-mask`·`pmd-rxq-isolate` 등 전역 설정은 읽기만 합니다.
+- **실패해도 VM은 켜진다:** PMD 조회 실패·시간 초과(2초)·marker 확인 실패·사후 확인 불일치는
+  경고와 함께 정렬만 건너뜁니다(`pmd-query-failed`·`verify-failed`). port type·socket 계약과
+  OVSDB 쓰기 실패만 지금처럼 시작 실패입니다.
+- **설정:** `daemon.conf`의 `[dpdk] vhost_pmd_affinity = auto | off`(기본 `auto`, 절이 없어도
+  auto). `off`는 다음 `vm.start`부터 제품 소유 값만 지우고, 그 밖의 값은 `invalid`로 보아
+  아무것도 쓰거나 지우지 않고 경고합니다. `vm.start`마다 읽으므로 SIGHUP 뒤 다음 시작부터
+  반영됩니다.
+- **즉시 롤백(실행 중 VM 포함, 수동):** 아래 두 줄입니다. 트래픽 중에도 손실이 없었습니다
+  (2026-11-20 실측 — 역방향 9.9 Gbit/s 중 3회, ping 10 ms 간격 3000/3000, OVS drop 0). 그 뒤로는
+  큐 분할 재정렬이 돌아옵니다.
+
+```bash
+ovs-vsctl remove Interface dpdk-v-<vm> other_config pmd-rxq-affinity \
+  -- remove Interface dpdk-v-<vm> external_ids purecvisor-pmd
+```
+
+- **PMD 코어와 VM 전용 코어:** CPU 할당기는 PMD 코어(실제 PMD ∪ `pmd-cpu-mask`)를 모든 VM의
+  전용 코어 후보에서 뺍니다(스위치 없음). **업그레이드 주의:** PMD를 격리 코어(`isolcpus`)에 둔
+  호스트는 VM에 줄 수 있는 전용 코어가 그만큼 줄고, 모자라면 지금처럼 핀·NUMA 고정 없이 시작하며
+  경고에 `excluded_as_pmd=N`이 남습니다. 이미 겹쳐 실행 중인 VM은 옮기지 않고 `overlap`으로만
+  보입니다.
+- **관측:** `pcvctl dpdk status`(JSON 원문)의 `vhost_pmd_affinity` — `mode`, `rxq_isolate`,
+  `pmd_cache`(`unknown|empty|valid`), `excluded_cores`, `pmds[]`(core·numa·isolated·reserved·
+  product_ports), `overlap[]`, `warnings`(`unpinned-capacity=0`·`unpinned-local=0`·
+  `pmd-cache-unknown`). VM 이름이 드는 `ports[]`(source·marker_core·last_start_reason·
+  port_numa·actual_cores·drift)·`pmds[].rxqs`·`overlap[].vm`은 ADMIN에게만 보입니다.
+  `drift=true`는 마스크 변경 등으로 제품 값이 무시돼 큐가 다시 갈라졌다는 뜻이며 다음 정지 →
+  시작에서 다시 고릅니다. 값이 바뀔 때만 감사 `vm.dpdk_vhost.pmd`가 한 줄 남습니다.
+- **부하가 큰 VM은 PMD를 따로 주십시오:** 회선 속도로 보내는 DPDK VM이 여럿이면 NIC가 있는 NUMA 노드에
+  `pmd-cpu-mask`로 PMD 코어를 (바쁜 DPDK VM 수 + 1)개 이상 두십시오 — 하나는 physical 큐 몫으로 비격리로
+  남습니다. VM이 쓸 수 있는 PMD보다 많으면 한 PMD를 공유합니다. 공유해도 큐 분할 재정렬은 없어 정렬하지 않을
+  때보다 훨씬 낫지만, 공유 PMD에서 여러 VM이 동시에 회선 속도로 보내면 physical port의
+  `ovs_tx_failure_drops`(송신 큐 혼잡 손실)와 TCP 재전송이 생길 수 있습니다. 실측(2026-11-20, 10G NIC
+  하나·VM 둘): 공유 PMD에서 2분에 약 1,100건의 송신 손실과 그만큼의 재전송이 있었고(합 처리량 9.9 Gbit/s,
+  공평), VM마다 PMD를 따로 주자 손실 0·재전송 수십 건이었습니다.
+- **마스크 축소 손실 주의:** VM이 실행 중일 때 `pmd-cpu-mask`를 줄이면(특히 큐를 폴링하는 PMD 코어를
+  빼면) OVS가 그 PMD 스레드를 없애고 포트를 다시 구성하는 동안 수 초 동안 패킷이 손실됩니다. 제품이 쓰는
+  값 때문이 아니라 OVS PMD 재구성 자체의 동작이며, 실측에서 10 ms 간격 ping 기준 약 5초 손실이 있었습니다
+  (2026-11-20, OVS 3.7.1). 유지보수 시간에 하십시오. 끝나면 `pcvctl dpdk status`(`dpdk.status`)에서
+  영향받은 VM이 `drift`로 보이고, 그 VM을 정지 → 시작하면 다시 고릅니다. 코어를 더하는 변경도 같은 재구성
+  경로를 지나므로 같은 방식으로 계획하십시오.
+
 ### 6.9 SR-IOV
 
 Web UI 화면은 `인프라 > SR-IOV`입니다.
@@ -8085,7 +8150,10 @@ Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발
 VM 진단 응답으로 채워집니다. 2026-11-19 변경은 응답 필드 하나를 더한 것 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식을 바꾸지
 않았습니다. 2026-11-20에는 VM 계열 Prometheus 라벨에 `vm_uuid`가 붙고 VM 종류 cgroup PSI가 실제 VM 이름을 냅니다(라벨 변경, 8.1절).
 같은 날 VM 구성 변경 이력(8.10.2절)을 더했습니다 — 조회 RPC 2개·REST 3개·`pcvctl` 명령 2개·VM 상세 타임라인 절과 새 로컬 DB
-`vm_config_history.db`(공개 DB 10개째, 키 파일 별도), `daemon.conf`의 `[vm_config_history]` 절입니다. 제품 버전 문자열은 `2.2.1` 그대로입니다.
+`vm_config_history.db`(공개 DB 10개째, 키 파일 별도), `daemon.conf`의 `[vm_config_history]` 절입니다. 2026-11-21에는 DPDK VM의
+관리형 vhost port에 VM 단위 PMD 정렬(6.8.1절)을 더했습니다 — `daemon.conf`의 `[dpdk] vhost_pmd_affinity`(기본 `auto`), `dpdk.status`
+응답의 `vhost_pmd_affinity` 관측 객체, 감사 `vm.dpdk_vhost.pmd`이며 CPU 할당기가 PMD 코어를 VM 전용 코어 후보에서 뺍니다.
+제품 버전 문자열은 `2.2.1` 그대로입니다.
 
 **2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
 도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.

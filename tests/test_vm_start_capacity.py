@@ -312,7 +312,7 @@ class VmStartCapacityWiringTests(unittest.TestCase):
 
     def test_inactive_dpdk_callback_removal_is_rejected(self):
         self.mutate("src/modules/dispatcher/handler_vm_start.c",
-                    "return _reconcile_dpdk_vhost_for_start(", "return fixture_skip_dpdk(")
+                    "gboolean ok = _reconcile_dpdk_vhost_for_start(", "gboolean ok = fixture_skip_dpdk(")
 
     def test_post_prepare_check_removal_is_rejected(self):
         self.mutate("src/modules/virt/vm_start_capacity.c",

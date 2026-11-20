@@ -258,6 +258,13 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
   
           
                                    
+gboolean cpu_allocator_allocate_exclusive_ex(CpuAllocator *alloc,
+                                             const gchar  *vm_id,
+                                             guint         numa_node,
+                                             guint         vcpu_count,
+                                             const GArray *exclude,
+                                             GArray      **out_cpus,
+                                             gint         *out_numa_node);
                                                     
   
           

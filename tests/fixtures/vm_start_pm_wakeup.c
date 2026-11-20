@@ -23,6 +23,7 @@
 #include "modules/network/pcv_qos.h"
 #include "modules/network/network_manager.h"
 #include "utils/pcv_validate.h"
+#include "modules/network/dpdk_pmd.h"
 #include <libvirt/virterror.h>
 
 static const gchar *mode, *state_path, *effects_path, *driver;
@@ -127,9 +128,10 @@ int virDomainDestroy(virDomainPtr domain) { (void)domain; effect("DESTROY"); ret
 
 static gboolean _reconcile_dpdk_vhost_for_start(virConnectPtr connection, virDomainPtr *domain,
                                                 const gchar *name, gboolean active,
-                                                const gchar *actor, GError **error)
+                                                PcvDpdkPmdInput *pmd, const gchar *actor, GError **error)
 {
     (void)connection; (void)domain; (void)name; (void)actor;
+    effect(active ? (pmd ? "PMD_INPUT_ACTIVE" : "PMD_NULL_ACTIVE") : (pmd ? "PMD_INPUT_COLD" : "PMD_NULL_COLD"));
     effect(active ? "RECONCILE_ACTIVE" : "RECONCILE_COLD");
     if (g_str_equal(mode, "reconcile-error")) {
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "fixture reconcile failed");
@@ -137,6 +139,16 @@ static gboolean _reconcile_dpdk_vhost_for_start(virConnectPtr connection, virDom
     }
     return TRUE;
 }
+
+void pcv_dpdk_pmd_input_clear(PcvDpdkPmdInput *in) { (void)in; }
+GArray *pcv_dpdk_pmd_cache_snapshot(PcvPmdCacheState *state)
+{
+    effect("PMD_SNAPSHOT");
+    if (state) *state = PCV_PMD_CACHE_EMPTY;
+    return g_array_new(FALSE, FALSE, sizeof(guint));
+}
+gboolean pcv_dpdk_is_available(void) { return FALSE; }
+void pcv_dpdk_pmd_cache_refresh(void) { effect("PMD_REFRESH"); }
 gboolean pcv_vm_start_with_capacity(virDomainPtr *domain, const gchar *root,
                                    PcvVmStartPrepare prepare, gpointer data, GError **error)
 {
@@ -230,15 +242,24 @@ void __wrap_soup_websocket_connection_send_text(SoupWebsocketConnection *connect
     g_ptr_array_add(frames, g_strdup(text));
 }
 gboolean __real_cpu_allocator_allocate_exclusive(CpuAllocator *, const gchar *, guint, guint, GArray **, gint *);
-gboolean __wrap_cpu_allocator_allocate_exclusive(CpuAllocator *alloc, const gchar *name,
-                                                 guint node, guint count, GArray **cpus, gint *actual)
+
+gboolean __real_cpu_allocator_allocate_exclusive_ex(CpuAllocator *, const gchar *, guint, guint,
+                                                    const GArray *, GArray **, gint *);
+gboolean __wrap_cpu_allocator_allocate_exclusive_ex(CpuAllocator *alloc, const gchar *name, guint node,
+                                                    guint count, const GArray *exclude, GArray **cpus,
+                                                    gint *actual)
 {
     effect("ALLOCATE");
     gchar *line = g_strdup_printf("ALLOCATE_COUNT %u", count);
     effect(line);
     g_free(line);
-    return __real_cpu_allocator_allocate_exclusive(alloc, name, node, count, cpus, actual);
+    return __real_cpu_allocator_allocate_exclusive_ex(alloc, name, node, count, exclude, cpus, actual);
 }
+gboolean __wrap_cpu_allocator_allocate_exclusive(CpuAllocator *alloc, const gchar *name,
+                                                 guint node, guint count, GArray **cpus, gint *actual);
+gboolean __wrap_cpu_allocator_allocate_exclusive(CpuAllocator *alloc, const gchar *name,
+                                                 guint node, guint count, GArray **cpus, gint *actual)
+{ return __real_cpu_allocator_allocate_exclusive(alloc, name, node, count, cpus, actual); }
 
 
 void __real_cpu_allocator_free_vm_cores(CpuAllocator *, const gchar *);

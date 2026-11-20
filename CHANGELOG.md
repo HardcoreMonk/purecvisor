@@ -86,10 +86,24 @@
   색인을 고쳤다.
 - (2026-11-20) 가이드 15장 `pcvctl` 단계적 도움말 예시의 전체 명령 수를 실제 출력(33개 그룹·212개 명령, vm 그룹 44)에
   맞췄다(207 → 212).
+- (2026-11-21) **DPDK VM 단위 PMD 정렬:** DPDK VM의 vhost-user 큐 2개를 OVS가 서로 다른 PMD에 나눠 맡기면 게스트의 한
+  TCP 흐름에서 패킷 순서가 섞여 가짜 재전송이 생긴다. 정지 → 시작(`vm.start`) 때 그 VM의 관리형 port `dpdk-v-<vm>`에
+  `other_config:pmd-rxq-affinity`와 소유 표시 `external_ids:purecvisor-pmd`를 QEMU 연결 전에 같은 OVS 트랜잭션으로 써서
+  모든 수신 큐를 PMD 하나에 묶는다. VM 메모리 NUMA의 PMD를 먼저 고르고, `pmd-rxq-isolate=true`면 NUMA마다 PMD 하나를
+  비고정 큐 몫으로 남긴다. 운영자가 직접 건 affinity는 덮거나 지우지 않고, PMD 조회 실패·시간 초과·사후 확인 불일치는
+  경고와 함께 정렬만 건너뛴다(VM은 켜진다). 실행 중 VM의 `vm.start`·`vm.create`·데몬 재시작은 쓰지 않는다. 설정
+  `daemon.conf`의 `[dpdk] vhost_pmd_affinity = auto | off`(기본 `auto`, `vm.start`마다 읽음). CPU 할당기는 PMD 코어(실제
+  PMD ∪ `pmd-cpu-mask`)를 VM 전용 코어 후보에서 뺀다 — PMD를 격리 코어에 둔 호스트는 VM에 줄 전용 코어가 그만큼 줄고
+  모자라면 핀 없이 시작하며 경고에 `excluded_as_pmd=N`이 남는다. 관측은 `dpdk.status`(`pcvctl dpdk status`)의
+  `vhost_pmd_affinity`(VM 이름이 드는 항목은 ADMIN만), 값이 바뀔 때의 감사 `vm.dpdk_vhost.pmd`. 수동 즉시 롤백·부하 큰
+  VM의 PMD 배치·`pmd-cpu-mask` 축소 손실 주의는 가이드 6.8.1절. 새 소스 `src/modules/network/dpdk_pmd.{c,h}`, C 단위 시험
+  `/dpdk_pmd/*`와 `/dpdk/*`·`/cpu_allocator/*` 보강(PMD 배치 fixture `tests/fixtures/dpdk_pmd/`), `check-dpdk-owned-lifecycle`에
+  정적 계약과 그 반사실 시험(`scripts/tests/test_dpdk_owned_lifecycle_pmd.py`)을 더했다.
 - 2026-11-19 변경까지는 `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식
   변경이 없었다. 2026-11-20 VM 구성 변경 이력이 조회 RPC 2개·REST 3개·`pcvctl` 명령 2개와 새 DB `vm_config_history.db`(+ 키
-  파일), `daemon.conf`의 `[vm_config_history]` 절을 더했다(기존 RPC·REST·DB·설정 형식은 그대로다). 제품 버전 문자열은
-  `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
+  파일), `daemon.conf`의 `[vm_config_history]` 절을 더했다(기존 RPC·REST·DB·설정 형식은 그대로다). 2026-11-21 PMD 정렬은
+  `daemon.conf`의 `[dpdk]` 절과 `dpdk.status` 응답의 `vhost_pmd_affinity` 객체를 더했고 RPC·REST·DB는 그대로다. 제품 버전
+  문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
 
 ## 2.2.1 기능 릴리스 — 2026-11-18
 

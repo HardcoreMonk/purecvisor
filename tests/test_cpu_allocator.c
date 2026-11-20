@@ -359,6 +359,121 @@ static void test_cpulist_contains_intersection(void) {
     g_assert_false(cpu_allocator_cpulist_contains(NULL, 0));
 }
 
+static void
+exclude_topology(CpuAllocator *alloc)
+{
+    cpu_allocator_add_core(alloc, 0, 0, 0, FALSE);
+    cpu_allocator_add_core(alloc, 2, 2, 0, TRUE);
+    cpu_allocator_add_core(alloc, 3, 3, 0, TRUE);
+    for (guint c = 20; c <= 23; c++) cpu_allocator_add_core(alloc, c, c, 1, TRUE);
+}
+
+static GArray *
+cores_of(const gchar *cpulist)
+{
+    GArray *a = cpu_allocator_parse_cpulist(cpulist);
+    g_assert_nonnull(a);
+    return a;
+}
+
+static void test_exclude_not_allocated(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    exclude_topology(f->alloc);
+    GArray *exclude = cores_of("20,21");
+    GArray *out = NULL;
+    gint numa = -2;
+    g_assert_true(cpu_allocator_allocate_exclusive_ex(f->alloc, "vm-a", 1, 2, exclude, &out, &numa));
+    g_assert_cmpuint(out->len, ==, 2);
+    g_assert_cmpuint(g_array_index(out, guint, 0), ==, 22);
+    g_assert_cmpuint(g_array_index(out, guint, 1), ==, 23);
+    g_assert_cmpint(numa, ==, 1);
+    free_out(out);
+
+    GArray *exclude2 = cores_of("2,20,21");
+    out = NULL;
+    g_assert_true(cpu_allocator_allocate_exclusive_ex(f->alloc, "vm-b", 1, 1, exclude2, &out, &numa));
+    g_assert_cmpuint(g_array_index(out, guint, 0), ==, 3);
+    free_out(out);
+    g_array_unref(exclude2);
+    g_array_unref(exclude);
+}
+
+static void test_exclude_causes_shortage_all_or_nothing(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    exclude_topology(f->alloc);
+    GArray *exclude = cores_of("2,3,20,21");
+    GArray *out = NULL;
+    g_test_expect_message(NULL, G_LOG_LEVEL_WARNING, "*need 3, available 2*excluded_as_pmd=4*");
+    g_assert_false(cpu_allocator_allocate_exclusive_ex(f->alloc, "vm-a", 1, 3, exclude, &out, NULL));
+    g_test_assert_expected_messages();
+    g_assert_null(out);
+
+    g_assert_true(cpu_allocator_allocate_exclusive_ex(f->alloc, "vm-b", 1, 2, exclude, &out, NULL));
+    g_assert_cmpuint(out->len, ==, 2);
+    free_out(out);
+    g_array_unref(exclude);
+}
+
+static void test_exclude_null_wrapper_equivalent(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    exclude_topology(f->alloc);
+    CpuAllocator *twin = cpu_allocator_new();
+    exclude_topology(twin);
+    GArray *empty = g_array_new(FALSE, FALSE, sizeof(guint));
+    const struct { const gchar *vm; guint numa, n; } reqs[] = {
+        {"a", 1, 2}, {"b", 0, 1}, {"c", 1, 3}, {"d", 0, 2}, {"e", 1, 1}
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(reqs); i++) {
+        GArray *x = NULL, *y = NULL;
+        gint nx = -9, ny = -9;
+        gboolean ok_x = cpu_allocator_allocate_exclusive(f->alloc, reqs[i].vm, reqs[i].numa, reqs[i].n, &x, &nx);
+        gboolean ok_y = cpu_allocator_allocate_exclusive_ex(twin, reqs[i].vm, reqs[i].numa, reqs[i].n,
+                                                            i % 2 ? empty : NULL, &y, &ny);
+        g_assert_cmpint(ok_x, ==, ok_y);
+        if (ok_x) {
+            g_assert_cmpuint(x->len, ==, y->len);
+            for (guint k = 0; k < x->len; k++)
+                g_assert_cmpuint(g_array_index(x, guint, k), ==, g_array_index(y, guint, k));
+            g_assert_cmpint(nx, ==, ny);
+        }
+        free_out(x);
+        free_out(y);
+    }
+    g_array_unref(empty);
+    cpu_allocator_free(twin);
+}
+
+static void test_exclude_idempotent_unchanged_with_overlap(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    exclude_topology(f->alloc);
+    GArray *out = NULL;
+    g_assert_true(cpu_allocator_allocate_exclusive(f->alloc, "vm-old", 1, 2, &out, NULL));
+    g_assert_cmpuint(g_array_index(out, guint, 0), ==, 20);
+    free_out(out);
+    GArray *exclude = cores_of("20,21");
+    out = NULL;
+    g_assert_true(cpu_allocator_allocate_exclusive_ex(f->alloc, "vm-old", 1, 2, exclude, &out, NULL));
+    g_assert_cmpuint(g_array_index(out, guint, 0), ==, 20);
+    g_assert_cmpuint(g_array_index(out, guint, 1), ==, 21);
+    free_out(out);
+    g_array_unref(exclude);
+}
+
+static void test_exclude_numa_fallback_respects_exclude(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    exclude_topology(f->alloc);
+    GArray *exclude = cores_of("2");
+    GArray *out = NULL;
+    gint numa = -2;
+    g_assert_true(cpu_allocator_allocate_exclusive_ex(f->alloc, "vm-a", 0, 2, exclude, &out, &numa));
+    g_assert_cmpuint(out->len, ==, 2);
+    g_assert_cmpuint(g_array_index(out, guint, 0), ==, 3);
+    g_assert_cmpuint(g_array_index(out, guint, 1), ==, 20);
+    g_assert_cmpint(numa, ==, -1);
+    free_out(out);
+    g_array_unref(exclude);
+}
+
 void test_cpu_allocator_register(void) {
     g_test_add_func("/cpu_allocator/parse_cpulist/empty",        test_parse_cpulist_empty);
     g_test_add_func("/cpu_allocator/parse_cpulist/single",       test_parse_cpulist_single);
@@ -385,5 +500,10 @@ void test_cpu_allocator_register(void) {
     CPU_TEST("free_nonexistent_vm",         test_free_nonexistent_vm);
     CPU_TEST("restart_no_leak",             test_restart_no_leak);
     CPU_TEST("free_wrong_key_leaks",        test_free_wrong_key_leaks);
+    CPU_TEST("exclude/excluded_not_allocated",                test_exclude_not_allocated);
+    CPU_TEST("exclude/exclude_causes_shortage_all_or_nothing", test_exclude_causes_shortage_all_or_nothing);
+    CPU_TEST("exclude/null_wrapper_equivalent",               test_exclude_null_wrapper_equivalent);
+    CPU_TEST("exclude/idempotent_unchanged_with_overlap",     test_exclude_idempotent_unchanged_with_overlap);
+    CPU_TEST("exclude/numa_fallback_respects_exclude",        test_exclude_numa_fallback_respects_exclude);
 #undef CPU_TEST
 }

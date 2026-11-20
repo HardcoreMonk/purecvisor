@@ -71,6 +71,10 @@ reconcile_interval_sec = 300
 
 [vm_config_history]
 
+[dpdk]
+
+vhost_pmd_affinity = auto
+
 [update]
                                                           
                                                        

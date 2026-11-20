@@ -441,6 +441,22 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
                                           guint         vcpu_count,
                                           GArray      **out_cpus,
                                           gint         *out_numa_node) {
+    return cpu_allocator_allocate_exclusive_ex(alloc, vm_id, numa_node, vcpu_count, NULL,
+                                               out_cpus, out_numa_node);
+}
+
+static gboolean _slot_candidate(const CoreSlot *slot, const GArray *exclude) {
+    return slot->is_isolated && slot->owner_vm_id == NULL &&
+           !cpu_allocator_cpulist_contains(exclude, slot->logical_id);
+}
+
+gboolean cpu_allocator_allocate_exclusive_ex(CpuAllocator *alloc,
+                                             const gchar  *vm_id,
+                                             guint         numa_node,
+                                             guint         vcpu_count,
+                                             const GArray *exclude,
+                                             GArray      **out_cpus,
+                                             gint         *out_numa_node) {
     if (!alloc || !vm_id || vcpu_count == 0) return FALSE;
 
     g_mutex_lock(&alloc->mutex);
@@ -483,7 +499,7 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
     for (guint i = 0; i < alloc->cores->len && candidates->len < vcpu_count; i++) {
         CoreSlot *slot = &g_array_index(alloc->cores, CoreSlot, i);
                                               
-        if (slot->is_isolated && slot->owner_vm_id == NULL && slot->numa_node == numa_node) {
+        if (_slot_candidate(slot, exclude) && slot->numa_node == numa_node) {
             g_ptr_array_add(candidates, slot);
         }
     }
@@ -517,7 +533,7 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
                                              
         for (guint i = 0; i < alloc->cores->len && candidates->len < vcpu_count; i++) {
             CoreSlot *slot = &g_array_index(alloc->cores, CoreSlot, i);
-            if (slot->is_isolated && slot->owner_vm_id == NULL && slot->numa_node == numa_node) {
+            if (_slot_candidate(slot, exclude) && slot->numa_node == numa_node) {
                 g_ptr_array_add(candidates, slot);
             }
         }
@@ -525,7 +541,7 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
                                                        
         for (guint i = 0; i < alloc->cores->len && candidates->len < vcpu_count; i++) {
             CoreSlot *slot = &g_array_index(alloc->cores, CoreSlot, i);
-            if (slot->is_isolated && slot->owner_vm_id == NULL && slot->numa_node != numa_node) {
+            if (_slot_candidate(slot, exclude) && slot->numa_node != numa_node) {
                 g_ptr_array_add(candidates, slot);
             }
         }
@@ -535,8 +551,14 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
                                              
                                                
                                                        
+        guint excluded = 0;
+        for (guint i = 0; exclude && i < alloc->cores->len; i++) {
+            CoreSlot *slot = &g_array_index(alloc->cores, CoreSlot, i);
+            if (slot->is_isolated && !slot->owner_vm_id && cpu_allocator_cpulist_contains(exclude, slot->logical_id))
+                excluded++;
+        }
         g_warning("[cpu_allocator] Not enough isolated cores for VM '%s': "
-                  "need %u, available %u", vm_id, vcpu_count, candidates->len);
+                  "need %u, available %u excluded_as_pmd=%u", vm_id, vcpu_count, candidates->len, excluded);
         g_ptr_array_free(candidates, TRUE);
         g_mutex_unlock(&alloc->mutex);
         return FALSE;

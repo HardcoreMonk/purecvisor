@@ -99,9 +99,16 @@ typedef struct {
     gboolean fail_physical_add;
     gboolean fail_mtu_wait;
     gboolean ignore_vhost_config;
+    gboolean ignore_pmd_keys;
+    gboolean fail_pmd_remove;
+    gboolean fail_marker_scan;
     guint mtu;
     gchar *vhost_type;
     gchar *vhost_path;
+    gchar *vhost_affinity;
+    gchar *vhost_marker;
+    const gchar *other_markers;
+    gchar **last_mutation;
     GString *commands;
 } DpdkOvsFixture;
 
@@ -112,6 +119,15 @@ dpdk_argv_has(const gchar * const *argv, const gchar *token)
         if (g_strcmp0(argv[i], token) == 0)
             return TRUE;
     }
+    return FALSE;
+}
+
+static gboolean
+dpdk_argv_prefix(const gchar * const *argv, const gchar *prefix)
+{
+    for (guint i = 0; argv && argv[i]; i++)
+        if (g_str_has_prefix(argv[i], prefix))
+            return TRUE;
     return FALSE;
 }
 
@@ -130,6 +146,32 @@ dpdk_fixture_set_out(gchar **stdout_out, const gchar *value)
 {
     if (stdout_out)
         *stdout_out = g_strdup(value ? value : "");
+}
+
+static gchar *
+dpdk_fixture_unquote(const gchar *v)
+{
+    gsize n = strlen(v);
+    return n >= 2 && v[0] == '"' && v[n - 1] == '"' ? g_strndup(v + 1, n - 2) : g_strdup(v);
+}
+
+static void
+dpdk_fixture_record_pmd_keys(DpdkOvsFixture *f, const gchar * const *argv)
+{
+    for (guint i = 0; argv && argv[i]; i++) {
+        if (!f->ignore_pmd_keys && g_str_has_prefix(argv[i], "other_config:pmd-rxq-affinity=")) {
+            g_free(f->vhost_affinity);
+            f->vhost_affinity = dpdk_fixture_unquote(argv[i] + strlen("other_config:pmd-rxq-affinity="));
+        } else if (!f->ignore_pmd_keys && g_str_has_prefix(argv[i], "external_ids:purecvisor-pmd=")) {
+            g_free(f->vhost_marker);
+            f->vhost_marker = dpdk_fixture_unquote(argv[i] + strlen("external_ids:purecvisor-pmd="));
+        } else if (g_strcmp0(argv[i], "remove") == 0 && argv[i + 1] && argv[i + 2] && argv[i + 3] && argv[i + 4]) {
+            if (g_strcmp0(argv[i + 4], "pmd-rxq-affinity") == 0) g_clear_pointer(&f->vhost_affinity, g_free);
+            if (g_strcmp0(argv[i + 4], "purecvisor-pmd") == 0) g_clear_pointer(&f->vhost_marker, g_free);
+        }
+    }
+    g_strfreev(f->last_mutation);
+    f->last_mutation = g_strdupv((gchar **)argv);
 }
 
 static void
@@ -185,6 +227,23 @@ dpdk_ovs_fixture_run(const gchar * const *argv, gchar **stdout_out,
             g_free(mtu);
         } else
             dpdk_fixture_set_out(stdout_out, "");
+    } else if (dpdk_argv_has(argv, "find") && dpdk_argv_has(argv, "Interface") &&
+               dpdk_argv_prefix(argv, "--columns=name,external_ids")) {
+
+        if (f->fail_marker_scan) {
+            g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "injected marker scan failure");
+            g_free(joined);
+            return FALSE;
+        }
+        GString *rows = g_string_new(NULL);
+        if (f->vhost_exists)
+            g_string_append_printf(rows, "dpdk-v-vm1\npurecvisor-bridge=dpdk-br0 purecvisor-owner=dpdk-vhost%s%s%s purecvisor-vm=vm1\n%s%s%s\n\n",
+                                   f->vhost_marker ? " purecvisor-pmd=\"" : "", f->vhost_marker ? f->vhost_marker : "",
+                                   f->vhost_marker ? "\"" : "", f->vhost_affinity ? "pmd-rxq-affinity=\"" : "",
+                                   f->vhost_affinity ? f->vhost_affinity : "", f->vhost_affinity ? "\"" : "");
+        if (f->other_markers) g_string_append(rows, f->other_markers);
+        dpdk_fixture_set_out(stdout_out, rows->str);
+        g_string_free(rows, TRUE);
     } else if (dpdk_argv_has(argv, "find") && dpdk_argv_has(argv, "Interface")) {
         gboolean vhost_query = joined && strstr(joined, "purecvisor-owner=dpdk-vhost");
         const gchar *condition = dpdk_argv_after(argv, "Interface");
@@ -212,8 +271,20 @@ dpdk_ovs_fixture_run(const gchar * const *argv, gchar **stdout_out,
             dpdk_fixture_set_out(stdout_out, f->vhost_type);
         else if (vhost && g_strcmp0(column, "options:vhost-server-path") == 0)
             dpdk_fixture_set_out(stdout_out, f->vhost_path);
-        else
-            dpdk_fixture_set_out(stdout_out, "");
+        else {
+
+            const gchar *value = vhost && g_strcmp0(column, "other_config:pmd-rxq-affinity") == 0 ? f->vhost_affinity :
+                                 vhost && g_strcmp0(column, "external_ids:purecvisor-pmd") == 0 ? f->vhost_marker : NULL;
+            if (!value && !dpdk_argv_has(argv, "--if-exists")) {
+                g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                            "ovs-vsctl: no key \"%s\" in Interface record \"%s\"", column, iface ? iface : "");
+                g_free(joined);
+                return FALSE;
+            }
+            gchar *quoted = value ? g_strdup_printf("\"%s\"\n", value) : g_strdup("");
+            dpdk_fixture_set_out(stdout_out, quoted);
+            g_free(quoted);
+        }
     } else if (dpdk_argv_has(argv, "iface-to-br")) {
         dpdk_fixture_set_out(stdout_out, "dpdk-br0\n");
     } else if (dpdk_argv_has(argv, "add-br")) {
@@ -233,6 +304,7 @@ dpdk_ovs_fixture_run(const gchar * const *argv, gchar **stdout_out,
             f->vhost_exists = TRUE;
             if (!f->ignore_vhost_config)
                 dpdk_fixture_record_vhost_config(f, argv);
+            dpdk_fixture_record_pmd_keys(f, argv);
         } else {
             f->physical_exists = TRUE;
         }
@@ -242,6 +314,16 @@ dpdk_ovs_fixture_run(const gchar * const *argv, gchar **stdout_out,
         const gchar *iface = dpdk_argv_after(argv, "Interface");
         if (!f->ignore_vhost_config && iface && g_str_has_prefix(iface, "dpdk-v-"))
             dpdk_fixture_record_vhost_config(f, argv);
+        if (iface && g_str_has_prefix(iface, "dpdk-v-"))
+            dpdk_fixture_record_pmd_keys(f, argv);
+        dpdk_fixture_set_out(stdout_out, "");
+    } else if (dpdk_argv_has(argv, "remove") && dpdk_argv_has(argv, "Interface")) {
+        if (f->fail_pmd_remove) {
+            g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "injected remove failure");
+            g_free(joined);
+            return FALSE;
+        }
+        dpdk_fixture_record_pmd_keys(f, argv);
         dpdk_fixture_set_out(stdout_out, "");
     } else if (dpdk_argv_has(argv, "wait-until")) {
         if (f->fail_mtu_wait) {
@@ -288,6 +370,9 @@ dpdk_ovs_fixture_end(DpdkOvsFixture *fixture)
     pcv_dpdk_test_set_unbind_paths(NULL, NULL);
     g_free(fixture->vhost_type);
     g_free(fixture->vhost_path);
+    g_free(fixture->vhost_affinity);
+    g_free(fixture->vhost_marker);
+    g_strfreev(fixture->last_mutation);
     g_string_free(fixture->commands, TRUE);
 }
 
@@ -956,7 +1041,7 @@ test_dpdk_active_legacy_endpoint_is_closed_and_exact(void)
     fixture.bridge_exists = TRUE;
     GError *error = NULL;
     g_assert_true(pcv_dpdk_vm_port_ensure_endpoint(
-        "dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_ACTIVE_LEGACY, &error));
+        "dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_ACTIVE_LEGACY, NULL, NULL, &error));
     g_assert_no_error(error);
     g_assert_nonnull(strstr(fixture.commands->str,
         "options:vhost-server-path=/var/run/purecvisor/vhost-vm1.sock"));
@@ -1014,7 +1099,7 @@ test_dpdk_vhost_endpoint_enum_rejects_unknown_before_ovs(void)
     dpdk_ovs_fixture_begin(&fixture);
     GError *error = NULL;
     g_assert_false(pcv_dpdk_vm_port_ensure_endpoint(
-        "dpdk-br0", "vm1", (PcvDpdkVhostEndpoint)99, &error));
+        "dpdk-br0", "vm1", (PcvDpdkVhostEndpoint)99, NULL, NULL, &error));
     g_assert_nonnull(error);
     g_assert_cmpuint(fixture.commands->len, ==, 0);
     g_clear_error(&error);
@@ -1047,6 +1132,470 @@ static void test_dpdk_vm_port_ensure_rejects_non_dpdk_bridge(void) {
     g_assert_false(fixture.vhost_exists);
     g_assert_null(strstr(fixture.commands->str, " add-port "));
     g_clear_error(&error);
+    dpdk_ovs_fixture_end(&fixture);
+}
+
+static PcvDpdkPmdInput
+pmd_input_two_pmd(void)
+{
+    PcvDpdkPmdInput in = { .mode = PCV_PMD_MODE_AUTO, .vm_numa = 1, .nq = 2, .isolate = TRUE, .query_ok = TRUE };
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(
+        "pmd thread numa_id 1 core_id 20:\n  isolated : false\n"
+        "  port: dpdk-p-dpdk-br0   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n"
+        "pmd thread numa_id 1 core_id 21:\n  isolated : false\n", &in.pmds, NULL));
+    return in;
+}
+
+static void
+test_dpdk_pmd_fixture_missing_key_errors(void)
+{
+    DpdkOvsFixture fixture;
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    gchar *out = NULL;
+    GError *error = NULL;
+    const gchar *plain[] = {"ovs-vsctl", "--timeout=10", "get", "Interface", "dpdk-v-vm1",
+                            "other_config:pmd-rxq-affinity", NULL};
+    g_assert_false(dpdk_ovs_fixture_run(plain, &out, NULL, &error, &fixture));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_free(out);
+
+    PcvDpdkPmdInput in = pmd_input_two_pmd();
+    PcvDpdkPmdPlan plan = { 0 };
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, &plan, &error));
+    g_assert_no_error(error);
+    g_assert_cmpint(plan.action, ==, PCV_PMD_APPLY);
+    g_assert_cmpstr(fixture.vhost_affinity, ==, "0:21,1:21");
+    g_assert_cmpstr(fixture.vhost_marker, ==, "21");
+    pcv_dpdk_pmd_plan_clear(&plan);
+
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, &plan, &error));
+    g_assert_no_error(error);
+    g_assert_cmpint(plan.action, ==, PCV_PMD_APPLY);
+    g_assert_false(plan.changed);
+    g_assert_nonnull(strstr(fixture.commands->str,
+        "ovs-vsctl --timeout=10 --bare --columns=name,external_ids,other_config find Interface "
+        "external_ids:purecvisor-owner=dpdk-vhost"));
+    pcv_dpdk_pmd_plan_clear(&plan);
+    dpdk_ovs_fixture_end(&fixture);
+
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.vhost_exists = TRUE;
+    fixture.vhost_type = g_strdup("dpdkvhostuserclient");
+    fixture.vhost_path = g_strdup("/run/libvirt/qemu/purecvisor-vhost-vm1.sock");
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, &plan, &error));
+    g_assert_no_error(error);
+    g_assert_cmpint(plan.action, ==, PCV_PMD_APPLY);
+    g_assert_true(plan.changed);
+    g_assert_cmpstr(fixture.vhost_affinity, ==, "0:21,1:21");
+    g_assert_nonnull(strstr(fixture.commands->str,
+        "ovs-vsctl --timeout=10 --if-exists get Interface dpdk-v-vm1 other_config:pmd-rxq-affinity"));
+    g_assert_nonnull(strstr(fixture.commands->str,
+        "ovs-vsctl --timeout=10 --if-exists get Interface dpdk-v-vm1 external_ids:purecvisor-pmd"));
+    pcv_dpdk_pmd_plan_clear(&plan);
+    pcv_dpdk_pmd_input_clear(&in);
+    dpdk_ovs_fixture_end(&fixture);
+}
+
+static gint
+pmd_argv_index(gchar **argv, const gchar *token)
+{
+    for (gint i = 0; argv && argv[i]; i++)
+        if (g_strcmp0(argv[i], token) == 0) return i;
+    return -1;
+}
+
+static void
+pmd_assert_no_keys(gchar **argv)
+{
+    for (guint i = 0; argv && argv[i]; i++) {
+        g_assert_null(strstr(argv[i], "pmd-rxq-affinity"));
+        g_assert_null(strstr(argv[i], "purecvisor-pmd"));
+    }
+}
+
+static void
+test_dpdk_pmd_argv_apply_new(void)
+{
+    DpdkOvsFixture fixture;
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.mtu = 9000;
+    PcvDpdkPmdInput in = pmd_input_two_pmd();
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, NULL, NULL));
+
+    const gchar *want[] = {
+        "--timeout=10", "--", "add-port", "dpdk-br0", "dpdk-v-vm1", "--", "set", "Interface",
+        "dpdk-v-vm1", "type=dpdkvhostuserclient",
+        "options:vhost-server-path=/run/libvirt/qemu/purecvisor-vhost-vm1.sock", "mtu_request=9000",
+        "external_ids:purecvisor-owner=dpdk-vhost", "external_ids:purecvisor-bridge=dpdk-br0",
+        "external_ids:purecvisor-vm=vm1", "other_config:pmd-rxq-affinity=\"0:21,1:21\"",
+        "external_ids:purecvisor-pmd=21", NULL
+    };
+    g_assert_cmpstrv(fixture.last_mutation + 1, want);
+    pcv_dpdk_pmd_input_clear(&in);
+    dpdk_ovs_fixture_end(&fixture);
+}
+
+static void
+test_dpdk_pmd_argv_apply_existing(void)
+{
+    DpdkOvsFixture fixture;
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.vhost_exists = TRUE;
+    fixture.vhost_type = g_strdup("dpdkvhostuserclient");
+    fixture.vhost_path = g_strdup("/run/libvirt/qemu/purecvisor-vhost-vm1.sock");
+    PcvDpdkPmdInput in = pmd_input_two_pmd();
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, NULL, NULL));
+    g_assert_cmpstr(fixture.last_mutation[2], ==, "set");
+    gint vm = pmd_argv_index(fixture.last_mutation, "external_ids:purecvisor-vm=vm1");
+    g_assert_cmpint(vm, >, 0);
+    g_assert_cmpstr(fixture.last_mutation[vm + 1], ==, "other_config:pmd-rxq-affinity=\"0:21,1:21\"");
+    g_assert_cmpstr(fixture.last_mutation[vm + 2], ==, "external_ids:purecvisor-pmd=21");
+    g_assert_null(fixture.last_mutation[vm + 3]);
+    pcv_dpdk_pmd_input_clear(&in);
+    dpdk_ovs_fixture_end(&fixture);
+}
+
+static void
+test_dpdk_pmd_argv_clear_operator_keep_skip(void)
+{
+    const struct { const gchar *name; PcvPmdMode mode; const gchar *aff; const gchar *marker;
+                   gboolean null_input; gboolean query_ok; gboolean clear; const gchar *reason; } cases[] = {
+        {"clear", PCV_PMD_MODE_OFF, "0:21,1:21", "21", FALSE, TRUE, TRUE, "off"},
+        {"operator", PCV_PMD_MODE_AUTO, "0:20,1:20", NULL, FALSE, TRUE, FALSE, "operator"},
+        {"operator_off", PCV_PMD_MODE_OFF, "0:20,1:21", "21", FALSE, TRUE, FALSE, "operator"},
+        {"keep_null", PCV_PMD_MODE_AUTO, "0:21,1:21", "21", TRUE, TRUE, FALSE, NULL},
+        {"skip_query", PCV_PMD_MODE_AUTO, "0:21,1:21", "21", FALSE, FALSE, FALSE, "pmd-query-failed"},
+        {"skip_invalid", PCV_PMD_MODE_INVALID, "0:21,1:21", "21", FALSE, TRUE, FALSE, "config-invalid"},
+    };
+    for (guint c = 0; c < G_N_ELEMENTS(cases); c++) {
+        g_test_message("case %s", cases[c].name);
+        DpdkOvsFixture fixture;
+        dpdk_ovs_fixture_begin(&fixture);
+        fixture.bridge_exists = TRUE;
+        fixture.vhost_exists = TRUE;
+        fixture.vhost_type = g_strdup("dpdkvhostuserclient");
+        fixture.vhost_path = g_strdup("/run/libvirt/qemu/purecvisor-vhost-vm1.sock");
+        fixture.vhost_affinity = g_strdup(cases[c].aff);
+        fixture.vhost_marker = g_strdup(cases[c].marker);
+        PcvDpdkPmdInput in = pmd_input_two_pmd();
+        in.mode = cases[c].mode;
+        in.query_ok = cases[c].query_ok;
+        PcvDpdkPmdPlan plan = { 0 };
+        GError *error = NULL;
+        g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                       cases[c].null_input ? NULL : &in, &plan, &error));
+        g_assert_no_error(error);
+        g_assert_cmpstr(plan.reason, ==, cases[c].reason);
+        if (cases[c].clear) {
+            gint rm = pmd_argv_index(fixture.last_mutation, "remove");
+            g_assert_cmpint(rm, >, 0);
+            const gchar *tail[] = {"--", "remove", "Interface", "dpdk-v-vm1", "other_config", "pmd-rxq-affinity",
+                                   "--", "remove", "Interface", "dpdk-v-vm1", "external_ids", "purecvisor-pmd", NULL};
+            g_assert_cmpstrv(fixture.last_mutation + rm - 1, tail);
+            g_assert_null(fixture.vhost_affinity);
+            g_assert_null(fixture.vhost_marker);
+        } else {
+            pmd_assert_no_keys(fixture.last_mutation);
+            g_assert_cmpstr(fixture.vhost_affinity, ==, cases[c].aff);
+        }
+        if (cases[c].null_input)
+            g_assert_null(strstr(fixture.commands->str, "pmd-rxq-affinity"));
+        pcv_dpdk_pmd_plan_clear(&plan);
+        pcv_dpdk_pmd_input_clear(&in);
+        dpdk_ovs_fixture_end(&fixture);
+    }
+}
+
+static void
+test_dpdk_pmd_verify_mismatch_skip(void)
+{
+    DpdkOvsFixture fixture;
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.ignore_pmd_keys = TRUE;
+    PcvDpdkPmdInput in = pmd_input_two_pmd();
+    PcvDpdkPmdPlan plan = { 0 };
+    GError *error = NULL;
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, &plan, &error));
+    g_assert_no_error(error);
+    g_assert_cmpint(plan.action, ==, PCV_PMD_SKIP);
+    g_assert_cmpstr(plan.reason, ==, "verify-failed");
+    gchar *detail = pcv_dpdk_pmd_audit_detail(&plan);
+    g_assert_cmpstr(detail, ==, "cleared reason=verify-failed");
+    g_free(detail);
+    g_assert_true(fixture.vhost_exists);
+    gchar **parts = g_strsplit(fixture.commands->str,
+        "-- remove Interface dpdk-v-vm1 other_config pmd-rxq-affinity -- remove Interface dpdk-v-vm1 "
+        "external_ids purecvisor-pmd", -1);
+    g_assert_cmpuint(g_strv_length(parts), ==, 2);
+    g_strfreev(parts);
+    pcv_dpdk_pmd_plan_clear(&plan);
+    dpdk_ovs_fixture_end(&fixture);
+
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.ignore_pmd_keys = TRUE;
+    fixture.fail_pmd_remove = TRUE;
+    g_assert_false(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                    &in, NULL, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_false(fixture.vhost_exists);
+    pcv_dpdk_pmd_input_clear(&in);
+    dpdk_ovs_fixture_end(&fixture);
+}
+
+static void
+test_dpdk_pmd_marker_scan_failed(void)
+{
+    DpdkOvsFixture fixture;
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.fail_marker_scan = TRUE;
+    PcvDpdkPmdInput in = pmd_input_two_pmd();
+    PcvDpdkPmdPlan plan = { 0 };
+    GError *error = NULL;
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, &plan, &error));
+    g_assert_no_error(error);
+    g_assert_cmpstr(plan.reason, ==, "pmd-query-failed");
+    pmd_assert_no_keys(fixture.last_mutation);
+    g_assert_true(fixture.vhost_exists);
+    pcv_dpdk_pmd_plan_clear(&plan);
+    pcv_dpdk_pmd_input_clear(&in);
+    dpdk_ovs_fixture_end(&fixture);
+}
+
+typedef struct {
+    GMutex mu;
+    GHashTable *markers;
+    GHashTable *ports;
+} PmdMultiFx;
+
+static gboolean
+pmd_multi_run(const gchar * const *argv, gchar **out, gchar **err, GError **error, gpointer data)
+{
+    PmdMultiFx *f = data;
+    (void)error;
+    if (err) *err = g_strdup("");
+    gchar *result = NULL;
+    const gchar *last = argv[g_strv_length((gchar **)argv) - 1];
+    if (dpdk_argv_has(argv, "find") && dpdk_argv_has(argv, "Bridge")) result = g_strdup("dpdk-br0\n");
+    else if (dpdk_argv_has(argv, "br-get-external-id"))
+        result = g_strdup(g_strcmp0(last, "purecvisor-mtu") == 0 ? "1500\n" : "dpdk-bridge\n");
+    else if (dpdk_argv_has(argv, "get") && dpdk_argv_has(argv, "Bridge")) result = g_strdup("netdev\n");
+    else if (dpdk_argv_has(argv, "find") && dpdk_argv_prefix(argv, "--columns=name,external_ids")) {
+        g_usleep(50 * G_TIME_SPAN_MILLISECOND);
+        GString *rows = g_string_new(NULL);
+        g_mutex_lock(&f->mu);
+        GHashTableIter it; gpointer k, v;
+        g_hash_table_iter_init(&it, f->markers);
+        while (g_hash_table_iter_next(&it, &k, &v))
+            g_string_append_printf(rows, "%s\npurecvisor-owner=dpdk-vhost purecvisor-pmd=\"%s\"\n"
+                                   "pmd-rxq-affinity=\"0:%s,1:%s\"\n\n",
+                                   (gchar *)k, (gchar *)v, (gchar *)v, (gchar *)v);
+        g_mutex_unlock(&f->mu);
+        result = g_string_free(rows, FALSE);
+    } else if (dpdk_argv_has(argv, "find")) {
+        const gchar *cond = dpdk_argv_after(argv, "Interface");
+        g_mutex_lock(&f->mu);
+        gboolean known = cond && g_hash_table_contains(f->ports, cond + strlen("name="));
+        g_mutex_unlock(&f->mu);
+        result = g_strdup_printf("%s\n", known ? cond + strlen("name=") : "");
+    } else if (dpdk_argv_has(argv, "iface-to-br")) {
+        result = g_strdup("dpdk-br0\n");
+    } else if (dpdk_argv_has(argv, "add-port") ||
+               (dpdk_argv_has(argv, "set") && dpdk_argv_has(argv, "Interface"))) {
+        const gchar *port = dpdk_argv_after(argv, "Interface");
+        g_mutex_lock(&f->mu);
+        g_hash_table_add(f->ports, g_strdup(port));
+        for (guint i = 0; argv[i]; i++)
+            if (g_str_has_prefix(argv[i], "external_ids:purecvisor-pmd="))
+                g_hash_table_insert(f->markers, g_strdup(port), g_strdup(argv[i] + strlen("external_ids:purecvisor-pmd=")));
+        g_mutex_unlock(&f->mu);
+        result = g_strdup("");
+    } else if (dpdk_argv_has(argv, "get") && dpdk_argv_has(argv, "Interface")) {
+        const gchar *port = dpdk_argv_after(argv, "Interface");
+        g_mutex_lock(&f->mu);
+        if (g_strcmp0(last, "type") == 0) result = g_strdup("dpdkvhostuserclient\n");
+        else if (g_strcmp0(last, "options:vhost-server-path") == 0)
+            result = g_strdup_printf("\"/run/libvirt/qemu/purecvisor-vhost-%s.sock\"\n", port + strlen("dpdk-v-"));
+        else if (g_strcmp0(last, "external_ids:purecvisor-pmd") == 0) {
+            const gchar *c = g_hash_table_lookup(f->markers, port);
+            result = c ? g_strdup_printf("\"%s\"\n", c) : g_strdup("");
+        }
+        else if (g_strcmp0(last, "other_config:pmd-rxq-affinity") == 0) {
+            const gchar *c = g_hash_table_lookup(f->markers, port);
+            result = c ? g_strdup_printf("\"0:%s,1:%s\"\n", c, c) : g_strdup("");
+        } else if (g_strcmp0(last, "external_ids:purecvisor-owner") == 0) result = g_strdup("dpdk-vhost\n");
+        else if (g_strcmp0(last, "external_ids:purecvisor-bridge") == 0) result = g_strdup("dpdk-br0\n");
+        else if (g_strcmp0(last, "external_ids:purecvisor-vm") == 0)
+            result = g_strdup_printf("%s\n", port + strlen("dpdk-v-"));
+        else result = g_strdup("");
+        g_mutex_unlock(&f->mu);
+    } else result = g_strdup("");
+    if (out) *out = result; else g_free(result);
+    return TRUE;
+}
+
+typedef struct { const gchar *vm; PcvDpdkPmdPlan plan; gboolean ok; } PmdRaceArg;
+
+static gpointer
+pmd_race_worker(gpointer data)
+{
+    PmdRaceArg *a = data;
+    PcvDpdkPmdInput in = { .mode = PCV_PMD_MODE_AUTO, .vm_numa = 1, .nq = 2, .isolate = TRUE, .query_ok = TRUE };
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(
+        "pmd thread numa_id 1 core_id 20:\n  isolated : false\n"
+        "  port: dpdk-p-dpdk-br0   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n"
+        "pmd thread numa_id 1 core_id 21:\n  isolated : false\n"
+        "pmd thread numa_id 1 core_id 22:\n  isolated : false\n", &in.pmds, NULL));
+    a->ok = pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", a->vm, PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                             &in, &a->plan, NULL);
+    pcv_dpdk_pmd_input_clear(&in);
+    return NULL;
+}
+
+static void
+test_dpdk_pmd_concurrent_choose(void)
+{
+    PmdMultiFx f = { 0 };
+    g_mutex_init(&f.mu);
+    f.markers = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    f.ports = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    pcv_dpdk_test_set_unbind_paths("/nonexistent-pcv-dpdk-test", NULL);
+    pcv_dpdk_test_set_ovs_runner(pmd_multi_run, &f, 1);
+    PmdRaceArg a = { .vm = "vma" }, b = { .vm = "vmb" };
+    GThread *ta = g_thread_new("pmd-a", pmd_race_worker, &a);
+    GThread *tb = g_thread_new("pmd-b", pmd_race_worker, &b);
+    g_thread_join(ta);
+    g_thread_join(tb);
+    g_assert_true(a.ok && b.ok);
+    g_assert_cmpint(a.plan.action, ==, PCV_PMD_APPLY);
+    g_assert_cmpint(b.plan.action, ==, PCV_PMD_APPLY);
+    g_assert_cmpuint(a.plan.core, !=, b.plan.core);
+    g_assert_cmpuint(MIN(a.plan.core, b.plan.core), ==, 21);
+    g_assert_cmpuint(MAX(a.plan.core, b.plan.core), ==, 22);
+    pcv_dpdk_pmd_plan_clear(&a.plan);
+    pcv_dpdk_pmd_plan_clear(&b.plan);
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, -1);
+    pcv_dpdk_test_set_unbind_paths(NULL, NULL);
+    g_hash_table_unref(f.markers);
+    g_hash_table_unref(f.ports);
+    g_mutex_clear(&f.mu);
+}
+
+static void
+test_dpdk_pmd_two_phase_stale_snapshot(void)
+{
+    PmdMultiFx f = { 0 };
+    g_mutex_init(&f.mu);
+    f.markers = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    f.ports = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    g_hash_table_add(f.ports, g_strdup("dpdk-v-vma"));
+    g_hash_table_insert(f.markers, g_strdup("dpdk-v-vma"), g_strdup("20"));
+    pcv_dpdk_test_set_unbind_paths("/nonexistent-pcv-dpdk-test", NULL);
+    pcv_dpdk_test_set_ovs_runner(pmd_multi_run, &f, 1);
+    const gchar *snap =
+        "pmd thread numa_id 1 core_id 20:\n  isolated : true\n"
+        "  port: dpdk-v-vma   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n"
+        "  port: dpdk-v-vma   queue-id:  1 (enabled)   pmd usage: NOT AVAIL\n"
+        "pmd thread numa_id 1 core_id 21:\n  isolated : false\n"
+        "  port: dpdk-p-dpdk-br0   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n";
+    PcvDpdkPmdInput ina = { .mode = PCV_PMD_MODE_AUTO, .vm_numa = 1, .nq = 2, .isolate = TRUE, .query_ok = TRUE };
+    PcvDpdkPmdInput inb = ina;
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(snap, &ina.pmds, NULL));
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(snap, &inb.pmds, NULL));
+    PcvDpdkPmdPlan pa = { 0 }, pb = { 0 };
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vmb", PCV_DPDK_VHOST_ENDPOINT_CANONICAL, &inb, &pb, NULL));
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vma", PCV_DPDK_VHOST_ENDPOINT_CANONICAL, &ina, &pa, NULL));
+    g_test_message("vmb %s %u, vma %s %u", pb.reason, pb.core, pa.reason, pa.core);
+    const gchar *ma = g_hash_table_lookup(f.markers, "dpdk-v-vma"), *mb = g_hash_table_lookup(f.markers, "dpdk-v-vmb");
+    g_assert_false((g_strcmp0(ma, "20") == 0 && g_strcmp0(mb, "21") == 0) ||
+                   (g_strcmp0(ma, "21") == 0 && g_strcmp0(mb, "20") == 0));
+    pcv_dpdk_pmd_plan_clear(&pa);
+    pcv_dpdk_pmd_plan_clear(&pb);
+    pcv_dpdk_pmd_input_clear(&ina);
+    pcv_dpdk_pmd_input_clear(&inb);
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, -1);
+    pcv_dpdk_test_set_unbind_paths(NULL, NULL);
+    g_hash_table_unref(f.markers);
+    g_hash_table_unref(f.ports);
+    g_mutex_clear(&f.mu);
+}
+
+static void
+test_dpdk_pmd_two_phase_second_shares(void)
+{
+    PmdMultiFx f = { 0 };
+    g_mutex_init(&f.mu);
+    f.markers = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    f.ports = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    g_hash_table_add(f.ports, g_strdup("dpdk-v-vma"));
+    g_hash_table_insert(f.markers, g_strdup("dpdk-v-vma"), g_strdup("20"));
+    pcv_dpdk_test_set_unbind_paths("/nonexistent-pcv-dpdk-test", NULL);
+    pcv_dpdk_test_set_ovs_runner(pmd_multi_run, &f, 1);
+    const gchar *snap =
+        "pmd thread numa_id 1 core_id 20:\n  isolated : true\n"
+        "  port: dpdk-v-vma   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n"
+        "  port: dpdk-v-vma   queue-id:  1 (enabled)   pmd usage: NOT AVAIL\n"
+        "pmd thread numa_id 1 core_id 21:\n  isolated : false\n"
+        "  port: dpdk-p-dpdk-br0   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n"
+        "  port: dpdk-v-vmb   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n";
+    PcvDpdkPmdInput ina = { .mode = PCV_PMD_MODE_AUTO, .vm_numa = 1, .nq = 2, .isolate = TRUE, .query_ok = TRUE };
+    PcvDpdkPmdInput inb = ina;
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(snap, &ina.pmds, NULL));
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(snap, &inb.pmds, NULL));
+    PcvDpdkPmdPlan pa = { 0 }, pb = { 0 };
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vma", PCV_DPDK_VHOST_ENDPOINT_CANONICAL, &ina, &pa, NULL));
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vmb", PCV_DPDK_VHOST_ENDPOINT_CANONICAL, &inb, &pb, NULL));
+    g_test_message("vmb %s %u, vma %s %u", pb.reason, pb.core, pa.reason, pa.core);
+    const gchar *ma = g_hash_table_lookup(f.markers, "dpdk-v-vma"), *mb = g_hash_table_lookup(f.markers, "dpdk-v-vmb");
+    g_assert_cmpint(pb.action, ==, PCV_PMD_APPLY);
+    g_assert_cmpstr(mb, ==, ma);
+    pcv_dpdk_pmd_plan_clear(&pa);
+    pcv_dpdk_pmd_plan_clear(&pb);
+    pcv_dpdk_pmd_input_clear(&ina);
+    pcv_dpdk_pmd_input_clear(&inb);
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, -1);
+    pcv_dpdk_test_set_unbind_paths(NULL, NULL);
+    g_hash_table_unref(f.markers);
+    g_hash_table_unref(f.ports);
+    g_mutex_clear(&f.mu);
+}
+
+static void
+test_dpdk_pmd_operator_pin_after_snapshot(void)
+{
+    DpdkOvsFixture fixture;
+    dpdk_ovs_fixture_begin(&fixture);
+    fixture.bridge_exists = TRUE;
+    fixture.other_markers = "dpdk-v-op\npurecvisor-owner=dpdk-vhost purecvisor-vm=op\n"
+                            "pmd-rxq-affinity=\"0:21,1:21\"\n\n";
+    PcvDpdkPmdInput in = { .mode = PCV_PMD_MODE_AUTO, .vm_numa = 1, .nq = 2, .isolate = TRUE, .query_ok = TRUE };
+    g_assert_true(pcv_dpdk_pmd_parse_rxq_show(
+        "pmd thread numa_id 1 core_id 20:\n  isolated : false\n"
+        "  port: dpdk-p-dpdk-br0   queue-id:  0 (enabled)   pmd usage: NOT AVAIL\n"
+        "pmd thread numa_id 1 core_id 21:\n  isolated : false\n"
+        "pmd thread numa_id 1 core_id 22:\n  isolated : false\n", &in.pmds, NULL));
+    PcvDpdkPmdPlan plan = { 0 };
+    g_assert_true(pcv_dpdk_vm_port_ensure_endpoint("dpdk-br0", "vm1", PCV_DPDK_VHOST_ENDPOINT_CANONICAL,
+                                                   &in, &plan, NULL));
+    g_assert_cmpint(plan.action, ==, PCV_PMD_APPLY);
+    g_assert_cmpuint(plan.core, ==, 22);
+    pcv_dpdk_pmd_plan_clear(&plan);
+    pcv_dpdk_pmd_input_clear(&in);
     dpdk_ovs_fixture_end(&fixture);
 }
 
@@ -1473,6 +2022,18 @@ void test_dpdk_register(void) {
                     test_dpdk_vm_port_delete_rejects_foreign);
     g_test_add_func("/dpdk/vhost/rejects_non_dpdk_bridge",
                     test_dpdk_vm_port_ensure_rejects_non_dpdk_bridge);
+    g_test_add_func("/dpdk/vm_port/pmd/fixture_missing_key_errors",
+                    test_dpdk_pmd_fixture_missing_key_errors);
+    g_test_add_func("/dpdk/vm_port/pmd/argv_apply_new", test_dpdk_pmd_argv_apply_new);
+    g_test_add_func("/dpdk/vm_port/pmd/argv_apply_existing", test_dpdk_pmd_argv_apply_existing);
+    g_test_add_func("/dpdk/vm_port/pmd/argv_clear_operator_keep_skip",
+                    test_dpdk_pmd_argv_clear_operator_keep_skip);
+    g_test_add_func("/dpdk/vm_port/pmd/verify_mismatch_skip", test_dpdk_pmd_verify_mismatch_skip);
+    g_test_add_func("/dpdk/vm_port/pmd/marker_scan_failed", test_dpdk_pmd_marker_scan_failed);
+    g_test_add_func("/dpdk/vm_port/pmd/concurrent_choose", test_dpdk_pmd_concurrent_choose);
+    g_test_add_func("/dpdk/vm_port/pmd/two_phase_stale_snapshot", test_dpdk_pmd_two_phase_stale_snapshot);
+    g_test_add_func("/dpdk/vm_port/pmd/two_phase_second_shares", test_dpdk_pmd_two_phase_second_shares);
+    g_test_add_func("/dpdk/vm_port/pmd/operator_pin_after_snapshot", test_dpdk_pmd_operator_pin_after_snapshot);
 #define GUARD_ADD(path, fn) \
     g_test_add("/dpdk/nic_protected/" path, GuardFx, NULL, guard_fx_setup, fn, guard_fx_teardown)
     GUARD_ADD("dedicated_passes", test_guard_dedicated_passes);

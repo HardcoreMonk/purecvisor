@@ -84,6 +84,7 @@
 
 #include <glib.h>
 #include <json-glib/json-glib.h>
+#include "dpdk_pmd.h"
 
 G_BEGIN_DECLS
 
@@ -178,10 +179,16 @@ gboolean pcv_dpdk_vhost_runtime_preflight(GError **error);
 gboolean pcv_dpdk_vm_port_ensure(const gchar *bridge_name,
                                  const gchar *vm_name,
                                  GError **error);
+
 gboolean pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
                                           const gchar *vm_name,
                                           PcvDpdkVhostEndpoint endpoint,
+                                          const PcvDpdkPmdInput *pmd,
+                                          PcvDpdkPmdPlan *plan_out,
                                           GError **error);
+
+gboolean pcv_dpdk_ovs_run_locked(const gchar * const *argv, gchar **stdout_out,
+                                 gchar **stderr_out, GError **error);
 gboolean pcv_dpdk_vm_port_delete(const gchar *vm_name, GError **error);
 
 G_END_DECLS

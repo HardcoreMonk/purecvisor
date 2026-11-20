@@ -166,12 +166,15 @@ def main() -> int:
     active_body = _function_body(start_worker[active_pos:], "if")
     _require("pcv_vm_start_with_capacity" not in active_body and "return;" in active_body and
              re.search(r'_reconcile_dpdk_vhost_for_start\s*\(\s*conn,\s*&dom,\s*'
-                       r'canonical_name,\s*TRUE,\s*pcv_drain_task_actor\(task\),\s*&error', active_body),
-             "active VM must keep DPDK reconciliation and bypass capacity admission")
+                       r'canonical_name,\s*TRUE,\s*NULL,\s*pcv_drain_task_actor\(task\),\s*&error', active_body),
+             "active VM must keep DPDK reconciliation (PMD input NULL) and bypass capacity admission")
     prepare = _function_body(_code(vm_start), "_prepare_inactive_dpdk_for_start")
-    _require(re.search(r'return\s+_reconcile_dpdk_vhost_for_start\s*\(\s*'
-                       r'prepare->conn,\s*domain_io,\s*prepare->vm_name,\s*FALSE,\s*prepare->actor,\s*error', prepare),
-             "cold start preparation must reconcile the inactive DPDK endpoint")
+    _require(re.search(r'_reconcile_dpdk_vhost_for_start\s*\(\s*'
+                       r'prepare->conn,\s*domain_io,\s*prepare->vm_name,\s*FALSE,\s*&pmd,\s*prepare->actor,\s*error', prepare),
+             "cold start preparation must reconcile the inactive DPDK endpoint with the PMD input")
+    _require(re.search(r'gboolean\s+ok\s*=\s*_reconcile_dpdk_vhost_for_start\(', prepare) and
+             re.search(r'return\s+ok\s*;\s*$', prepare.strip()),
+             "cold start preparation must return the reconcile result")
     controller = _function_body(_code(start_capacity), "pcv_vm_start_with_capacity")
     checks = [match.start() for match in re.finditer(
         r'if\s*\(\s*!check_domain\(\*domain_io,\s*sysfs_root,\s*error,\s*&admission\)\s*\)\s*return FALSE;',
@@ -274,7 +277,44 @@ def main() -> int:
     _require("_dpdk_bridge_wait_response" in cli_bridge,
              "pcvctl DPDK bridge mutation must wait for terminal Job state")
 
-    print("[PASS] ADR-0053/0054/0063 DPDK lifecycle and VM start capacity wiring is present")
+    pmd = _read("src/modules/network/dpdk_pmd.c")
+    pmd_code = _code(pmd)
+    manager_code = _code(manager)
+    plan_locked = _function_body(pmd_code, "pcv_dpdk_pmd_plan_locked")
+    _ordered(plan_locked, "pcv_dpdk_pmd_choose", 'other_config:pmd-rxq-affinity=',
+             "PMD affinity write must follow the ownership decision (pcv_dpdk_pmd_choose)")
+    choose = _function_body(pmd_code, "pcv_dpdk_pmd_choose")
+    _ordered(choose, "pcv_dpdk_pmd_affinity_owned", "PCV_PMD_APPLY",
+             "PMD choose must judge ownership (marker) before APPLY")
+    _require("pmd-rxq-affinity" not in _function_body(manager_code, "pcv_dpdk_vm_port_ensure_endpoint"),
+             "vhost ensure must add PMD keys only through the dpdk_pmd plan argv")
+    _require(re.search(r'PCV_DPDK_VHOST_ENDPOINT_CANONICAL,\s*NULL,\s*NULL,\s*error', port_wrapper),
+             "default vhost ensure wrapper (vm.create, delete restore) must pass a NULL PMD input")
+    for owner, text in (("vm.create", create_worker), ("vm.delete restore", restore_helper)):
+        _require("pcv_dpdk_vm_port_ensure_endpoint" not in text,
+                 f"{owner} must use the NULL-PMD wrapper, not the PMD-capable endpoint ensure")
+    prepare_main = _function_body(_code(vm_start), "_vm_start_prepare")
+    _require("pcv_dpdk_pmd_cache_snapshot" in prepare_main,
+             "_vm_start_prepare must pass the PMD cache snapshot to the allocator")
+    init = _function_body(manager_code, "pcv_dpdk_init")
+    mask_init = _function_body(pmd_code, "pcv_dpdk_pmd_cache_init_from_mask")
+    for owner, text in (("_vm_start_prepare", prepare_main), ("pcv_dpdk_init", init),
+                        ("pcv_dpdk_pmd_cache_init_from_mask", mask_init)):
+        for token in ("ovs-appctl", "pcv_dpdk_pmd_query", "pcv_dpdk_pmd_cache_refresh",
+                      "pcv_dpdk_pmd_input_prepare", "g_mutex_lock(&G.mu)", "pcv_dpdk_ovs_run_locked"):
+            _require(token not in text, f"main-loop {owner} must not reach {token}")
+    for name in ("pcv_dpdk_pmd_cache_snapshot", "pcv_dpdk_pmd_cache_update", "_cache_union_locked",
+                 "_last_start", "pcv_dpdk_pmd_record_start"):
+        body = _function_body(pmd_code, name)
+        for token in ("G.mu", "pcv_dpdk_ovs_run_locked", "_pmd_run", "pcv_spawn", "PCV_LOG_"):
+            _require(token not in body, f"PMD cache/table function {name} must not use {token} under its lock")
+    for array in re.findall(r'\{[^{}]*"get"[^{}]*\}', pmd_code):
+        _require('"--if-exists"' in array, "every new OVSDB get in dpdk_pmd.c must use --if-exists (H1)")
+    for text, name in ((manager_code, "dpdk_manager.c"), (pmd_code, "dpdk_pmd.c")):
+        _require(re.search(r'"(?:set|remove|clear)"\s*,\s*"Open_vSwitch"|(?:set|remove|clear) Open_vSwitch', text) is None,
+                 f"{name} must not write global Open_vSwitch settings (PMD isolate/mask are operator-owned)")
+
+    print("[PASS] ADR-0053/0054/0063 DPDK lifecycle, VM start capacity and PMD affinity wiring is present")
     return 0
 
 

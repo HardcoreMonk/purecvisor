@@ -105,6 +105,10 @@
 #include "api/drain.h"
 #include "handler_accel.h"
 #include "modules/network/dpdk_manager.h"
+#include "modules/network/dpdk_pmd.h"
+#include "modules/core/cpu_allocator.h"
+#include "modules/dispatcher/dispatcher_shared.h"
+#include "modules/auth/pcv_rbac.h"
 #include "modules/network/sriov_manager.h"
 #include "modules/accel/gpu_manager.h"
 #include "modules/audit/pcv_audit.h"
@@ -202,10 +206,31 @@ void handle_device_gpu_detach(JsonObject *p, const gchar *id,
                                                            
                                                       
    
-void handle_dpdk_status(JsonObject *p __attribute__((unused)), const gchar *id,
+void handle_dpdk_status(JsonObject *p, const gchar *id,
                          UdsServer *s, GSocketConnection *c)
 {
     JsonObject *obj = pcv_dpdk_status();
+
+    gboolean admin_view = pcv_disp_dispatcher_caller_role(p, c) >= PCV_ROLE_ADMIN;
+    JsonObject *affinity = pcv_dpdk_pmd_status_object(admin_view);
+
+    g_autoptr(GArray) pmd_cores = pcv_dpdk_pmd_cache_snapshot(NULL);
+    JsonObject *numa = cpu_allocator_get_numa_info(global_allocator);
+    JsonArray *cores = json_object_get_array_member(numa, "cores");
+    JsonArray *overlap = json_object_get_array_member(affinity, "overlap");
+    for (guint i = 0; cores && i < json_array_get_length(cores); i++) {
+        JsonObject *core = json_array_get_object_element(cores, i);
+        guint id = (guint)json_object_get_int_member(core, "logical_id");
+        const gchar *owner = json_object_get_null_member(core, "owner") ? NULL
+                           : json_object_get_string_member(core, "owner");
+        if (!owner || !cpu_allocator_cpulist_contains(pmd_cores, id)) continue;
+        JsonObject *hit = json_object_new();
+        json_object_set_int_member(hit, "core", id);
+        if (admin_view) json_object_set_string_member(hit, "vm", owner);
+        json_array_add_object_element(overlap, hit);
+    }
+    json_object_unref(numa);
+    json_object_set_object_member(obj, "vhost_pmd_affinity", affinity);
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(n, obj);
     gchar *r = pure_rpc_build_success_response(id, n);
