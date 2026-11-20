@@ -6888,7 +6888,7 @@ pcvctl help             # 33개 명령 그룹 요약
 pcvctl help vpc         # VPC 그룹 상세
 pcvctl vpc --help       # 같은 VPC 그룹 상세
 pcvctl help guest-agent # object·action·설명 검색
-pcvctl help all         # 전체 207개 명령
+pcvctl help all         # 전체 212개 명령(2026-11-20 main 기준 — vm 그룹 44)
 
 # REPL 모드
 pcvctl
