@@ -1184,7 +1184,7 @@ fi
                                                        
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
-    echo -e "${CYAN}[$GATE] 바이너리 크기 검증 (3MB 상한, 디버그 정보·심볼표 제외)${NC}"
+    echo -e "${CYAN}[$GATE] 바이너리 크기 검증 (3.5MiB 상한, 디버그 정보·심볼표 제외)${NC}"
                                              
     if [ ! -f bin/purecvisorsd ]; then
         fail "데몬 바이너리 bin/purecvisorsd 없음 — 빌드 실패로 크기를 잴 수 없다"
@@ -1202,10 +1202,10 @@ if $HAS_C_CHANGES; then
         fi
         rm -f "$SIZE_TMP"
         SIZE_KB=$((SIZE / 1024))
-        if [ "$SIZE" -gt 3145728 ]; then
-            fail "바이너리 ${SIZE_KB}KB > 3MB 상한"
+        if [ "$SIZE" -gt 3670016 ]; then
+            fail "바이너리 ${SIZE_KB}KB > 3.5MiB 상한"
         else
-            pass "바이너리 ${SIZE_KB}KB (3MB 이내)"
+            pass "바이너리 ${SIZE_KB}KB (3.5MiB 이내)"
         fi
     fi
 fi

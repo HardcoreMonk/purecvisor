@@ -7858,7 +7858,7 @@ chmod +x .git/hooks/commit-msg
 | 4 계열 | 변경 영역별 계약 게이트와 도움말 수 검사 (`scripts/pre-commit`의 조건이 정본) | 해당 영역 변경 | 차단 |
 | 5 | 프론트엔드 패턴 (10건 임계값) · ESLint · OpenAPI 동기화 · UI 번들 최신성 · XSS 패턴 · i18n 키 정합성 | UI 변경 | 차단 |
 | 6 | cppcheck 정적 분석 에러 | C 변경 + cppcheck 설치 | 차단 |
-| 7 | 바이너리 크기 3MB 상한 | C 변경 | 차단 |
+| 7 | 바이너리 크기 3.5MiB 상한(2.2.1 뒤 공개 main에서 3MB에서 상향) | C 변경 | 차단 |
 | 8 | SAFE 통합 테스트 + 보안 스캔 (OWASP Top 10) | API/UI + 데몬 실행 | 차단 |
 | 9 | 문서에 RPC/테스트 수가 있을 때 정합성 보조 검사 | C 변경 | 경고 |
 | 10 | 신규 TODO/FIXME | C 변경 | 경고 |
