@@ -36,6 +36,21 @@
   --docs-hero-surface: #0e1726;
   --docs-hero-muted: #aab7c8;
   --docs-error: #b42332;
+
+  --docs-reader-surface: rgba(255, 255, 255, 0.76);
+  --docs-reader-ink: #262d37;
+  --docs-reader-h5: #323b47;
+  --docs-reader-link-line: rgba(18, 98, 122, 0.36);
+  --docs-inline-code-border: #e2e6eb;
+  --docs-inline-code-bg: #f4f6f8;
+  --docs-inline-code-ink: #253443;
+  --docs-code-border: #dce2e8;
+  --docs-code-bg: #f8f9fa;
+  --docs-code-ink: #202832;
+  --docs-copy-bg: rgba(255, 255, 255, 0.94);
+  --docs-quote-bg: #f3f7f8;
+  --docs-quote-ink: #394754;
+  --docs-control-bg: #fff;
   --docs-max: 1280px;
   --font-sans: 'Pretendard', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
@@ -954,7 +969,7 @@ input { font: inherit; }
 .reader-article {
   min-width: 0;
   padding: 40px 30px 96px;
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--docs-reader-surface);
 }
 
 .reader-breadcrumb {
@@ -991,7 +1006,7 @@ input { font: inherit; }
 .reader-state a { color: var(--docs-accent); font-weight: 700; }
 
 .reader-content {
-  color: #262d37;
+  color: var(--docs-reader-ink);
   font-size: 16px;
   line-height: 1.75;
   word-break: keep-all;
@@ -1040,7 +1055,7 @@ input { font: inherit; }
 
 .reader-content h5 {
   margin: 26px 0 10px;
-  color: #323b47;
+  color: var(--docs-reader-h5);
   font-size: 16px;
   font-weight: 730;
 }
@@ -1060,7 +1075,7 @@ input { font: inherit; }
 .reader-content a {
   color: var(--docs-accent);
   text-decoration: underline;
-  text-decoration-color: rgba(18, 98, 122, 0.36);
+  text-decoration-color: var(--docs-reader-link-line);
   text-underline-offset: 3px;
 }
 
@@ -1068,10 +1083,10 @@ input { font: inherit; }
 
 .reader-content :not(pre) > code {
   padding: 2px 6px;
-  border: 1px solid #e2e6eb;
+  border: 1px solid var(--docs-inline-code-border);
   border-radius: 5px;
-  background: #f4f6f8;
-  color: #253443;
+  background: var(--docs-inline-code-bg);
+  color: var(--docs-inline-code-ink);
   font-family: var(--font-mono);
   font-size: 0.86em;
   word-break: break-word;
@@ -1081,9 +1096,9 @@ input { font: inherit; }
   position: relative;
   margin: 20px 0 24px;
   overflow: hidden;
-  border: 1px solid #dce2e8;
+  border: 1px solid var(--docs-code-border);
   border-radius: 10px;
-  background: #f8f9fa;
+  background: var(--docs-code-bg);
 }
 
 .reader-code-toolbar {
@@ -1119,7 +1134,7 @@ input { font: inherit; }
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #202832;
+  color: var(--docs-code-ink);
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.65;
@@ -1136,7 +1151,7 @@ input { font: inherit; }
   padding: 0 10px;
   border: 1px solid var(--docs-line-strong);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--docs-copy-bg);
   color: var(--docs-muted);
   font-size: 11px;
   font-weight: 700;
@@ -1187,8 +1202,8 @@ input { font: inherit; }
   margin: 20px 0 24px;
   padding: 16px 18px;
   border-left: 3px solid var(--docs-accent);
-  background: #f3f7f8;
-  color: #394754;
+  background: var(--docs-quote-bg);
+  color: var(--docs-quote-ink);
 }
 
 .reader-content blockquote p:last-child { margin-bottom: 0; }
@@ -1242,7 +1257,7 @@ input { font: inherit; }
   padding: 0 12px;
   border: 1px solid var(--docs-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--docs-control-bg);
   color: var(--docs-ink);
   font-size: 13px;
   font-weight: 700;
@@ -1571,6 +1586,20 @@ input { font: inherit; }
   --docs-line: #343e4c;
   --docs-line-strong: #465363;
   --docs-accent: #76c4d8;
+  --docs-reader-surface: #11151b;
+  --docs-reader-ink: #d9dfe7;
+  --docs-reader-h5: #c9d1dc;
+  --docs-reader-link-line: rgba(118, 196, 216, 0.4);
+  --docs-inline-code-border: #343e4c;
+  --docs-inline-code-bg: #202834;
+  --docs-inline-code-ink: #d6e2ec;
+  --docs-code-border: #343e4c;
+  --docs-code-bg: #11151b;
+  --docs-code-ink: #dbe3ec;
+  --docs-copy-bg: #202834;
+  --docs-quote-bg: #172329;
+  --docs-quote-ink: #c4ccd6;
+  --docs-control-bg: #181e26;
 }
 
 body {

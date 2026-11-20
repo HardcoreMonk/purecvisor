@@ -260,9 +260,13 @@ test('docs portal: 공개 사이트와 같은 landing·dropdown·theme 진입점
   });
 });
 
-test('docs portal: landing shell에 axe 접근성 위반이 없다', async () => {
+const COLOR_SCHEMES = ['light', 'dark'];
+
+for (const colorScheme of COLOR_SCHEMES) test(`docs portal: landing shell에 axe 접근성 위반이 없다 (${colorScheme})`, async () => {
   await withPage([], async (page, { port }) => {
     await page.goto(`http://127.0.0.1:${port}/ui/docs.html`, { waitUntil: 'networkidle0' });
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), colorScheme,
+      'Auto theme must resolve to the harness-pinned color scheme');
     await page.evaluate(axe.source);
     const violations = await page.evaluate(async () => {
       const result = await window.axe.run({ include: [['.site-header'], ['#docs-landing']] });
@@ -273,7 +277,7 @@ test('docs portal: landing shell에 axe 접근성 위반이 없다', async () =>
       }));
     });
     assert.deepEqual(violations, []);
-  });
+  }, { colorScheme });
 });
 
 test('docs portal: 검색 결과·empty state·keyboard selection이 동작한다', async () => {
@@ -418,11 +422,13 @@ test('docs portal: 하위 장에서도 새 shell 안에 guide-content 전체와 
   });
 });
 
-test('docs portal: 상세 reader shell에 axe 접근성 위반이 없다', async () => {
+for (const colorScheme of COLOR_SCHEMES) test(`docs portal: 상세 reader shell에 axe 접근성 위반이 없다 (${colorScheme})`, async () => {
   await withPage([], async (page, { port }) => {
     await page.goto(`http://127.0.0.1:${port}/ui/docs.html#6-네트워크`, { waitUntil: 'networkidle0' });
     await page.waitForFunction(() => !document.getElementById('docs-reader').hidden &&
       !document.getElementById('reader-content').hidden);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute('data-theme')), colorScheme,
+      'Auto theme must resolve to the harness-pinned color scheme');
     await page.evaluate(axe.source);
     const violations = await page.evaluate(async () => {
       const result = await window.axe.run({
@@ -440,7 +446,25 @@ test('docs portal: 상세 reader shell에 axe 접근성 위반이 없다', async
       }));
     });
     assert.deepEqual(violations, []);
-  });
+  }, { colorScheme });
+});
+
+for (const colorScheme of COLOR_SCHEMES) test(`docs portal: 상세 reader 본문 대비가 WCAG AA를 지킨다 (${colorScheme})`, async () => {
+
+  await withPage([], async (page, { port }) => {
+    await page.goto(`http://127.0.0.1:${port}/ui/docs.html#6-네트워크`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => !document.getElementById('reader-content').hidden);
+    await page.evaluate(axe.source);
+    const violations = await page.evaluate(async () => {
+      const start = document.getElementById('6-네트워크');
+      const end = document.getElementById('7-멀티-제어면-참고-기록');
+      const nodes = [];
+      for (let node = start; node && node !== end; node = node.nextElementSibling) nodes.push(node);
+      const result = await window.axe.run(nodes, { runOnly: ['color-contrast'] });
+      return result.violations.flatMap(rule => rule.nodes.map(node => node.target.join(' ')));
+    });
+    assert.deepEqual(violations, []);
+  }, { colorScheme });
 });
 
 test('docs portal: 1440·1280·1024·768·480·390px에서 live landing과 reader 계약을 지킨다', async () => {

@@ -48,8 +48,15 @@ async function closeServer(server) {
                            
                                                                 
    
+
+const COLOR_SCHEMES = new Set(['light', 'dark']);
+
 export async function withPage(moduleFiles, fn, options = {}) {
   const routes = options.routes || {};
+  const colorScheme = options.colorScheme ?? 'light';
+  if (!COLOR_SCHEMES.has(colorScheme)) {
+    throw new TypeError(`options.colorScheme must be 'light' or 'dark' (got ${String(colorScheme)})`);
+  }
   const requests = [];
   const routeErrors = [];
   const activeRouteHandlers = new Set();
@@ -166,6 +173,7 @@ export async function withPage(moduleFiles, fn, options = {}) {
       protocolTimeout: options.protocolTimeout ?? 30_000,
     });
     const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: colorScheme }]);
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
