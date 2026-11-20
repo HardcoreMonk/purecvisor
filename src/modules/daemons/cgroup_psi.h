@@ -148,6 +148,8 @@ G_BEGIN_DECLS
 #define PCV_CGROUP_PSI_NAME_MAX 128
 
                                         
+#define PCV_CGROUP_PSI_MACHINE_MAX 64
+
 #define PCV_CGROUP_PSI_RELPATH_MAX 320
 
    
@@ -179,6 +181,7 @@ typedef struct {
     PcvCgroupPsiKind kind;                                                   
     gint             domain_id;                                                           
     gchar            norm_name[PCV_CGROUP_PSI_NAME_MAX];                                     
+    gchar            machine[PCV_CGROUP_PSI_NAME_MAX];
 } PcvCgroupPsiRef;
 
    
@@ -342,6 +345,10 @@ gint pcv_cgroup_psi_domain_id_from_scope(const gchar *dirname);
    
 void pcv_cgroup_psi_normalize_vm_name(const gchar *vm_name, gchar *out, gsize out_sz);
 
+gboolean pcv_cgroup_psi_machine_name(gint domain_id, const gchar *vm_name, gchar *out, gsize out_sz);
+
+gboolean pcv_cgroup_psi_ref_matches_vm(const PcvCgroupPsiRef *ref, gint domain_id, const gchar *vm_name);
+
    
                                                                
   
@@ -379,8 +386,8 @@ void pcv_cgroup_vm_stat_free(gpointer p);
                                             
                                              
    
-gboolean pcv_cgroup_psi_prom_selected(const PcvCgroupPsiRef *refs, gint n, gint vm_cap,
-                                      gint ctr_cap, gboolean *selected_out);
+gboolean pcv_cgroup_psi_prom_selected(const PcvCgroupPsiRef *refs, gint n, gint ctr_cap,
+                                      gboolean *selected_out);
 
    
                                                    
@@ -478,6 +485,8 @@ gboolean pcv_cgroup_psi_read(const gchar *cgroup_root, const PcvCgroupPsiRef *re
                                                    
    
 void pcv_cgroup_psi_format_labels(const PcvCgroupPsiRef *ref, gchar *out, gsize out_sz);
+
+gboolean pcv_cgroup_psi_vm_labels(const gchar *vm_name, const gchar *vm_uuid, gchar *out, gsize out_sz);
 
    
                                           

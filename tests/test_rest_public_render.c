@@ -291,10 +291,23 @@ test_metrics_label_escape(void)
         rec->tot.cpu_time_ns = 1000000000ULL * (i + 1);
         g_ptr_array_add(s->records, rec);
     }
+
+    ((PcvVmDiagRecord *)g_ptr_array_index(s->records, 1))->domain_id = 1;
+    GPtrArray *cg = g_ptr_array_new_with_free_func(pcv_cgroup_vm_stat_free);
+    PcvCgroupVmStat *cs = g_new0(PcvCgroupVmStat, 1);
+    cs->ref.kind = PCV_CGROUP_PSI_KIND_VM;
+    cs->ref.domain_id = 1;
+    g_assert_true(pcv_cgroup_psi_machine_name(1, NAMES[1], cs->ref.machine, sizeof(cs->ref.machine)));
+    cs->children = g_array_new(FALSE, TRUE, sizeof(PcvCgroupCpuChild));
+    cs->have_psi[PCV_CGROUP_PSI_RES_MEMORY] = TRUE;
+    cs->psi[PCV_CGROUP_PSI_RES_MEMORY].have_full = TRUE;
+    cs->psi[PCV_CGROUP_PSI_RES_MEMORY].full_avg10 = 3;
+    g_ptr_array_add(cg, cs);
     SeriesText st = { g_ptr_array_new_with_free_func(g_free),
                       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, _gstring_free_full) };
-    pcv_vm_diag_prom_series(s, PCV_PROM_VM_SERIES_MAX, _series_text_cb, &st, NULL);
+    pcv_vm_diag_prom_series(s, cg, PCV_PROM_VM_SERIES_MAX, _series_text_cb, &st, NULL);
     pcv_vm_diag_snapshot_free(s);
+    g_ptr_array_unref(cg);
     GString *reg = g_string_new(NULL);
     for (guint i = 0; i < st.order->len; i++)
         g_string_append(reg, ((GString *)g_hash_table_lookup(st.by_name, g_ptr_array_index(st.order, i)))->str);
@@ -321,8 +334,10 @@ test_metrics_label_escape(void)
     g_assert_nonnull(strstr(r.body, "\npurecvisor_vm_running{vm=\"nl\\nx}y,z=\\\"w\\\"\"} 1\n"));
     g_assert_nonnull(strstr(r.body, "\npurecvisor_vm_vcpu{vm=\"plain\"} 2\n"));
                          
-    g_assert_nonnull(strstr(r.body, "\npurecvisor_vm_cpu_seconds_total{vm=\"q\\\"uo\\\\te\"} 2\n"));
-    g_assert_nonnull(strstr(r.body, "\npurecvisor_vm_net_rx_bytes_total{vm_name=\"nl\\nx}y,z=\\\"w\\\"\"} 0\n"));
+    g_assert_nonnull(strstr(r.body, "\npurecvisor_vm_cpu_seconds_total{vm=\"q\\\"uo\\\\te\",vm_uuid=\"u-1\"} 2\n"));
+    g_assert_nonnull(strstr(r.body, "\npurecvisor_vm_net_rx_bytes_total{vm_name=\"nl\\nx}y,z=\\\"w\\\"\",vm_uuid=\"u-2\"} 0\n"));
+    g_assert_nonnull(strstr(r.body,
+        "\npurecvisor_cgroup_pressure_memory_full_avg10{vm_name=\"q\\\"uo\\\\te\",vm_uuid=\"u-1\",kind=\"vm\"} 3\n"));
     g_assert_null(strstr(r.body, "{vm=\"nl\nx"));                          
     g_string_free(why, TRUE);
     pcv_rest_rendered_clear(&r);

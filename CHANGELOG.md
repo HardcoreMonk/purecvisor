@@ -55,6 +55,13 @@
   SKIP한다. 주체 이름 공간 시험의 자리표시자 단계(M7d)를, 비ADMIN API 키 요청이 같은 이름 사용자의 테넌트를 빌리지
   않는다는 단언으로 바꿨다(같은 테넌트 사용자 대조 포함). gRPC VM 목록 단계(M8a)는 소유자 없는 VM이 OPERATOR 범위 밖인지도
   본다.
+- (2026-11-20) **Prometheus 라벨 변경(VM 식별):** VM 계열에 libvirt UUID 라벨 `vm_uuid`가 붙는다 — VM 진단 counter 11종·
+  gauge 3종, VM 네트워크 4종 `purecvisor_vm_net_*`, VM 종류 cgroup PSI 12종(`kind="vm"`). 라벨 묶음이 바뀌므로 Prometheus는
+  반영 시점부터 새 시계열로 받는다(counter는 새 시계열에서 다시 시작). VM 종류 PSI의 `vm_name`은 cgroup scope에서 되돌린
+  값(`_`·비ASCII가 빠지고 긴 이름은 잘림) 대신 libvirt 도메인과 맞춘 실제 VM 이름이고, 맞출 수 없는 scope의 값은 내지
+  않는다. VM 진단·VM 네트워크·VM 종류 PSI 계열이 모두 실행 VM의 (이름, UUID) 순 앞 64대를 낸다. VM 종류 PSI 이상이
+  자가치유로 넘기는 대상은 VM 이름이 아니라 UUID다. 이름으로 거르던 패널·알림과 라벨 전체로 맞추는 기록 규칙은
+  가이드 8.1절 "Prometheus 출력 변경(2.2.1 뒤 공개 main, VM 식별 라벨)"을 따라 고친다. C 단위 시험을 보강했다.
 - `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식 변경이 없다. 제품 버전
   문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
 

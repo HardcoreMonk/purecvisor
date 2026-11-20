@@ -179,17 +179,17 @@ test_prom_series_existing_net(void)
 
     GPtrArray *got = g_ptr_array_new_with_free_func(g_free);
     guint trunc = 999;
-    pcv_vm_diag_prom_series(s, PCV_PROM_VM_SERIES_MAX, _collect, got, &trunc);
+    pcv_vm_diag_prom_series(s, NULL, PCV_PROM_VM_SERIES_MAX, _collect, got, &trunc);
 
                                                                        
     g_assert_cmpuint(trunc, ==, 8);
                                                                                 
     g_assert_cmpuint(_count_prefix_label(got, "purecvisor_vm_net_"), ==, 63 * 4);
                                                         
-    g_assert_true(_has(got, "purecvisor_vm_net_rx_bytes_total|vm_name=\"a-net\"|100|2"));
-    g_assert_true(_has(got, "purecvisor_vm_net_tx_bytes_total|vm_name=\"a-net\"|200|2"));
-    g_assert_true(_has(got, "purecvisor_vm_net_rx_packets_total|vm_name=\"a-net\"|3|2"));
-    g_assert_true(_has(got, "purecvisor_vm_net_tx_packets_total|vm_name=\"a-net\"|4|2"));
+    g_assert_true(_has(got, "purecvisor_vm_net_rx_bytes_total|vm_name=\"a-net\",vm_uuid=\"u-a-net\"|100|2"));
+    g_assert_true(_has(got, "purecvisor_vm_net_tx_bytes_total|vm_name=\"a-net\",vm_uuid=\"u-a-net\"|200|2"));
+    g_assert_true(_has(got, "purecvisor_vm_net_rx_packets_total|vm_name=\"a-net\",vm_uuid=\"u-a-net\"|3|2"));
+    g_assert_true(_has(got, "purecvisor_vm_net_tx_packets_total|vm_name=\"a-net\",vm_uuid=\"u-a-net\"|4|2"));
     g_assert_cmpuint(_count_prefix_label(got, "vm_name=\"b-nonet\""), ==, 0);               
     g_assert_cmpuint(_count_prefix_label(got, "vm_name=\"c-off\""), ==, 0);                        
     g_assert_cmpuint(_count_prefix_label(got, "vm_name=\"vm061\""), ==, 4);
@@ -198,14 +198,14 @@ test_prom_series_existing_net(void)
 
                      
     g_ptr_array_set_size(got, 0);
-    pcv_vm_diag_prom_series(s, 1000, _collect, got, &trunc);
+    pcv_vm_diag_prom_series(s, NULL, 1000, _collect, got, &trunc);
     g_assert_cmpuint(trunc, ==, 0);
     g_assert_cmpuint(_count_prefix_label(got, "purecvisor_vm_net_"), ==, 71 * 4);
 
                               
     g_ptr_array_set_size(got, 0);
     trunc = 7;
-    pcv_vm_diag_prom_series(NULL, 64, _collect, got, &trunc);
+    pcv_vm_diag_prom_series(NULL, NULL, 64, _collect, got, &trunc);
     g_assert_cmpuint(got->len, ==, 0);
     g_assert_cmpuint(trunc, ==, 0);
 
@@ -251,6 +251,7 @@ _cg_throttle(gint domid, const gchar *name)
     st->ref.domain_id = domid;
     g_strlcpy(st->ref.name, name, sizeof(st->ref.name));
     g_strlcpy(st->ref.norm_name, name, sizeof(st->ref.norm_name));
+    g_assert_true(pcv_cgroup_psi_machine_name(domid, name, st->ref.machine, sizeof(st->ref.machine)));
     st->children = g_array_new(FALSE, TRUE, sizeof(PcvCgroupCpuChild));
     st->sum.have = TRUE;
     st->sum.throttled_usec = 1500000;              
@@ -323,31 +324,31 @@ test_prom_series_rules(void)
 
     GPtrArray *got = g_ptr_array_new_with_free_func(g_free);
     guint trunc = 999;
-    pcv_vm_diag_prom_series(s, PCV_PROM_VM_SERIES_MAX, _collect_g, got, &trunc);
+    pcv_vm_diag_prom_series(s, NULL, PCV_PROM_VM_SERIES_MAX, _collect_g, got, &trunc);
     g_assert_cmpuint(trunc, ==, 6);                       
 
                                                     
-    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"a-full\"|3|2"));
-    g_assert_true(_has(got, "purecvisor_vm_vcpu_delay_seconds_total|vm=\"a-full\"|0.75|2"));
-    g_assert_true(_has(got, "purecvisor_vm_disk_read_bytes_total|vm=\"a-full\"|4096|2"));
-    g_assert_true(_has(got, "purecvisor_vm_disk_write_bytes_total|vm=\"a-full\"|8192|2"));
-    g_assert_true(_has(got, "purecvisor_vm_disk_read_requests_total|vm=\"a-full\"|10|2"));
-    g_assert_true(_has(got, "purecvisor_vm_disk_write_requests_total|vm=\"a-full\"|20|2"));
-    g_assert_true(_has(got, "purecvisor_vm_disk_read_time_seconds_total|vm=\"a-full\"|2|2"));
-    g_assert_true(_has(got, "purecvisor_vm_disk_write_time_seconds_total|vm=\"a-full\"|1|2"));
-    g_assert_true(_has(got, "purecvisor_vm_cpu_throttled_seconds_total|vm=\"a-full\"|1.5|2"));
-    g_assert_true(_has(got, "purecvisor_vm_cpu_throttled_periods_total|vm=\"a-full\"|7|2"));
-    g_assert_true(_has(got, "purecvisor_vm_cpu_periods_total|vm=\"a-full\"|300|2"));
+    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|3|2"));
+    g_assert_true(_has(got, "purecvisor_vm_vcpu_delay_seconds_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|0.75|2"));
+    g_assert_true(_has(got, "purecvisor_vm_disk_read_bytes_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|4096|2"));
+    g_assert_true(_has(got, "purecvisor_vm_disk_write_bytes_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|8192|2"));
+    g_assert_true(_has(got, "purecvisor_vm_disk_read_requests_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|10|2"));
+    g_assert_true(_has(got, "purecvisor_vm_disk_write_requests_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|20|2"));
+    g_assert_true(_has(got, "purecvisor_vm_disk_read_time_seconds_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|2|2"));
+    g_assert_true(_has(got, "purecvisor_vm_disk_write_time_seconds_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|1|2"));
+    g_assert_true(_has(got, "purecvisor_vm_cpu_throttled_seconds_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|1.5|2"));
+    g_assert_true(_has(got, "purecvisor_vm_cpu_throttled_periods_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|7|2"));
+    g_assert_true(_has(got, "purecvisor_vm_cpu_periods_total|vm=\"a-full\",vm_uuid=\"u-a-full\"|300|2"));
                                         
-    g_assert_true(_has(got, "purecvisor_vm_memory_alloc_bytes|vm=\"a-full\"|2.14748e+09|0"));
-    g_assert_true(_has(got, "purecvisor_vm_memory_guest_used_bytes|vm=\"a-full\"|1.07374e+09|0"));
-    g_assert_true(_has(got, "purecvisor_vm_memory_rss_bytes|vm=\"a-full\"|1.07374e+09|0"));
+    g_assert_true(_has(got, "purecvisor_vm_memory_alloc_bytes|vm=\"a-full\",vm_uuid=\"u-a-full\"|2.14748e+09|0"));
+    g_assert_true(_has(got, "purecvisor_vm_memory_guest_used_bytes|vm=\"a-full\",vm_uuid=\"u-a-full\"|1.07374e+09|0"));
+    g_assert_true(_has(got, "purecvisor_vm_memory_rss_bytes|vm=\"a-full\",vm_uuid=\"u-a-full\"|1.07374e+09|0"));
     g_assert_cmpuint(_count_prefix_label(got, "vm=\"a-full\""), ==, 14);
     g_assert_cmpuint(_count_prefix_label(got, "vm_name=\"a-full\""), ==, 4);                      
 
                                                                               
     g_assert_cmpuint(_count_prefix_label(got, "vm=\"b-cpu\""), ==, 1);
-    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"b-cpu\"|1e-06|2"));
+    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"b-cpu\",vm_uuid=\"u-b-cpu\"|1e-06|2"));
                                         
     g_assert_cmpuint(_count_prefix_label(got, "c-off"), ==, 0);
     g_assert_cmpuint(_count_prefix_label(got, "\"vm061\""), ==, 5);                      
@@ -403,12 +404,119 @@ test_prom_budget(void)
     g_ptr_array_add(cg, _cg_throttle(900, "a-full"));
     PcvVmDiagSnapshot *s = _snap_cg(run, NULL, cg);
     GPtrArray *got = g_ptr_array_new_with_free_func(g_free);
-    pcv_vm_diag_prom_series(s, PCV_PROM_VM_SERIES_MAX, _collect_g, got, NULL);
+    pcv_vm_diag_prom_series(s, NULL, PCV_PROM_VM_SERIES_MAX, _collect_g, got, NULL);
     guint per_vm = _count_prefix_label(got, "\"a-full\"");
     g_assert_cmpuint(per_vm, ==, 18);                                                            
     g_assert_cmpuint(per_vm + psi_per, <=, vm_per);                                   
     g_assert_cmpuint(got->len - per_vm, <=, host_sampler);                       
     g_ptr_array_unref(got);
+    pcv_vm_diag_snapshot_free(s);
+}
+
+static PcvCgroupVmStat *
+_cg_psi(gint domid, const gchar *real_name, gdouble mem_some)
+{
+    PcvCgroupVmStat *st = g_new0(PcvCgroupVmStat, 1);
+    st->ref.kind = PCV_CGROUP_PSI_KIND_VM;
+    st->ref.domain_id = domid;
+    pcv_cgroup_psi_normalize_vm_name(real_name, st->ref.name, sizeof(st->ref.name));
+    g_strlcpy(st->ref.norm_name, st->ref.name, sizeof(st->ref.norm_name));
+    g_assert_true(pcv_cgroup_psi_machine_name(domid, real_name, st->ref.machine, sizeof(st->ref.machine)));
+    st->children = g_array_new(FALSE, TRUE, sizeof(PcvCgroupCpuChild));
+    st->have_psi[PCV_CGROUP_PSI_RES_MEMORY] = TRUE;
+    st->psi[PCV_CGROUP_PSI_RES_MEMORY].have_some = TRUE;
+    st->psi[PCV_CGROUP_PSI_RES_MEMORY].some_avg10 = mem_some;
+    st->psi[PCV_CGROUP_PSI_RES_MEMORY].some_total_sec = 7;
+    return st;
+}
+
+static gboolean
+_has_series_for(GPtrArray *got, const gchar *prefix, const gchar *key, const gchar *name)
+{
+    gchar *needle = g_strdup_printf("|%s=\"%s\",", key, name);
+    gboolean hit = FALSE;
+    for (guint i = 0; i < got->len && !hit; i++) {
+        const gchar *e = g_ptr_array_index(got, i);
+        hit = g_str_has_prefix(e, prefix) && strstr(e, needle) != NULL;
+    }
+    g_free(needle);
+    return hit;
+}
+
+static void
+test_prom_series_psi_same_set(void)
+{
+    GPtrArray *run = _runs();
+    GPtrArray *cg = g_ptr_array_new_with_free_func(pcv_cgroup_vm_stat_free);
+    gint id = 100;
+    for (gint i = 0; i < 64; i++) {
+        gchar n[16];
+        g_snprintf(n, sizeof(n), "ma%03d", (i * 37) % 64);
+        PcvVmDiagSample *smp = _run_sample(n, FALSE, 0);
+        smp->domain_id = id;
+        g_ptr_array_add(run, smp);
+        g_ptr_array_add(cg, _cg_psi(id++, n, 1.0));
+    }
+    for (gint i = 0; i < 6; i++) {
+        gchar n[16];
+        g_snprintf(n, sizeof(n), "m_z%02d", i);
+        PcvVmDiagSample *smp = _run_sample(n, FALSE, 0);
+        smp->domain_id = id;
+        g_ptr_array_add(run, smp);
+        g_ptr_array_add(cg, _cg_psi(id++, n, 2.0));
+    }
+
+    PcvCgroupVmStat *stale = _cg_psi(169, "ghost", 99.0);
+    g_ptr_array_insert(cg, 0, stale);
+
+    PcvVmDiagSnapshot *s = _snap_cg(run, NULL, g_ptr_array_ref(cg));
+    GPtrArray *got = g_ptr_array_new_with_free_func(g_free);
+    guint trunc = 999;
+    pcv_vm_diag_prom_series(s, cg, PCV_PROM_VM_SERIES_MAX, _collect_g, got, &trunc);
+    g_assert_cmpuint(trunc, ==, 6);
+
+    const gchar *PSI = "purecvisor_cgroup_pressure_memory_some_avg10|";
+    guint diag = 0, psi = 0;
+    for (gint i = 0; i < 64; i++) {
+        gchar n[16];
+        g_snprintf(n, sizeof(n), "ma%03d", i);
+        gboolean d = _has_series_for(got, "purecvisor_vm_cpu_seconds_total|", "vm", n);
+        gboolean p = _has_series_for(got, PSI, "vm_name", n);
+        g_assert_cmpint(d, ==, p);
+        g_assert_cmpint(d, ==, i < 58);
+        diag += d; psi += p;
+    }
+    for (gint i = 0; i < 6; i++) {
+        gchar n[16], z[16];
+        g_snprintf(n, sizeof(n), "m_z%02d", i);
+        g_snprintf(z, sizeof(z), "mz%02d", i);
+        g_assert_true(_has_series_for(got, "purecvisor_vm_cpu_seconds_total|", "vm", n));
+        g_assert_true(_has_series_for(got, PSI, "vm_name", n));
+        g_assert_false(_has_series_for(got, PSI, "vm_name", z));
+        diag++; psi++;
+    }
+    g_assert_cmpuint(diag, ==, PCV_PROM_VM_SERIES_MAX);
+    g_assert_cmpuint(psi, ==, PCV_PROM_VM_SERIES_MAX);
+    g_assert_cmpuint(_count_name(got, "purecvisor_cgroup_pressure_memory_some_avg10"), ==, PCV_PROM_VM_SERIES_MAX);
+    g_assert_cmpuint(_count_name(got, "purecvisor_cgroup_pressure_memory_some_seconds_total"), ==, PCV_PROM_VM_SERIES_MAX);
+    g_assert_cmpuint(_count_name(got, "purecvisor_cgroup_pressure_memory_full_avg10"), ==, 0);
+
+    g_assert_true(_has(got, "purecvisor_cgroup_pressure_memory_some_avg10|"
+                            "vm_name=\"m_z00\",vm_uuid=\"u-m_z00\",kind=\"vm\"|2|0"));
+    g_assert_true(_has(got, "purecvisor_cgroup_pressure_memory_some_seconds_total|"
+                            "vm_name=\"m_z00\",vm_uuid=\"u-m_z00\",kind=\"vm\"|7|2"));
+
+    g_assert_true(_has(got, "purecvisor_cgroup_pressure_memory_some_avg10|"
+                            "vm_name=\"m_z05\",vm_uuid=\"u-m_z05\",kind=\"vm\"|2|0"));
+    g_assert_cmpuint(_count_prefix_label(got, "|99|"), ==, 0);
+
+    g_ptr_array_set_size(got, 0);
+    pcv_vm_diag_prom_series(s, NULL, PCV_PROM_VM_SERIES_MAX, _collect_g, got, NULL);
+    g_assert_cmpuint(_count_name(got, "purecvisor_cgroup_pressure_memory_some_avg10"), ==, 0);
+    g_assert_cmpuint(_count_name(got, "purecvisor_vm_cpu_seconds_total"), ==, PCV_PROM_VM_SERIES_MAX);
+
+    g_ptr_array_unref(got);
+    g_ptr_array_unref(cg);
     pcv_vm_diag_snapshot_free(s);
 }
 
@@ -421,10 +529,10 @@ test_prom_label_escape(void)
     g_ptr_array_add(run, _run_sample("n\nl", FALSE, 0));
     PcvVmDiagSnapshot *s = _snap(run, NULL);
     GPtrArray *got = g_ptr_array_new_with_free_func(g_free);
-    pcv_vm_diag_prom_series(s, PCV_PROM_VM_SERIES_MAX, _collect_g, got, NULL);
-    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"a\\\"b\\\\c\"|1e-06|2"));
-    g_assert_true(_has(got, "purecvisor_vm_net_rx_bytes_total|vm_name=\"a\\\"b\\\\c\"|5|2"));
-    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"n\\nl\"|1e-06|2"));
+    pcv_vm_diag_prom_series(s, NULL, PCV_PROM_VM_SERIES_MAX, _collect_g, got, NULL);
+    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"a\\\"b\\\\c\",vm_uuid=\"u-a\\\"b\\\\c\"|1e-06|2"));
+    g_assert_true(_has(got, "purecvisor_vm_net_rx_bytes_total|vm_name=\"a\\\"b\\\\c\",vm_uuid=\"u-a\\\"b\\\\c\"|5|2"));
+    g_assert_true(_has(got, "purecvisor_vm_cpu_seconds_total|vm=\"n\\nl\",vm_uuid=\"u-n\\nl\"|1e-06|2"));
     for (guint i = 0; i < got->len; i++)
         g_assert_null(strchr(g_ptr_array_index(got, i), '\n'));                 
     g_ptr_array_unref(got);
@@ -492,6 +600,7 @@ _two_cycle_snapshot(GPtrArray *cfgs_keep)
         cg->ref.kind = PCV_CGROUP_PSI_KIND_VM;
         cg->ref.domain_id = 1;
         g_strlcpy(cg->ref.norm_name, "web", sizeof(cg->ref.norm_name));
+        g_strlcpy(cg->ref.machine, "qemu-1-web", sizeof(cg->ref.machine));
         cg->have_psi[PCV_CGROUP_PSI_RES_MEMORY] = TRUE;
         cg->psi[PCV_CGROUP_PSI_RES_MEMORY].have_some = TRUE;
         cg->psi[PCV_CGROUP_PSI_RES_MEMORY].some_avg10 = 6.0;                            
@@ -958,6 +1067,7 @@ test_vm_diag_view_register(void)
     g_test_add_func("/vm_diag_view/prom_series_existing_net", test_prom_series_existing_net);
     g_test_add_func("/vm_diag_view/prom_series_rules", test_prom_series_rules);
     g_test_add_func("/vm_diag_view/prom_budget", test_prom_budget);
+    g_test_add_func("/vm_diag_view/prom_series_psi_same_set", test_prom_series_psi_same_set);
     g_test_add_func("/vm_diag_view/prom_label_escape", test_prom_label_escape);
     g_test_add_func("/vm_diag_view/json_shape", test_json_shape);
     g_test_add_func("/vm_diag_view/scope_own", test_scope_own);

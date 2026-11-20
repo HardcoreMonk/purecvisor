@@ -139,6 +139,11 @@ pcv_cgroup_psi_ref_from_machine_dir(const gchar *dirname, PcvCgroupPsiRef *out)
                                                                    
                                                             
                                          
+    out->machine[0] = '\0';
+    if (kind == PCV_CGROUP_PSI_KIND_VM &&
+        !pcv_cgroup_psi_unescape(body, out->machine, sizeof(out->machine)))
+        out->machine[0] = '\0';
+
     if (kind == PCV_CGROUP_PSI_KIND_VM) {
         out->domain_id = pcv_cgroup_psi_domain_id_from_scope(dirname);
         pcv_cgroup_psi_normalize_vm_name(out->name, out->norm_name, sizeof(out->norm_name));
@@ -208,6 +213,45 @@ pcv_cgroup_psi_normalize_vm_name(const gchar *vm_name, gchar *out, gsize out_sz)
                                                               
                                           
 gboolean
+pcv_cgroup_psi_machine_name(gint domain_id, const gchar *vm_name, gchar *out, gsize out_sz)
+{
+    if (!out || out_sz == 0) return FALSE;
+    out[0] = '\0';
+    if (domain_id < 0 || !vm_name || !vm_name[0]) return FALSE;
+
+    gchar buf[PCV_CGROUP_PSI_MACHINE_MAX + 32];
+    gsize o = (gsize)g_snprintf(buf, sizeof(buf), "qemu-%d-", domain_id);
+    gboolean skip = TRUE;
+    for (const gchar *p = vm_name; *p; p++) {
+        if (o >= PCV_CGROUP_PSI_MACHINE_MAX) break;
+        gchar c = *p;
+        if (c == '.' || c == '-') {
+            if (!skip) buf[o++] = c;
+            skip = TRUE;
+            continue;
+        }
+        skip = FALSE;
+        if (!g_ascii_isalnum((guchar)c)) continue;
+        buf[o++] = c;
+    }
+    while (o > 0 && (buf[o - 1] == '-' || buf[o - 1] == '.')) o--;
+    buf[o] = '\0';
+    if (o + 1 > out_sz) return FALSE;
+    memcpy(out, buf, o + 1);
+    return TRUE;
+}
+
+gboolean
+pcv_cgroup_psi_ref_matches_vm(const PcvCgroupPsiRef *ref, gint domain_id, const gchar *vm_name)
+{
+    if (!ref || ref->kind != PCV_CGROUP_PSI_KIND_VM) return FALSE;
+    if (domain_id < 0 || ref->domain_id != domain_id || !ref->machine[0]) return FALSE;
+    gchar want[PCV_CGROUP_PSI_NAME_MAX];
+    if (!pcv_cgroup_psi_machine_name(domain_id, vm_name, want, sizeof(want))) return FALSE;
+    return strcmp(want, ref->machine) == 0;
+}
+
+gboolean
 pcv_cgroup_psi_ref_from_lxc_dir(const gchar *parent_rel, const gchar *dirname,
                                 PcvCgroupPsiRef *out)
 {
@@ -233,6 +277,7 @@ pcv_cgroup_psi_ref_from_lxc_dir(const gchar *parent_rel, const gchar *dirname,
 
     out->kind = PCV_CGROUP_PSI_KIND_CONTAINER;
     out->domain_id = -1;                                      
+    out->machine[0] = '\0';
     g_strlcpy(out->norm_name, out->name, sizeof(out->norm_name));
     if (!parent_rel || parent_rel[0] == '\0')
         g_snprintf(out->rel_path, sizeof(out->rel_path), "%s", dirname);
@@ -353,21 +398,21 @@ pcv_cgroup_vm_stat_free(gpointer p)
                                                                        
                                                          
 gboolean
-pcv_cgroup_psi_prom_selected(const PcvCgroupPsiRef *refs, gint n, gint vm_cap,
-                             gint ctr_cap, gboolean *selected_out)
+pcv_cgroup_psi_prom_selected(const PcvCgroupPsiRef *refs, gint n, gint ctr_cap,
+                             gboolean *selected_out)
 {
     if (!refs || !selected_out || n <= 0) return FALSE;
 
     gboolean truncated = FALSE;
     for (gint i = 0; i < n; i++) {
-        gint cap = refs[i].kind == PCV_CGROUP_PSI_KIND_VM ? vm_cap : ctr_cap;
+        if (refs[i].kind != PCV_CGROUP_PSI_KIND_CONTAINER) { selected_out[i] = FALSE; continue; }
         gint rank = 0;
-        for (gint j = 0; j < n && rank < cap; j++) {
-            if (j == i || refs[j].kind != refs[i].kind) continue;
+        for (gint j = 0; j < n && rank < ctr_cap; j++) {
+            if (j == i || refs[j].kind != PCV_CGROUP_PSI_KIND_CONTAINER) continue;
             gint c = strcmp(refs[j].name, refs[i].name);
             if (c < 0 || (c == 0 && j < i)) rank++;
         }
-        selected_out[i] = rank < cap;
+        selected_out[i] = rank < ctr_cap;
         if (!selected_out[i]) truncated = TRUE;
     }
     return truncated;
@@ -601,10 +646,18 @@ pcv_cgroup_psi_format_labels(const PcvCgroupPsiRef *ref, gchar *out, gsize out_s
 {
     if (!out || out_sz == 0) return;
     out[0] = '\0';
-    if (!ref) return;
+    if (!ref || ref->kind != PCV_CGROUP_PSI_KIND_CONTAINER) return;
                                                                                             
-    pcv_prom_labels_build(out, out_sz, "vm_name", ref->name,
-                          "kind", ref->kind == PCV_CGROUP_PSI_KIND_VM ? "vm" : "container", NULL);
+    pcv_prom_labels_build(out, out_sz, "vm_name", ref->name, "kind", "container", NULL);
+}
+
+gboolean
+pcv_cgroup_psi_vm_labels(const gchar *vm_name, const gchar *vm_uuid, gchar *out, gsize out_sz)
+{
+    if (!out || out_sz == 0) return FALSE;
+    out[0] = '\0';
+    if (!vm_name || !vm_name[0] || !vm_uuid || !vm_uuid[0]) return FALSE;
+    return pcv_prom_labels_build(out, out_sz, "vm_name", vm_name, "vm_uuid", vm_uuid, "kind", "vm", NULL);
 }
 
                                                     
@@ -670,12 +723,13 @@ pcv_cgroup_psi_collect(const gchar *cgroup_root, GPtrArray *vm_stats_out)
 
     gboolean *selected = g_new0(gboolean, n > 0 ? n : 1);
     gboolean export_truncated = pcv_cgroup_psi_prom_selected(
-        refs, n, PCV_PROM_VM_SERIES_MAX, PCV_CGROUP_PSI_PROM_CONTAINER_MAX, selected);
+        refs, n, PCV_CGROUP_PSI_PROM_CONTAINER_MAX, selected);
 
     gint samples = 0;
     for (gint i = 0; i < n; i++) {
-        gchar labels[256];
-        pcv_cgroup_psi_format_labels(&refs[i], labels, sizeof(labels));
+        gchar labels[PCV_PROM_LABELS_MAX];
+        if (selected[i]) pcv_cgroup_psi_format_labels(&refs[i], labels, sizeof(labels));
+        else labels[0] = '\0';
         if (!labels[0]) selected[i] = FALSE;                                                  
 
                                                          
@@ -733,8 +787,8 @@ pcv_cgroup_psi_collect(const gchar *cgroup_root, GPtrArray *vm_stats_out)
                                                                     
                                                         
         PCV_LOG_WARN(CGROUP_PSI_LOG_DOM,
-            "cgroup PSI prometheus export limited to first %d VMs and %d containers by name "
-            "(%d cgroups scanned)", PCV_PROM_VM_SERIES_MAX, PCV_CGROUP_PSI_PROM_CONTAINER_MAX, n);
+            "cgroup PSI prometheus export limited to first %d containers by name "
+            "(%d cgroups scanned)", PCV_CGROUP_PSI_PROM_CONTAINER_MAX, n);
     }
 
     g_free(selected);

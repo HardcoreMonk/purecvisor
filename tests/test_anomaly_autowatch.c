@@ -83,7 +83,7 @@ _ensure_init(void)
                                                               
                                                 
                       
-#define EXPECT_LABELS_BUF 160
+#define EXPECT_LABELS_BUF 208
 
                                                                 
 #define PSI_NAME_MAX_LEN (PCV_CGROUP_PSI_NAME_MAX - 1)
@@ -425,6 +425,62 @@ test_extract_vm_name_basic(void)
 }
 
 static void
+test_extract_vm_target_prefers_uuid(void)
+{
+    gchar out[PCV_ANOMALY_VM_NAME_MAX];
+    g_assert_true(pcv_anomaly_extract_vm_target(
+        "vm_name=\"db_main\",vm_uuid=\"6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f\",kind=\"vm\"", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f");
+
+    g_assert_true(pcv_anomaly_extract_vm_target(
+        "vm_uuid=\"6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f\",vm_name=\"db_main\"", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f");
+
+    g_assert_true(pcv_anomaly_extract_vm_target("vm_name=\"ct1\",kind=\"container\"", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "ct1");
+
+    g_assert_true(pcv_anomaly_extract_vm_target("vm_name=\"web\",vm_uuid=\"not-a-uuid\"", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "web");
+
+    g_assert_false(pcv_anomaly_extract_vm_target("kind=\"vm\"", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "");
+    g_assert_false(pcv_anomaly_extract_vm_target(NULL, out, sizeof(out)));
+}
+
+static void
+test_psi_anomaly_targets_vm_uuid(void)
+{
+    static const gchar *const UUID = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+    static const gchar *const LBL =
+        "vm_name=\"db_main\",vm_uuid=\"6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f\",kind=\"vm\"";
+    _ensure_init();
+    pcv_test_self_healing_ensure_init();
+    pcv_anomaly_reset_baseline();
+    for (int cycle = 0; cycle < 14; cycle++) {
+        gchar *render = g_strdup_printf("# TYPE %s gauge\n%s{%s} %.17g\n", PCV_ANOMALY_AUTO_METRIC_MEM_FULL,
+                                        PCV_ANOMALY_AUTO_METRIC_MEM_FULL, LBL, (cycle % 2) ? 1.5 : 1.0);
+        pcv_anomaly_evaluate_text(render);
+        g_free(render);
+    }
+    gchar *spike = g_strdup_printf("# TYPE %s gauge\n%s{%s} 90\n", PCV_ANOMALY_AUTO_METRIC_MEM_FULL,
+                                   PCV_ANOMALY_AUTO_METRIC_MEM_FULL, LBL);
+    pcv_anomaly_evaluate_text(spike);
+    g_free(spike);
+
+    gchar *hist = pcv_healing_get_history_json();
+
+    gchar *want = g_strdup_printf("memory_full_avg10 vm=%s Z=", UUID);
+    g_assert_nonnull(strstr(hist, want));
+    g_assert_null(strstr(hist, " vm=db_main "));
+    g_assert_null(strstr(hist, " vm=dbmain "));
+    g_free(want);
+    g_free(hist);
+    pcv_anomaly_reset_baseline();
+    for (int i = 0; i < EXPECT_RECLAIM_MISSES + 1; i++)
+        pcv_anomaly_sync_auto_watches("", NULL);
+}
+
+static void
 test_extract_vm_name_key_collisions(void)
 {
     gchar out[PCV_ANOMALY_VM_NAME_MAX];
@@ -723,11 +779,12 @@ test_score_label_budget_roundtrip_54_char_vm(void)
     PcvCgroupPsiRef ref;
     g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(dirname, &ref));
     g_assert_cmpstr(ref.name, ==, name);
+    g_assert_true(pcv_cgroup_psi_ref_matches_vm(&ref, 3, name));
 
                                                                   
     gchar psi_labels[256];
-    pcv_cgroup_psi_format_labels(&ref, psi_labels, sizeof(psi_labels));
-    g_assert_cmpuint(strlen(psi_labels), ==, 74);
+    g_assert_true(pcv_cgroup_psi_vm_labels(name, "0b5e6f2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b", psi_labels, sizeof(psi_labels)));
+    g_assert_cmpuint(strlen(psi_labels), ==, 121);
     g_assert_true(pcv_prom_labels_fit(psi_labels));
 
                                             
@@ -742,7 +799,7 @@ test_score_label_budget_roundtrip_54_char_vm(void)
     gchar *score = g_strdup_printf("metric=\"%s\",%s",
                                    PCV_ANOMALY_AUTO_METRIC_MEM_FULL, extracted);
                                                              
-    g_assert_cmpuint(strlen(score), ==, 128);
+    g_assert_cmpuint(strlen(score), ==, 175);
     g_assert_true(pcv_prom_labels_fit(score));                       
 
                                                       
@@ -805,6 +862,18 @@ test_longest_producible_label_is_watchable(void)
     g_assert_cmpuint(strlen(score), ==, 208);
     g_assert_true(pcv_prom_labels_fit(score));
 
+    g_free(score);
+    g_free(line);
+
+    _ensure_init();
+    g_assert_true(pcv_cgroup_psi_vm_labels(name, "0b5e6f2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b", labels, sizeof(labels)));
+    g_assert_cmpuint(strlen(labels), ==, 194);
+    g_assert_cmpuint(strlen(labels), <, EXPECT_LABELS_BUF);
+    line = g_strdup_printf("%s{%s} %.17g\n", PCV_ANOMALY_AUTO_METRIC_MEM_FULL, labels, 1.5);
+    g_assert_cmpint(pcv_anomaly_sync_auto_watches(line, NULL), ==, 1);
+    score = g_strdup_printf("metric=\"%s\",%s", PCV_ANOMALY_AUTO_METRIC_MEM_FULL, labels);
+    g_assert_cmpuint(strlen(score), ==, 248);
+    g_assert_true(pcv_prom_labels_fit(score));
     g_free(score);
     g_free(line);
     g_free(name);
@@ -878,6 +947,8 @@ test_anomaly_autowatch_register(void)
     g_test_add_func("/anomaly/counter_load_end_is_quiet", test_counter_load_end_is_quiet);
     g_test_add_func("/anomaly/gauge_downward_still_fires", test_gauge_downward_still_fires);
     g_test_add_func("/anomaly/extract_vm_name_basic", test_extract_vm_name_basic);
+    g_test_add_func("/anomaly/extract_vm_target_prefers_uuid", test_extract_vm_target_prefers_uuid);
+    g_test_add_func("/anomaly/psi_anomaly_targets_vm_uuid", test_psi_anomaly_targets_vm_uuid);
     g_test_add_func("/anomaly/extract_vm_name_key_collisions", test_extract_vm_name_key_collisions);
     g_test_add_func("/anomaly/extract_vm_name_malformed", test_extract_vm_name_malformed);
     g_test_add_func("/anomaly/extract_vm_name_buffer_limits", test_extract_vm_name_buffer_limits);

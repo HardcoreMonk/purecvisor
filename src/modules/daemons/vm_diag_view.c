@@ -21,6 +21,7 @@
 #include <string.h>
 
 
+#include "cgroup_psi.h"
 #include "prometheus_exporter.h"                                               
 
                                                                 
@@ -157,11 +158,30 @@ static const struct {
 };
 
                                                       
+static const gchar *const CG_PSI_RES[PCV_CGROUP_PSI_RES_COUNT] = { "cpu", "memory", "io" };
+
+static void
+_cg_psi_series(const PcvCgroupVmStat *cg, const gchar *labels, PcvVmDiagPromFn fn, gpointer ud)
+{
+    gchar metric[128];
+    for (gint r = 0; r < PCV_CGROUP_PSI_RES_COUNT; r++) {
+        if (!cg->have_psi[r]) continue;
+        const PcvCgroupPsiSample *p = &cg->psi[r];
+        for (gint full = 0; full < 2; full++) {
+            if (!(full ? p->have_full : p->have_some)) continue;
+            const gchar *type = full ? "full" : "some";
+            pcv_cgroup_psi_format_metric(CG_PSI_RES[r], type, "seconds_total", metric, sizeof(metric));
+            fn(metric, labels, full ? p->full_total_sec : p->some_total_sec, PCV_VM_DIAG_PROM_SOURCE_COUNTER, ud);
+            pcv_cgroup_psi_format_metric(CG_PSI_RES[r], type, "avg10", metric, sizeof(metric));
+            fn(metric, labels, full ? p->full_avg10 : p->some_avg10, PCV_VM_DIAG_PROM_GAUGE, ud);
+        }
+    }
+}
                                                                           
                                                       
 void
-pcv_vm_diag_prom_series(const PcvVmDiagSnapshot *s, guint vm_cap, PcvVmDiagPromFn fn,
-                        gpointer ud, guint *prom_truncated_out)
+pcv_vm_diag_prom_series(const PcvVmDiagSnapshot *s, const GPtrArray *cgroup_stats, guint vm_cap,
+                        PcvVmDiagPromFn fn, gpointer ud, guint *prom_truncated_out)
 {
     if (prom_truncated_out) *prom_truncated_out = 0;
     if (!s || !s->records || !fn) return;
@@ -177,7 +197,7 @@ pcv_vm_diag_prom_series(const PcvVmDiagSnapshot *s, guint vm_cap, PcvVmDiagPromF
         taken++;
 
         gchar labels[PCV_PROM_LABELS_MAX];
-        if (pcv_prom_labels_build(labels, sizeof(labels), "vm", r->name, NULL)) {                      
+        if (pcv_prom_labels_build(labels, sizeof(labels), "vm", r->name, "vm_uuid", r->uuid, NULL)) {
             for (gsize k = 0; k < G_N_ELEMENTS(VM_COUNTER_SERIES); k++) {
                 gboolean have = VM_COUNTER_SERIES[k].bundle ? (r->tot.present & VM_COUNTER_SERIES[k].bundle) != 0
                                                             : r->tot.have_throttle;
@@ -195,8 +215,13 @@ pcv_vm_diag_prom_series(const PcvVmDiagSnapshot *s, guint vm_cap, PcvVmDiagPromF
                 fn("purecvisor_vm_memory_rss_bytes", labels, r->mem_rss_mb * 1048576.0, PCV_VM_DIAG_PROM_GAUGE, ud);
         }
 
+        const PcvCgroupVmStat *cg = pcv_vm_diag_cgroup_find(cgroup_stats, r->domain_id, r->name);
+        if (cg && pcv_cgroup_psi_vm_labels(r->name, r->uuid, labels, sizeof(labels)))
+            _cg_psi_series(cg, labels, fn, ud);
+
         if (!(r->tot.present & PCV_VM_DIAG_B_NET)) continue;                          
-        if (!pcv_prom_labels_build(labels, sizeof(labels), "vm_name", r->name, NULL)) continue;                      
+        if (!pcv_prom_labels_build(labels, sizeof(labels), "vm_name", r->name, "vm_uuid", r->uuid, NULL))
+            continue;
         for (gsize k = 0; k < G_N_ELEMENTS(VM_NET_SERIES); k++) {
             guint64 v = G_STRUCT_MEMBER(guint64, &r->tot, VM_NET_SERIES[k].off);
             fn(VM_NET_SERIES[k].name, labels, (gdouble)v, PCV_VM_DIAG_PROM_SOURCE_COUNTER, ud);                      

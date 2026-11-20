@@ -506,6 +506,8 @@ void pcv_vm_diag_table_step(PcvVmDiagTable *t, GPtrArray *running_samples, GPtrA
                             GPtrArray *cgroup_stats, const PcvVmDiagHostIn *host,
                             PcvVmDiagSnapshot *out);
 
+const PcvCgroupVmStat *pcv_vm_diag_cgroup_find(const GPtrArray *cgroup_stats, gint domain_id, const gchar *name);
+
 G_END_DECLS
 
 #endif                           

@@ -77,6 +77,7 @@
 #include "modules/audit/pcv_audit.h"
 #include "modules/ai/self_healing.h"                                   
 #include "utils/pcv_log.h"
+#include "utils/pcv_validate.h"
 
   
                                                                                
@@ -180,9 +181,11 @@ constexpr int AUTO_DROP_WARN_INTERVAL_SEC = 300;
                                                         
                                                     
    
-constexpr int ANOMALY_LABELS_BUF = 160;
+constexpr int ANOMALY_LABELS_BUF = 208;
 static_assert(ANOMALY_LABELS_BUF >= (PCV_CGROUP_PSI_NAME_MAX - 1) + 18 + 9 + 1,
               "label buffer must fit the longest cgroup_psi label (name + kind)");
+static_assert(ANOMALY_LABELS_BUF >= 9 + (PCV_CGROUP_PSI_NAME_MAX - 1) + 1 + 47 + 10 + 1,
+              "label buffer must fit the longest VM cgroup_psi label (name + vm_uuid + kind)");
 
                                                           
                                                       
@@ -515,9 +518,28 @@ static const AutoWatchSpec AUTO_WATCH_SPECS[] = {
                                                  
                                                       
    
+static gboolean _extract_label(const gchar *labels, const gchar *want, gchar *out, gsize out_sz);
+
 gboolean
 pcv_anomaly_extract_vm_name(const gchar *labels, gchar *out, gsize out_sz)
 {
+    return _extract_label(labels, "vm_name", out, out_sz);
+}
+
+gboolean
+pcv_anomaly_extract_vm_target(const gchar *labels, gchar *out, gsize out_sz)
+{
+    if (_extract_label(labels, "vm_uuid", out, out_sz)) {
+        if (pcv_validate_is_uuid_like(out)) return TRUE;
+        out[0] = '\0';
+    }
+    return _extract_label(labels, "vm_name", out, out_sz);
+}
+
+static gboolean
+_extract_label(const gchar *labels, const gchar *want, gchar *out, gsize out_sz)
+{
+    const gsize want_len = strlen(want);
     if (out && out_sz > 0) out[0] = '\0';                               
     if (!labels || !out || out_sz == 0) return FALSE;
 
@@ -565,7 +587,7 @@ pcv_anomaly_extract_vm_name(const gchar *labels, gchar *out, gsize out_sz)
         const gsize val_len = (gsize)(p - val);
         p++;                                                  
 
-        if (key_len != 7 || strncmp(key, "vm_name", 7) != 0)
+        if (key_len != want_len || strncmp(key, want, want_len) != 0)
             continue;                                                                    
 
         if (val_len == 0) return FALSE;                                    
@@ -847,7 +869,7 @@ _score_labels(const AnomalyMetric *m, gchar *out, gsize out_sz)
                                                       
                                                             
                                                       
-constexpr int ANOMALY_SCORE_LABEL_BUF = 320;
+constexpr int ANOMALY_SCORE_LABEL_BUF = 352;
 static_assert(ANOMALY_SCORE_LABEL_BUF > PCV_PROM_LABELS_MAX,
               "score label buffer must not truncate before the registry can reject");
 static_assert(ANOMALY_SCORE_LABEL_BUF >= 9 + 127 + 2 + (ANOMALY_LABELS_BUF - 1) + 1,
@@ -861,7 +883,7 @@ static_assert(ANOMALY_SCORE_LABEL_BUF >= 9 + 127 + 2 + (ANOMALY_LABELS_BUF - 1) 
                                                                    
                                                         
                                                         
-constexpr int ANOMALY_ALERT_PAYLOAD_BUF = 640;
+constexpr int ANOMALY_ALERT_PAYLOAD_BUF = 768;
 static_assert(ANOMALY_ALERT_PAYLOAD_BUF >= 65 + 127 + 2 * (ANOMALY_LABELS_BUF - 1) + 4 * 32 + 1,
               "alert payload must fit metric + escaped labels + numeric fields");
 
@@ -870,7 +892,7 @@ static_assert(ANOMALY_ALERT_PAYLOAD_BUF >= 65 + 127 + 2 * (ANOMALY_LABELS_BUF - 
                                                    
                                                   
                                                          
-constexpr int ANOMALY_SEARCH_KEY_BUF = 320;
+constexpr int ANOMALY_SEARCH_KEY_BUF = 352;
 static_assert(ANOMALY_SEARCH_KEY_BUF >= 127 + 1 + (ANOMALY_LABELS_BUF - 1) + 1 + 1,
               "search key must fit `name{labels}` without truncation");
 
@@ -915,7 +937,11 @@ _emit_alert(AnomalyMetric *m, gdouble value)
                                                          
     gchar vm_buf[PCV_ANOMALY_VM_NAME_MAX];
     const gchar *target_vm =
-        pcv_anomaly_extract_vm_name(m->labels, vm_buf, sizeof(vm_buf)) ? vm_buf : NULL;
+        pcv_anomaly_extract_vm_target(m->labels, vm_buf, sizeof(vm_buf)) ? vm_buf : NULL;
+
+    gchar name_buf[PCV_ANOMALY_VM_NAME_MAX];
+    const gboolean have_name = target_vm && pcv_anomaly_extract_vm_name(m->labels, name_buf, sizeof(name_buf)) &&
+                               strcmp(name_buf, target_vm) != 0;
 
                                                                    
     gchar lbl[ANOMALY_SCORE_LABEL_BUF];
@@ -951,15 +977,17 @@ _emit_alert(AnomalyMetric *m, gdouble value)
     {
         gchar detail[256];
         g_snprintf(detail, sizeof(detail),
-            "Z=%.2f (threshold=%.1f) value=%.2f mean=%.2f%s%s",
+            "Z=%.2f (threshold=%.1f) value=%.2f mean=%.2f%s%s%s%s",
             z, m->threshold, value, mean,
-            target_vm ? " vm=" : "", target_vm ? target_vm : "");
+            target_vm ? " vm=" : "", target_vm ? target_vm : "",
+            have_name ? " name=" : "", have_name ? name_buf : "");
         pcv_audit_log("ai-ops", "anomaly_detected", m->name, detail, 0, 0, "local");
     }
 
     PCV_LOG_WARN(ANOMALY_LOG_DOM,
-        "ANOMALY: %s%s%s Z=%.2f (>%.1f) val=%.2f mean=%.2f",
+        "ANOMALY: %s%s%s%s%s Z=%.2f (>%.1f) val=%.2f mean=%.2f",
         m->name, target_vm ? " vm=" : "", target_vm ? target_vm : "",
+        have_name ? " name=" : "", have_name ? name_buf : "",
         z, m->threshold, value, mean);
 
                                                              

@@ -196,6 +196,7 @@ gboolean pcv_anomaly_extract_vm_name(const gchar *labels, gchar *out, gsize out_
                                                            
                                              
   
+gboolean pcv_anomaly_extract_vm_target(const gchar *labels, gchar *out, gsize out_sz);
                                                              
                                   
                                    

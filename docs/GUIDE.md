@@ -4698,6 +4698,17 @@ Web UI에서는 다음 화면이 이 응답을 쓴다. 값이 없는 칸은 `—
 - **발동 계수의 뜻이 바뀌었다:** `purecvisor_healing_policy_triggered_total{policy}`는 전에는 dry-run(연습) 모드의 발동만 셌고 active(실전) 모드에서는 늘 0이었다. 이제 모드와 무관하게 정책이 발동할 때마다 그 정책 라벨이 1 늘어난다. "발동"은 쿨다운·차단기·레이트 리밋을 통과해 정책이 실행 단계에 들어간 것이다. restart 대상 VM이 재시작 브레이커에 막혀 건너뛴 경우도 발동으로 센다. 실제로 조치한 횟수는 그대로 `purecvisor_healing_actions_total{policy,action}`이다.
 - **영향:** active 모드 호스트에서는 반영 뒤 이 계열이 0에서 늘기 시작한다. 이 값으로 "dry-run에서 걸렸을 횟수"를 보던 패널·알림은 모드 구분 없이 발동 수로 읽는다. 저장소 안에는 이 이름을 쓰는 알림 규칙·Grafana JSON이 없다.
 
+#### Prometheus 출력 변경(2.2.1 뒤 공개 main, VM 식별 라벨)
+
+외부 Prometheus·Grafana로 VM 성능 이력을 오래 쌓을 때 VM을 확실히 잇도록 VM 라벨을 바로잡았다. 계열 이름은 그대로다.
+
+- **`vm_uuid` 라벨 추가:** VM 계열에 libvirt UUID 라벨 `vm_uuid`가 붙는다 — VM 진단 counter 11종·gauge 3종(`vm="이름",vm_uuid="UUID"`), VM 네트워크 4종 `purecvisor_vm_net_{rx,tx}_{bytes,packets}_total`(`vm_name="이름",vm_uuid="UUID"`), VM 종류 cgroup PSI 12종 `purecvisor_cgroup_pressure_{cpu,memory,io}_{some,full}_{seconds_total,avg10}`(`vm_name="이름",vm_uuid="UUID",kind="vm"`). 라벨 묶음이 바뀌므로 Prometheus는 반영 시점부터 새 시계열로 받는다(옛 시계열은 거기서 끊기고, counter는 새 시계열에서 다시 시작한다). `rate()`·`sum by (vm)`·`sum by (vm_name)`은 그대로 쓴다. 라벨 전체로 맞추는 recording rule·`on(...)`/`ignoring(...)` 결합은 `vm_uuid`를 고려한다. 오래 쌓는 이력에서는 이름 대신 `vm_uuid`로 VM을 잇는다 — 이름을 바꾸거나 지운 VM의 이름을 다시 써도 섞이지 않는다.
+- **VM 종류 cgroup PSI의 `vm_name`이 실제 VM 이름이다:** 전에는 cgroup scope 이름을 되돌린 값이라 libvirt가 지운 글자(`_`, 비ASCII 등)가 빠지고 `qemu-<번호>-`를 포함해 64자를 넘는 이름은 잘렸다(예: `db_main` → `dbmain`). 이제 scope를 libvirt 도메인과 번호와 libvirt 방 이름 규칙으로 맞춘 뒤 libvirt 도메인 이름을 그대로 낸다. 그런 이름의 VM을 옛 값으로 거르던 패널·알림은 실제 이름으로 바꾼다. 비ADMIN 토큰의 `/metrics` 범위 거르기(8.10)도 이 이름으로 판정하므로 그런 VM의 PSI 줄이 소유자에게 보인다.
+- **세 VM 계열이 같은 64대다:** VM 진단·VM 네트워크·VM 종류 cgroup PSI 계열이 모두 실행 VM 가운데 이름(같으면 UUID) 순 앞 64대를 낸다. 전에는 PSI 계열만 `_`를 지운 scope 이름 순으로 따로 골라 실행 VM이 65대 이상이면 두 집합이 달랐다. 64대 밖 실행 VM 수는 `purecvisor_vm_diag_prom_truncated`다.
+- **VM 종류 PSI의 갱신 조건:** VM 진단 계열과 같다 — 표본기가 libvirt를 읽지 못한 주기에는 갱신하지 않다가 정리되고, 어느 VM의 것인지 맞출 수 없는 scope(번호는 같은데 이름이 다른 옛 scope 등)의 값은 내지 않는다. 컨테이너 PSI 계열(`kind="container"`)은 바뀌지 않았다.
+- **자가치유 대상:** VM 종류 PSI 이상(`vm-mem-pressure` 정책 등)이 자가치유로 넘기는 대상이 VM 이름이 아니라 **VM UUID**다. 전에는 scope에서 되돌린 이름을 넘겨 `_`가 든 VM이면 없는 VM 이름을 가리켰다. 이력·로그의 사유 문구 `vm=`에는 UUID가, 감사 로그 상세에는 `name=<VM 이름>`이 함께 남는다.
+- 저장소 안에는 이 이름들을 쓰는 알림 규칙·Grafana JSON이 없다.
+
 ### 8.2 프로세스 모니터
 
 `process_monitor.c`가 `/proc/[pid]/stat+io`를 20초 주기로 스캔하여 프로세스별 CPU%, 메모리, I/O를 추적한다.
@@ -6138,8 +6149,9 @@ per-VM PSI 연결 전의 이상탐지는 `/proc/pressure/*`의 **노드 전역 P
 - **정리**: 사라진 게스트의 라벨은 기존 TTL 5분 sweep이 걷어간다.
 - **노드 전역 수집은 그대로**다. 기존 대시보드 의존은 변하지 않는다.
 
-여기서 붙는 `vm_name` 라벨을 이상탐지가 읽어 치유 액션에 `target_vm`으로 넘긴다. 그 결과
-자가치유가 "호스트 어딘가"가 아니라 **대상 VM을 지목해** 판단할 수 있게 됐다.
+여기서 붙는 VM 라벨을 이상탐지가 읽어 치유 액션에 `target_vm`으로 넘긴다. 그 결과
+자가치유가 "호스트 어딘가"가 아니라 **대상 VM을 지목해** 판단할 수 있게 됐다. 2.2.1 뒤 공개 main부터 VM 종류 계열은
+libvirt 도메인과 맞춘 실제 이름(`vm_name`)과 UUID(`vm_uuid`)를 달고, 이상탐지는 UUID를 대상으로 넘긴다(8.1 "Prometheus 출력 변경(2.2.1 뒤 공개 main, VM 식별 라벨)").
 
 - **자동 watch 등록/회수**: 매 주기 mark → discover → sweep. 새 시계열이 보이면 등록하고, **3주기 연속** 보이지 않을 때만 회수한다(1주기 결손으로 지우면 5분치 학습분이 날아가고 워밍업으로 되돌아간다). 렌더 결과를 한 번도 못 읽은 주기는 동기화를 아예 건너뛴다 — "못 봤다"를 "사라졌다"로 읽으면 레지스트리 일시 장애 한 번에 전 VM 감시가 회수되기 때문이다.
 - **슬롯**: 자동 64 + 고정 예약 16 = 80. 고정 감시 10건이 자동 등록에 밀려나지 않음이 컴파일 시점 불변식(`static_assert`)으로 고정돼 있다.
@@ -7990,8 +8002,9 @@ Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발
 오프로드 레인·VM 읽기 범위·VM 진단 표본기·지운 이름 묘비를 더했습니다. 변경 목록은 `CHANGELOG.md` 맨 위 '2026-11-18 2.2.1 이후 main 변경'
 항목을 따릅니다. 2026-11-19에는 자가치유 발동 계수가 모드와 무관하게 세도록 바뀌었고(지표 의미 변경, 8.1절),
 `vm.memory.stats`가 VM 설정을 바꾸지 않는 조회가 되며 응답에 `guest_stats`를 더했습니다. 이벤트 센터·대시보드의 VM CPU·메모리 칸은
-VM 진단 응답으로 채워집니다. 응답 필드 하나를 더한 것 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식과 제품 버전 문자열 `2.2.1`이
-바뀌지 않았습니다.
+VM 진단 응답으로 채워집니다. 2026-11-19 변경은 응답 필드 하나를 더한 것 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식을 바꾸지
+않았습니다. 2026-11-20에는 VM 계열 Prometheus 라벨에 `vm_uuid`가 붙고 VM 종류 cgroup PSI가 실제 VM 이름을 냅니다(라벨 변경, 8.1절).
+제품 버전 문자열은 `2.2.1` 그대로입니다.
 
 **2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
 도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.

@@ -237,6 +237,8 @@ _cg(gint domid, const gchar *norm, gdouble mem_some, gdouble mem_full, gdouble i
     st->ref.domain_id = domid;
     g_strlcpy(st->ref.name, norm, sizeof(st->ref.name));
     g_strlcpy(st->ref.norm_name, norm, sizeof(st->ref.norm_name));
+    if (domid >= 0)
+        g_assert_true(pcv_cgroup_psi_machine_name(domid, norm, st->ref.machine, sizeof(st->ref.machine)));
     for (gint r = 0; r < PCV_CGROUP_PSI_RES_COUNT; r++) {
         st->have_psi[r] = TRUE;
         st->psi[r].have_some = st->psi[r].have_full = TRUE;
@@ -1405,11 +1407,15 @@ test_cgroup_join(void)
     g_ptr_array_add(run, _sample(&f, "spec_review_x1", 7, 0));                          
     g_ptr_array_add(run, _sample(&f, "lonely", 8, 0));                    
     g_ptr_array_add(run, _sample(&f, "oldname", 11, 0));                               
+    g_ptr_array_add(run, _sample(&f, "db_main", 12, 0));
+    g_ptr_array_add(run, _sample(&f, "fresh", 13, 0));
 
     GPtrArray *cgs = g_ptr_array_new_with_free_func(pcv_cgroup_vm_stat_free);
     g_ptr_array_add(cgs, _cg(4, "web-01", 1.5, 0, 0, 0, 2, NULL, 100, 0));
     g_ptr_array_add(cgs, _cg(-1, "specreviewx1", 2.5, 0, 0, 0, 2, NULL, 100, 0));
     g_ptr_array_add(cgs, _cg(3, "oldname", 3.5, 0, 0, 0, 2, NULL, 100, 0));
+    g_ptr_array_add(cgs, _cg(12, "dbmain", 4.5, 0, 0, 0, 2, NULL, 100, 0));
+    g_ptr_array_add(cgs, _cg(13, "stale", 5.5, 0, 0, 0, 2, NULL, 100, 0));
 
     PcvVmDiagSnapshot *s = g_new0(PcvVmDiagSnapshot, 1);
     pcv_vm_diag_table_step(t, run, NULL, cgs, &HOST8, s);
@@ -1428,6 +1434,14 @@ test_cgroup_join(void)
     ASSERT_NULL(r->psi[PCV_CGROUP_PSI_RES_MEMORY][0]);
 
     r = _rec(s, "oldname");                                       
+    g_assert_false(r->have_psi);
+    g_assert_true(r->missing & PCV_VM_DIAG_M_CGROUP);
+
+    r = _rec(s, "db_main");
+    g_assert_true(r->have_psi);
+    ASSERT_NEAR(r->psi[PCV_CGROUP_PSI_RES_MEMORY][0], 4.5);
+
+    r = _rec(s, "fresh");
     g_assert_false(r->have_psi);
     g_assert_true(r->missing & PCV_VM_DIAG_M_CGROUP);
 

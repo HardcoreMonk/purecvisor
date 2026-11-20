@@ -1105,21 +1105,22 @@ _entry_cmp(gconstpointer a, gconstpointer b)
                                                       
                                                                       
                                                       
-   
-static const PcvCgroupVmStat *
-_cgroup_join(GHashTable *by_id, GPtrArray *cgroup_stats, const PcvVmDiagSample *s)
+const PcvCgroupVmStat *
+pcv_vm_diag_cgroup_find(const GPtrArray *cgroup_stats, gint domain_id, const gchar *name)
 {
-    if (!cgroup_stats) return NULL;
-    if (s->domain_id >= 0) {
-        const PcvCgroupVmStat *hit = g_hash_table_lookup(by_id, GINT_TO_POINTER(s->domain_id));
-        if (hit) return hit;
+    if (!cgroup_stats || !name) return NULL;
+    if (domain_id >= 0) {
+        for (guint i = 0; i < cgroup_stats->len; i++) {
+            const PcvCgroupVmStat *cs = g_ptr_array_index(cgroup_stats, i);
+            if (cs && pcv_cgroup_psi_ref_matches_vm(&cs->ref, domain_id, name)) return cs;
+        }
     }
     gchar norm[PCV_CGROUP_PSI_NAME_MAX];
-    pcv_cgroup_psi_normalize_vm_name(s->name, norm, sizeof(norm));
+    pcv_cgroup_psi_normalize_vm_name(name, norm, sizeof(norm));
     for (guint i = 0; i < cgroup_stats->len; i++) {
         const PcvCgroupVmStat *cs = g_ptr_array_index(cgroup_stats, i);
         if (!cs || cs->ref.kind != PCV_CGROUP_PSI_KIND_VM) continue;
-        if (s->domain_id >= 0 && cs->ref.domain_id >= 0) continue;
+        if (domain_id >= 0 && cs->ref.domain_id >= 0) continue;
         if (strcmp(cs->ref.norm_name, norm) == 0) return cs;
     }
     return NULL;
@@ -1153,17 +1154,6 @@ pcv_vm_diag_table_step(PcvVmDiagTable *t, GPtrArray *running_samples, GPtrArray 
     t->epoch++;
 
                           
-    g_autoptr(GHashTable) by_id = g_hash_table_new(g_direct_hash, g_direct_equal);
-    if (cgroup_stats) {
-        for (guint i = 0; i < cgroup_stats->len; i++) {
-            const PcvCgroupVmStat *cs = g_ptr_array_index(cgroup_stats, i);
-            if (cs && cs->ref.kind == PCV_CGROUP_PSI_KIND_VM && cs->ref.domain_id >= 0 &&
-                !g_hash_table_contains(by_id, GINT_TO_POINTER(cs->ref.domain_id)))
-                g_hash_table_insert(by_id, GINT_TO_POINTER(cs->ref.domain_id), (gpointer)cs);
-        }
-    }
-
-                                                         
     g_autoptr(GArray) ents = g_array_new(FALSE, TRUE, sizeof(VmEntry));
     g_autoptr(GHashTable) running_uuid = g_hash_table_new(g_str_hash, g_str_equal);
     if (running_samples) {
@@ -1192,7 +1182,7 @@ pcv_vm_diag_table_step(PcvVmDiagTable *t, GPtrArray *running_samples, GPtrArray 
     for (guint i = 0; i < n; i++) {
         const VmEntry *e = &g_array_index(ents, VmEntry, i);
         PcvVmDiagRecord *rec = e->s
-            ? _compute_running(t, e->s, _cgroup_join(by_id, cgroup_stats, e->s), h)
+            ? _compute_running(t, e->s, pcv_vm_diag_cgroup_find(cgroup_stats, e->s->domain_id, e->s->name), h)
             : _stopped_record(e->c);
         g_ptr_array_add(out->records, rec);
     }

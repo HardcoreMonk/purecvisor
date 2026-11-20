@@ -383,7 +383,7 @@ pcv_vm_diag_sampler_finish(void)
         }
     }
 
-    pcv_vm_diag_prom_series(snap, PCV_PROM_VM_SERIES_MAX, _prom_cb, NULL, NULL);
+    pcv_vm_diag_prom_series(snap, cg, PCV_PROM_VM_SERIES_MAX, _prom_cb, NULL, NULL);
     pcv_vm_diag_store_publish(snap);               
 
     g_ptr_array_unref(S.running);

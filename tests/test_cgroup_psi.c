@@ -341,7 +341,18 @@ test_labels_and_metric_names(void)
     g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(
         "machine-qemu\\x2d3\\x2dweb\\x2dprod.scope", &r));
     pcv_cgroup_psi_format_labels(&r, buf, sizeof(buf));
-    g_assert_cmpstr(buf, ==, "vm_name=\"web-prod\",kind=\"vm\"");
+    g_assert_cmpstr(buf, ==, "");
+    g_assert_true(pcv_cgroup_psi_vm_labels("web_prod", "11111111-2222-3333-4444-555555555555", buf, sizeof(buf)));
+    g_assert_cmpstr(buf, ==, "vm_name=\"web_prod\",vm_uuid=\"11111111-2222-3333-4444-555555555555\",kind=\"vm\"");
+
+    g_assert_true(pcv_cgroup_psi_vm_labels("a\"b\\c\nd", "u", buf, sizeof(buf)));
+    g_assert_cmpstr(buf, ==, "vm_name=\"a\\\"b\\\\c\\nd\",vm_uuid=\"u\",kind=\"vm\"");
+
+    g_assert_false(pcv_cgroup_psi_vm_labels("web", "", buf, sizeof(buf)));
+    g_assert_cmpstr(buf, ==, "");
+    g_assert_false(pcv_cgroup_psi_vm_labels(NULL, "u", buf, sizeof(buf)));
+    g_assert_false(pcv_cgroup_psi_vm_labels("web", "u", buf, 20));
+    g_assert_cmpstr(buf, ==, "");
 
     g_assert_true(pcv_cgroup_psi_ref_from_lxc_dir(NULL, "lxc.payload.ct1", &r));
     pcv_cgroup_psi_format_labels(&r, buf, sizeof(buf));
@@ -366,9 +377,7 @@ test_labels_are_sweepable(void)
     PcvCgroupPsiRef r;
     gchar labels[256];
 
-    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(
-        "machine-qemu\\x2d3\\x2dweb\\x2dprod.scope", &r));
-    pcv_cgroup_psi_format_labels(&r, labels, sizeof(labels));
+    g_assert_true(pcv_cgroup_psi_vm_labels("web-prod", "u-1", labels, sizeof(labels)));
     g_assert_true(pcv_prom_labels_are_high_cardinality(labels));
 
                                                 
@@ -768,30 +777,93 @@ test_prom_export_selection(void)
     }
 
     gboolean *sel = g_new0(gboolean, N);
-    g_assert_true(pcv_cgroup_psi_prom_selected(refs, N, PCV_PROM_VM_SERIES_MAX,
-                                               PCV_CGROUP_PSI_PROM_CONTAINER_MAX, sel));
+    g_assert_true(pcv_cgroup_psi_prom_selected(refs, N, PCV_CGROUP_PSI_PROM_CONTAINER_MAX, sel));
     gint nv = 0, nc = 0;
     for (gint i = 0; i < N; i++) {
         gint num = atoi(refs[i].name + 2);
-        gboolean want = num < 64;
+
+        gboolean want = refs[i].kind == PCV_CGROUP_PSI_KIND_CONTAINER && num < 64;
         g_assert_cmpint(sel[i], ==, want);
         if (sel[i]) {
             if (refs[i].kind == PCV_CGROUP_PSI_KIND_VM) nv++; else nc++;
         }
     }
-    g_assert_cmpint(nv, ==, PCV_PROM_VM_SERIES_MAX);
+    g_assert_cmpint(nv, ==, 0);
     g_assert_cmpint(nc, ==, PCV_CGROUP_PSI_PROM_CONTAINER_MAX);
 
                              
-    g_assert_false(pcv_cgroup_psi_prom_selected(refs, 3, 64, 64, sel));
-    for (gint i = 0; i < 3; i++) g_assert_true(sel[i]);
-                                   
-    g_assert_true(pcv_cgroup_psi_prom_selected(refs, 4, 0, 64, sel));
-    for (gint i = 0; i < 4; i++)
+    g_assert_false(pcv_cgroup_psi_prom_selected(refs, 3, 64, sel));
+    for (gint i = 0; i < 3; i++)
         g_assert_cmpint(sel[i], ==, refs[i].kind == PCV_CGROUP_PSI_KIND_CONTAINER);
+                                   
+    g_assert_true(pcv_cgroup_psi_prom_selected(refs, 4, 0, sel));
+    for (gint i = 0; i < 4; i++) g_assert_false(sel[i]);
 
     g_free(sel);
     g_free(refs);
+}
+
+static void
+test_machine_name_rules(void)
+{
+    gchar out[PCV_CGROUP_PSI_NAME_MAX];
+    struct { gint id; const gchar *name; const gchar *want; } C[] = {
+        { 3,  "web-prod",       "qemu-3-web-prod" },
+        { 7,  "spec_review_x1", "qemu-7-specreviewx1" },
+        { 12, "a_-b",           "qemu-12-a-b" },
+        { 4,  "-lead..dots--x.", "qemu-4-lead.dots-x" },
+        { 5,  "01vm",           "qemu-5-01vm" },
+        { 6,  "é한글vm",         "qemu-6-vm" },
+        { 9,  "dots.in.name",   "qemu-9-dots.in.name" },
+    };
+    for (gsize i = 0; i < G_N_ELEMENTS(C); i++) {
+        g_assert_true(pcv_cgroup_psi_machine_name(C[i].id, C[i].name, out, sizeof(out)));
+        g_assert_cmpstr(out, ==, C[i].want);
+    }
+
+    const gchar *longn = "abcdefghij_abcdefghij_abcdefghij_abcdefghij_abcdefghij_abcdefghij_XYZ";
+    g_assert_true(pcv_cgroup_psi_machine_name(15, longn, out, sizeof(out)));
+    g_assert_cmpuint(strlen(out), ==, PCV_CGROUP_PSI_MACHINE_MAX);
+    g_assert_cmpstr(out, ==, "qemu-15-abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdef");
+
+    g_assert_true(pcv_cgroup_psi_machine_name(123456, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbb", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "qemu-123456-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+    g_assert_false(pcv_cgroup_psi_machine_name(-1, "x", out, sizeof(out)));
+    g_assert_cmpstr(out, ==, "");
+    g_assert_false(pcv_cgroup_psi_machine_name(1, "", out, sizeof(out)));
+    g_assert_false(pcv_cgroup_psi_machine_name(1, "abcdef", out, 6));
+    g_assert_cmpstr(out, ==, "");
+}
+
+static void
+test_scope_maps_to_domain(void)
+{
+    PcvCgroupPsiRef r;
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir("machine-qemu\\x2d7\\x2dspecreviewx1.scope", &r));
+    g_assert_cmpstr(r.machine, ==, "qemu-7-specreviewx1");
+    g_assert_cmpstr(r.name, ==, "specreviewx1");
+    g_assert_true(pcv_cgroup_psi_ref_matches_vm(&r, 7, "spec_review_x1"));
+    g_assert_true(pcv_cgroup_psi_ref_matches_vm(&r, 7, "specreviewx1"));
+    g_assert_false(pcv_cgroup_psi_ref_matches_vm(&r, 8, "spec_review_x1"));
+    g_assert_false(pcv_cgroup_psi_ref_matches_vm(&r, 7, "other"));
+    g_assert_false(pcv_cgroup_psi_ref_matches_vm(&r, -1, "spec_review_x1"));
+
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir("machine-qemu\\x2d3\\x2dweb\\x2dprod\\x2d01.scope", &r));
+    g_assert_cmpstr(r.machine, ==, "qemu-3-web-prod-01");
+    g_assert_true(pcv_cgroup_psi_ref_matches_vm(&r, 3, "web-prod-01"));
+    g_assert_true(pcv_cgroup_psi_ref_matches_vm(&r, 3, "web_-prod-01"));
+
+    const gchar *longn = "abcdefghij_abcdefghij_abcdefghij_abcdefghij_abcdefghij_abcdefghij_XYZ";
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir(
+        "machine-qemu\\x2d15\\x2dabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdef.scope", &r));
+    g_assert_true(pcv_cgroup_psi_ref_matches_vm(&r, 15, longn));
+    g_assert_false(pcv_cgroup_psi_ref_matches_vm(&r, 15, "abcdefghijabcdefghij"));
+
+    g_assert_true(pcv_cgroup_psi_ref_from_machine_dir("machine-lxc\\x2d5\\x2dct1.scope", &r));
+    g_assert_cmpstr(r.machine, ==, "");
+    g_assert_false(pcv_cgroup_psi_ref_matches_vm(&r, 5, "ct1"));
+    g_assert_false(pcv_cgroup_psi_ref_matches_vm(NULL, 5, "ct1"));
 }
 
                                                                            
@@ -822,4 +894,6 @@ test_cgroup_psi_register(void)
     g_test_add_func("/cgroup_psi/scan_reads_cpu_stat_children", test_scan_reads_cpu_stat_children);
     g_test_add_func("/cgroup_psi/cap_equals_diag_cap", test_cap_equals_diag_cap);
     g_test_add_func("/cgroup_psi/prom_export_selection", test_prom_export_selection);
+    g_test_add_func("/cgroup_psi/machine_name_rules", test_machine_name_rules);
+    g_test_add_func("/cgroup_psi/scope_maps_to_domain", test_scope_maps_to_domain);
 }

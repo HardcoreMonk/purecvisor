@@ -134,8 +134,8 @@ typedef void (*PcvVmDiagPromFn)(const gchar *name, const gchar *labels, gdouble 
                                        
                                                               
    
-void pcv_vm_diag_prom_series(const PcvVmDiagSnapshot *s, guint vm_cap, PcvVmDiagPromFn fn,
-                             gpointer ud, guint *prom_truncated_out);
+void pcv_vm_diag_prom_series(const PcvVmDiagSnapshot *s, const GPtrArray *cgroup_stats, guint vm_cap,
+                             PcvVmDiagPromFn fn, gpointer ud, guint *prom_truncated_out);
 
    
                           
