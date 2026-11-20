@@ -125,14 +125,16 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - NGINX 모드의 전체 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 사용한다. SVG는
   클라이언트·설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher,
-  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·1개·1개 저장소로 구분한 로컬 SQLite DB 9개,
+  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·2개·1개 저장소로 구분한 로컬 SQLite DB 10개,
   host telemetry·process status, 선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host
   연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 세 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
-  `security_groups.db`, `vpc.db`, `pcv_webpush.db`, `resource_registry.db`를 모두 명시한다.
+  `security_groups.db`, `vpc.db`, `pcv_webpush.db`, `vm_config_history.db`, `resource_registry.db`를 모두 명시한다.
+  2.2.1 뒤 공개 main에서 더해진 VM 구성 변경 이력 DB `vm_config_history.db`는 Operations DB 노드에 두 번째 파일로
+  적는다(노드 높이만 한 줄 늘리고 배치는 다시 렌더하지 않았다).
   2.1.0에서 더해진 자원 등록 DB `resource_registry.db`는 WAL을 쓰지 않는 별도 노드로 두고
   Workload·Network·Storage·Security 도메인에서 연결한다. 직접 HTTPS SVG도 같은 노드와 연결을 가진다.
-  공개 DB 개수의 정본은 공개 소스에 실제 존재하는 9개(`docs/DATABASE_STRUCTURE.md`와 데이터베이스
+  공개 DB 개수의 정본은 공개 소스에 실제 존재하는 10개(`docs/DATABASE_STRUCTURE.md`와 데이터베이스
   아키텍처 SVG)이며 다른 내부 배포판의 저장소 수와 혼용하지 않는다.
 - Hero는 왼쪽에 version 표식 `PURECVISOR 2.2.1 · SINGLE EDGE`, H1 "한 대의 Linux 서버를 가상화 플랫폼으로"
   (영어 "Turn one Linux server into a virtualization platform")와 소개 한 줄, 주 action "설치 가이드"·보조
@@ -145,8 +147,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/architecture/purecvisor-single-full-architecture.mmd`가 소유한다. SVG 파일은
   `1998.2109375×2744.60009765625` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
-  `c1b299bd31a2be4b48038470875dd291d5e45b9b655ef543fcb8ecadc4460833`, 배포 파일 SHA-256은
-  `dfa49011a90704c4aedc1aa75559ff03ed71b1b8f356790564c97e0b54292b27`로 고정한다.
+  `1451628efa870a5343e36421b5719162d6c0d0ef2c52604343ccd38fc41935a6`, 배포 파일 SHA-256은
+  `5e092bd548c0e05f47f323c5bc74484394a7551e2b4b054b3a2101431984daf4`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 상세 overview의
@@ -184,10 +186,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·22개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
-- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 9개와
-  영구 테이블 29개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
+- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 10개와
+  영구 테이블 33개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
   `site/public/assets/diagrams/purecvisor-single-database-architecture.svg`에서 요청·정책 정본·작업
-  상태·감사 및 외부 통합·Linux/KVM actual state의 관계를 보여 준다. SVG는 `<title>`·`<desc>`와
+  상태·감사·VM 구성 변경 이력 및 외부 통합·Linux/KVM actual state의 관계를 보여 준다. SVG는 `<title>`·`<desc>`와
   본문 대체 설명, 원본 확대 link를 제공하고 mobile에서는 page가 아니라 figure canvas 안에서만
   가로 scroll한다. `pcv_jobs.db`는 worker 실행 queue가 아닌 선택적 상태 registry로,
   ZFS는 선택형 actual storage로, OVN Local VPC는 후보 backend로 표시한다.
@@ -198,10 +200,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   HTTPS SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-direct-https-architecture.mmd`가 소유한다. 이 SVG의
   viewBox는 `1935.1484375×2645.300048828125`, 구조·내용 SHA-256은
-  `365d05c6cf0ee603c5f38029f338fbad08e5cacc0487e6471a13e08e1862fcae`, 배포 파일 SHA-256은
-  `3e51d1c9950caf1328952c11754764c1229895a0af440c997852fe6225efb8f8`로 고정한다.
+  `b8747a1634592336004d4423446399d80130ce791483e5e4b2eb3144243e6ee1`, 배포 파일 SHA-256은
+  `625711eccaedf06410f422b26ba47b19aeec0ab28dea1cdc5be3f587ffb79010`로 고정한다.
   본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
-  로컬 SQLite DB 9개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
+  로컬 SQLite DB 10개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
   한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
 - TLS 모드 탭은 `button[role=tab]`과 `tabpanel`을 연결하고 `aria-selected`, roving `tabindex`,
   좌우 방향키·Home·End를 지원한다. 선택 상태는 teal 색뿐 아니라 border와 surface로도 구분하며,

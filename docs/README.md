@@ -19,7 +19,7 @@ NVRAM·첫 알림 시정을 유지한다. 공개 전용 Btrfs와 미병합 ISO·
 |---|---|
 | [저장소 README](../README.md) | 빠른 설치·사용·검증 명령 |
 | [통합 운영 가이드](GUIDE.md) | 제품 기능·설정·운영·개발, 2.10절의 Omarchy 소스 설치와 22.8절의 최신 공개 검증 범위 |
-| [데이터베이스 아키텍처](DATABASE_STRUCTURE.md) | SQLite 9개 파일·28개 테이블의 소유권과 복구 경계 |
+| [데이터베이스 아키텍처](DATABASE_STRUCTURE.md) | SQLite 10개 파일·33개 영구 테이블의 소유권과 복구 경계 |
 | [공개 릴리스 경계](PUBLIC_RELEASE_BOUNDARY.md) | Single Edge 허용·제외 범위와 지원 승격 조건 |
 | [공개 소스 정책](PUBLIC_SOURCE_POLICY.md) | 설명 주석·소스맵 제외, 제3자 고지와 공개 기록 경계 |
 | [개발 검증 정책](DEVELOPMENT_VERIFICATION_POLICY.md) | 변경 유형별 검증 깊이와 완료 판정 |

@@ -131,8 +131,8 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
           <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1935.1484375" height="2645.300048828125" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1935.1484375" height="2645.300048828125" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note"><code>purecvisorsd</code>가 외부 <code>:443</code>의 HTTPS와 WebSocket TLS를 직접 종료하는 기본 모드입니다.<br>별도 NGINX 프로세스가 없습니다.</figcaption>
     </figure>
@@ -147,8 +147,8 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
           <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1998.2109375" height="2744.60009765625" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1998.2109375" height="2744.60009765625" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note">NGINX가 외부 <code>:443</code>을 소유하고 <code>purecvisorsd</code>의 loopback REST·WebSocket으로 전달하는 선택형 모드입니다.<br>ADR-0029의 host-loopback 신뢰 경계가 성립하는 전용 호스트에서만 사용합니다.</figcaption>
     </figure>
@@ -196,11 +196,11 @@ host·process 관측값을 조회합니다.<br>
 
 #### 1.2.4 영속 상태와 호스트 통합
 
-PureCVisor는 외부 DBMS 없이 로컬 SQLite 데이터베이스 9개(대부분 WAL 모드)와 파일 기반 desired state를
+PureCVisor는 외부 DBMS 없이 로컬 SQLite 데이터베이스 10개(대부분 WAL 모드)와 파일 기반 desired state를
 사용합니다.
 
 - **Core·identity·security·network DB 7개**: `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`
-- **Operations DB 1개**: `pcv_webpush.db`
+- **Operations DB 2개**: `pcv_webpush.db`, `vm_config_history.db`(VM 구성 변경 이력 — 관측 기록, 2.2.1 뒤 공개 main)
 - **호스트 자원 경계 DB 1개**: `resource_registry.db`(호스트 자원 등록·테넌트 허용·VPC 주소 풀, 2.1.0)
 - **Desired state**: network, overlay, QoS, BPF와 backup 설정
 - **Virtualization**: libvirt, QEMU, KVM과 LXC
@@ -233,7 +233,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 | [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
 | [ADR_INDEX.md](ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
-| [DATABASE_STRUCTURE.md](DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 29개의 책임, schema와 복구 경계 |
+| [DATABASE_STRUCTURE.md](DATABASE_STRUCTURE.md) | SQLite DB 10개와 영구 테이블 33개의 책임, schema와 복구 경계 |
 | [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
 <span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>
@@ -7431,6 +7431,7 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | `/var/run/purecvisor/dnsmasq-<br>.meta` | 브릿지 메타데이터 |
 | `/var/lib/purecvisor/vm_state.db` | VM 상태 DB (SQLite WAL) |
 | `/var/lib/purecvisor/pcv_audit.db` | 감사 로그 DB |
+| `/var/lib/purecvisor/vm_config_history.db` | VM 구성 변경 이력 DB(+ 같은 디렉터리의 키 파일 `vm_config_history.key`, 둘 다 0600) |
 | `/var/lib/purecvisor/lxc/` | LXC 컨테이너 루트 |
 | `/var/lib/libvirt/images/` | qcow2 디스크 이미지 |
 | `/var/log/purecvisor/audit.log` | 감사 텍스트 로그 |

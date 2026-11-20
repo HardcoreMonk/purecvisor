@@ -81,6 +81,9 @@
   `/vm_config_history/*`, 계약 시험 3개(`check-server-defect-contracts`), 브라우저 UI 시험, 격리 데몬 E2E
   `tests/integration/test_vm_config_history.sh`(`run_auto_tests.sh` Tier 1)를 더했다. 이 E2E는 이벤트 listener를
   `test:///default`에 붙이는 시험 전용 환경 변수 `PCV_EVENTS_LIBVIRT_URI`를 쓴다(운영 unit은 설정하지 않는다).
+- (2026-11-20) 공개 문서의 DB 경계를 SQLite 10개·영구 테이블 33개로 맞췄다: 데이터베이스 아키텍처 문서에 VM 구성 변경
+  이력 DB 절을 더하고 DB 구성도·전체 아키텍처 그림 두 장(Operations DB에 `vm_config_history.db`)·가이드 1.2.4절·문서
+  색인을 고쳤다.
 - 2026-11-19 변경까지는 `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식
   변경이 없었다. 2026-11-20 VM 구성 변경 이력이 조회 RPC 2개·REST 3개·`pcvctl` 명령 2개와 새 DB `vm_config_history.db`(+ 키
   파일), `daemon.conf`의 `[vm_config_history]` 절을 더했다(기존 RPC·REST·DB·설정 형식은 그대로다). 제품 버전 문자열은

@@ -220,10 +220,10 @@ const invalidGuideBreakLines = guideSource
 if (invalidGuideBreakLines.length) {
   throw new Error(`GUIDE sentence break must follow a period: ${invalidGuideBreakLines.map(({ index }) => index).join(", ")}`);
 }
-if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 9) {
+if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 10) {
   throw new Error("database document schema group count mismatch");
 }
-if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 29) {
+if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 33) {
   throw new Error("database document table heading count mismatch");
 }
 if (/^### (?:테이블:|.*인덱스$|인덱스$)/m.test(databaseStructureSource)) {
@@ -454,8 +454,9 @@ for (const marker of [
   "Monitoring 경로는 <code dir=\"auto\">handler_monitor</code>, telemetry, process monitor와 eBPF telemetry가 제공하는",
   "공개 소스에는 systemd D-Bus availability writer나 별도 Monitoring SQLite DB가 없습니다.",
   "상태 registry를 사용하는 경로만 <code dir=\"auto\">pcv_jobs.db</code> 행을 생성하며",
-  "로컬 SQLite 데이터베이스 9개",
-  "Operations DB 1개",
+  "로컬 SQLite 데이터베이스 10개",
+  "Operations DB 2개",
+  "vm_config_history.db",
   "resource_registry.db",
   "vm_state.db",
   "pcv_audit.db",
@@ -478,7 +479,8 @@ for (const marker of [
   "장시간 작업은 fire-and-forget 패턴으로 즉시 응답 후 GTask 비동기 실행",
   "Monitoring Source request handler는 immutable cache만 읽습니다.",
   "pcv_monitoring.db",
-  "로컬 SQLite 데이터베이스 10개",
+  "로컬 SQLite 데이터베이스 9개",
+  "Operations DB 1개",
   "Operations DB 3개"
 ]) {
   if (overview.includes(marker)) throw new Error(`stale overview architecture found: ${marker}`);
@@ -523,12 +525,12 @@ const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("NGINX architecture", architectureSvgText);
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "dfa49011a90704c4aedc1aa75559ff03ed71b1b8f356790564c97e0b54292b27") {
+if (architectureSvgHash !== "5e092bd548c0e05f47f323c5bc74484394a7551e2b4b054b3a2101431984daf4") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "c1b299bd31a2be4b48038470875dd291d5e45b9b655ef543fcb8ecadc4460833") {
+if (architectureStructureHash !== "1451628efa870a5343e36421b5719162d6c0d0ef2c52604343ccd38fc41935a6") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
@@ -589,12 +591,12 @@ const directArchitectureSvg = await readFile(path.join(distRoot, directArchitect
 const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("direct HTTPS architecture", directArchitectureSvgText);
 const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
-if (directArchitectureSvgHash !== "3e51d1c9950caf1328952c11754764c1229895a0af440c997852fe6225efb8f8") {
+if (directArchitectureSvgHash !== "625711eccaedf06410f422b26ba47b19aeec0ab28dea1cdc5be3f587ffb79010") {
   throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
 }
 const directArchitectureStructure = directArchitectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const directArchitectureStructureHash = createHash("sha256").update(directArchitectureStructure).digest("hex");
-if (directArchitectureStructureHash !== "365d05c6cf0ee603c5f38029f338fbad08e5cacc0487e6471a13e08e1862fcae") {
+if (directArchitectureStructureHash !== "b8747a1634592336004d4423446399d80130ce791483e5e4b2eb3144243e6ee1") {
   throw new Error(`direct HTTPS architecture SVG structure/content mismatch: ${directArchitectureStructureHash}`);
 }
 for (const marker of [
@@ -632,6 +634,7 @@ for (const marker of [
   "security_groups.db",
   "vpc.db",
   "pcv_webpush.db",
+  "vm_config_history.db",
   "resource_registry.db",
   'id="my-svg-flowchart-resourceDb-26"',
   'id="my-svg-flowchart-desiredStore-27"',
@@ -685,7 +688,7 @@ for (const marker of [
   'offloadLanes["Offload lanes: 7 lanes incl. SCOPE_READ"]',
   'handlers -->|"Blocking sync read"| offloadLanes',
   'offloadLanes -->|"Reply on main loop"| syncPath',
-  'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
+  'operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>pcv_webpush.db<br/>vm_config_history.db"]',
   'resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]',
   'storageDomain --> resourceDb',
   'handlers -->|"VIEWER read"| monitorDomain',
@@ -712,7 +715,7 @@ for (const marker of [
   'offloadLanes["Offload lanes: 7 lanes incl. SCOPE_READ"]',
   'handlers -->|"Blocking sync read"| offloadLanes',
   'offloadLanes -->|"Reply on main loop"| syncPath',
-  'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
+  'operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>pcv_webpush.db<br/>vm_config_history.db"]',
   'resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]',
   'storageDomain --> resourceDb',
   'handlers -->|"VIEWER read"| monitorDomain',
@@ -734,7 +737,7 @@ const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
 const databaseArchitectureSvgHash = createHash("sha256")
   .update(databaseArchitectureSvg)
   .digest("hex");
-if (databaseArchitectureSvgHash !== "8e8107af915b9130e20b5582abf7c4fdf2913aae1855c53c968c55256805c2a7") {
+if (databaseArchitectureSvgHash !== "dd06070198ebb64eaf31b3df17691b1be67d0fb4d36bfb538a8fde531050dc91") {
   throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
 }
 for (const marker of [
@@ -742,7 +745,7 @@ for (const marker of [
   'role="img" aria-labelledby="pcv-db-title pcv-db-desc"',
   '<title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>',
   '<desc id="pcv-db-desc">',
-  "9 local SQLite files · 29 permanent tables",
+  "10 local SQLite files · 33 permanent tables",
   "no cross-DB transaction",
   "즉시 응답 · accepted 먼저",
   "긴 작업만",
@@ -751,7 +754,8 @@ for (const marker of [
   "정본과 정책 · 5 files / 23 tables",
   "resource_registry.db",
   "작업 상태 · 2 files / 2 tables",
-  "증거와 외부 통합 · 2 files / 4 tables",
+  "증거·이력과 외부 통합 · 3 files / 8 tables",
+  "vm_config_history.db",
   "rbac.db",
   "vpc.db",
   "security_groups.db",
@@ -770,7 +774,7 @@ for (const marker of [
     throw new Error(`database architecture SVG contract missing: ${marker}`);
   }
 }
-if ((databaseArchitectureSvgText.match(/<rect class="database"/g) || []).length !== 10) {
+if ((databaseArchitectureSvgText.match(/<rect class="database"/g) || []).length !== 11) {
   throw new Error("database architecture SVG store count mismatch");
 }
 for (const marker of [
@@ -1591,8 +1595,8 @@ for (const document of supplementalDocuments) {
     }
   }
   for (const marker of [
-    "로컬 SQLite 파일 9개",
-    "영구 테이블 29개",
+    "로컬 SQLite 파일 10개",
+    "영구 테이블 33개",
     "pcv-database-summary",
     "pcv-database-architecture",
     'href="/assets/diagrams/purecvisor-single-database-architecture.svg"',
