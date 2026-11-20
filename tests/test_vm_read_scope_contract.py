@@ -152,6 +152,11 @@ ALLOWED_CALLERS = {
     "src/modules/dispatcher/handler_security.c": {"handle_security_event_list", "handle_security_event_get",
                                                   "handle_security_action_pending"},               
     "src/modules/dispatcher/handler_resource.c": None,                                            
+
+    "src/modules/daemons/vm_config_history_source.c": {"_lv_owner_tenant"},
+    "src/modules/virt/vm_config_history_view.c": {"pcv_vm_cfg_row_visible"},
+    "src/modules/dispatcher/handler_vm_config_history.c": {"pcv_vm_cfg_history_list_build",
+                                                           "pcv_vm_cfg_history_get_build"},
 }
                                       
 OWNER_READERS = (
@@ -176,7 +181,7 @@ TARGETS: dict[Path, tuple[str, ...]] = {
                                                                                                 
                                                                
 PRECHECK_EXPECT = {"vm.metrics", "vm.guest.agent.status", "vm.guest.fsinfo", "vm.guest.ping", "monitor.metrics"}
-CLASS_EXPECT = (10, 9, 29)
+CLASS_EXPECT = (10, 11, 29)
                                                                            
 OUT_OF_SCOPE = ("network.qos.get", "quota.get", "ovn.switch.detail", "healing.status", "storage.zvol.list", "network.info")
 READ_DENY = "Permission denied: VM not found or not visible"

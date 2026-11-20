@@ -531,12 +531,24 @@ pcv_audit_shutdown(void)
                                              
                                                       
    
+static gpointer g_completion_tap;
+
+void
+pcv_audit_set_completion_tap(PcvAuditCompletionTap tap)
+{
+    g_atomic_pointer_set(&g_completion_tap, (gpointer)tap);
+}
+
 void
 pcv_audit_log(const gchar *username, const gchar *method,
                const gchar *target, const gchar *result,
                gint error_code, gint64 duration_ms,
                const gchar *src_ip)
 {
+
+    PcvAuditCompletionTap _completion_tap = (PcvAuditCompletionTap)g_atomic_pointer_get(&g_completion_tap);
+    if (_completion_tap)
+        _completion_tap(username, method, target, result, error_code);
                                                                        
                                                                        
                                                       

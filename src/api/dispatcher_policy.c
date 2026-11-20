@@ -340,6 +340,8 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "sriov.detach",              2 },
                                                                    
     { "vm.delete.status",          0 },
+    { "vm.config.history.list",    0 },
+    { "vm.config.history.get",     0 },
     { "vm.snapshot.list",          0 },
     { "vm.snapshot.schedule.list", 0 },
     { "vm.guest.agent.status",     0 },
@@ -715,6 +717,8 @@ pcv_disp_vm_method_requires_owner_scope(const gchar *method)
     if (g_strcmp0(method, "vm.list") == 0 ||
         g_strcmp0(method, "vm.event.webhook.list") == 0 ||
         g_strcmp0(method, "vm.delete.status") == 0 ||
+        g_strcmp0(method, "vm.config.history.list") == 0 ||
+        g_strcmp0(method, "vm.config.history.get") == 0 ||
         g_strcmp0(method, "vm.snapshot.schedule.list") == 0 ||
         g_strcmp0(method, "vm.numa.info") == 0 ||
         g_strcmp0(method, "vm.billing.report") == 0 ||
@@ -810,4 +814,32 @@ gboolean pcv_dispatcher_vm_target_aliases_valid(const gchar *method, JsonObject 
     if (!valid && reason_out)
         *reason_out = reason;
     return valid;
+}
+
+#define PCV_DISPATCH_AUTHORIZED_HOOKS_MAX 4
+static struct {
+    PcvDispatchAuthorizedHook hook;
+    gpointer user_data;
+} g_authorized_hooks[PCV_DISPATCH_AUTHORIZED_HOOKS_MAX];
+static gint g_authorized_hooks_n;
+
+void
+pcv_dispatcher_register_authorized_hook(PcvDispatchAuthorizedHook hook, gpointer user_data)
+{
+    gint n = g_atomic_int_get(&g_authorized_hooks_n);
+    if (!hook || n >= PCV_DISPATCH_AUTHORIZED_HOOKS_MAX) {
+        g_warning("[dispatcher] authorized hook not registered (slots=%d)", n);
+        return;
+    }
+    g_authorized_hooks[n].hook = hook;
+    g_authorized_hooks[n].user_data = user_data;
+    g_atomic_int_set(&g_authorized_hooks_n, n + 1);
+}
+
+void
+pcv_dispatcher_run_authorized_hooks(const gchar *method, JsonObject *params)
+{
+    gint n = g_atomic_int_get(&g_authorized_hooks_n);
+    for (gint i = 0; i < n; i++)
+        g_authorized_hooks[i].hook(method, params, g_authorized_hooks[i].user_data);
 }

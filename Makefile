@@ -233,6 +233,12 @@ COMMON_CORE_SRCS = \
     src/modules/resource/resource_domain_refs.c \
     src/modules/virt/vm_owner.c \
     src/modules/virt/vm_owner_meta.c \
+    src/modules/virt/vm_config_history_norm.c \
+    src/modules/virt/vm_config_history_decide.c \
+    src/modules/virt/vm_config_history_view.c \
+    src/modules/core/vm_config_history_store.c \
+    src/modules/daemons/vm_config_history.c \
+    src/modules/daemons/vm_config_history_nudge.c \
     src/utils/logger.c \
     src/utils/pcv_validate.c \
     src/utils/pcv_pci_sysfs.c \
@@ -351,6 +357,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/handler_vm_rename.c \
     src/modules/dispatcher/handler_vm_inspect.c \
     src/modules/virt/vm_inspection.c \
+    src/modules/dispatcher/handler_vm_config_history.c \
     src/modules/dispatcher/handler_vm_hotplug.c \
     src/modules/dispatcher/handler_vm_diskio.c \
     src/modules/dispatcher/handler_vm_device.c \
@@ -435,6 +442,7 @@ DAEMON_COMMON_SRCS = \
     src/api/rest_shutdown.c \
     src/modules/daemons/prometheus_exporter.c \
     src/modules/audit/pcv_audit.c \
+    src/modules/daemons/vm_config_history_source.c \
     src/modules/storage/storage_tier.c \
     src/modules/accel/gpu_manager.c \
     src/modules/plugin/pcv_plugin_manager.c \
@@ -633,6 +641,14 @@ TEST_COMMON_SRCS = \
     tests/test_vm_diag.c \
     tests/test_vm_diag_view.c \
     tests/test_vm_read_scope.c \
+    tests/test_vm_config_history_norm.c \
+    tests/test_vm_config_history_decide.c \
+    tests/test_vm_config_history_view.c \
+    tests/test_vm_config_history_store.c \
+    tests/test_vm_config_history_worker.c \
+    tests/test_vm_config_history_nudge.c \
+    tests/test_vm_config_history_handler.c \
+    src/modules/dispatcher/handler_vm_config_history.c \
     tests/test_vm_read_filter.c \
     tests/test_vm_read_precheck.c \
     tests/test_vm_owner.c \
@@ -779,7 +795,7 @@ TEST_SRCS = \
 
 CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c src/cli/cli_backup_hostkey.c src/cli/cli_vpc_mgmt.c \
            src/cli/cli_container_guard.c src/cli/cli_container_ns.c src/cli/cli_resource.c src/cli/cli_security_close.c src/cli/cli_agent_set.c \
-           src/cli/cli_secret_echo.c src/cli/cli_vm_usb.c src/cli/cli_host_device.c src/cli/cli_monitor_diag.c src/cli/cli_iso.c src/cli/cli_auth_names.c src/cli/cli_vm_owner.c \
+           src/cli/cli_secret_echo.c src/cli/cli_vm_usb.c src/cli/cli_host_device.c src/cli/cli_monitor_diag.c src/cli/cli_iso.c src/cli/cli_auth_names.c src/cli/cli_vm_owner.c src/cli/cli_vm_config_history.c \
            src/modules/lxc/lxc_volume_guard.c src/modules/lxc/lxc_mountinfo.c
 
                                
@@ -1063,6 +1079,9 @@ check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control $
 	@python3 tests/test_cli_auth_names.py
 	@python3 tests/test_cli_vm_owner.py
 	@python3 tests/test_vm_read_scope_contract.py
+	@python3 tests/test_vm_config_history_nudge_contract.py
+	@python3 tests/test_vm_config_history_rpc_contract.py
+	@python3 tests/test_cli_vm_config_history.py
 	@python3 tests/test_cli_iso_list.py
 	@python3 tests/test_vm_memstats_readonly.py
 	@python3 tests/test_guest_exec_worker_fixture.py
@@ -1227,7 +1246,7 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
     $(UI_DIR)/modules/security.js \
     $(UI_DIR)/modules/monitor.js \
     $(UI_DIR)/modules/monitor-vmdiag.js \
-    $(UI_DIR)/modules/vm.js $(UI_DIR)/modules/vm-console.js $(UI_DIR)/modules/vm-lifecycle.js \
+    $(UI_DIR)/modules/vm.js $(UI_DIR)/modules/vm-console.js $(UI_DIR)/modules/vm-config-history.js $(UI_DIR)/modules/vm-lifecycle.js \
     $(UI_DIR)/modules/vm-guest.js \
     $(UI_DIR)/modules/container.js $(UI_DIR)/modules/network.js $(UI_DIR)/modules/vpc.js \
     $(UI_DIR)/modules/storage.js \

@@ -4952,6 +4952,85 @@ Grafana는 위 Prometheus를 데이터 소스로 추가해 대시보드를 직�
 
 `purecvisor_mainloop_stalls_total{level="warn"}`·`{level="crit"}`는 메인 루프 정지 감지 횟수(counter)입니다. 평소 0이 정상이고, 늘면 17.1절의 정지 로그와 `current RPC`를 봅니다.
 
+### 8.10.1 외부 Prometheus·Grafana로 성능 이력 보관(권장 구성)
+
+PureCVisor는 성능 수치를 내장 보관하지 않습니다. `/api/v1/metrics`의 counter를 외부 Prometheus가 긁어 보관하고, 속도는 PromQL `rate()`로 만듭니다. 이 경로는 ADMIN·호스트 운영자용입니다 — 비ADMIN 토큰은 VM 계열을 받지 못하거나(API 키 — 테넌트 없음) 자기 테넌트 것만 받습니다(8.10 업그레이드 노트).
+
+**수집 구성(권장): 같은 호스트의 Prometheus agent 모드**가 루프백으로 긁고 중앙 저장소로 `remote_write` 합니다. 루프백 직결은 토큰 없이 전체를 받으므로(`[metrics] auth=loopback` 기본) PCV 키를 원격에 두지 않습니다.
+
+```yaml
+# /etc/prometheus/prometheus-agent.yml — 실행: prometheus --agent --config.file=…
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: purecvisor
+    metrics_path: /api/v1/metrics
+    static_configs:
+      - targets: ['127.0.0.1:8080']
+        labels:
+          host: edge-01          # 여러 호스트를 한 중앙 저장소에 모을 때 구분
+remote_write:
+  - url: https://prometheus.example.internal/api/v1/write
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/remote_write.token   # 0600, 중앙 저장소의 토큰(PCV 키 아님)
+```
+
+- 중앙 Prometheus가 원격에서 직접 긁는 구성은 권하지 않습니다 — 지금은 ADMIN 키만 VM 계열을 모두 받습니다(전체 관리 권한). 전달 헤더를 붙이지 않는 사용자 프록시 뒤에 두지 않습니다(직접 로컬로 보입니다 — 8.10).
+- 스크레이프 간격은 15초를 권합니다. 표본기 주기가 5초라 더 짧게 긁어도 새 값이 없습니다. `rate()` 창은 간격의 4배 이상(`[1m]`~`[2m]`)으로 둡니다.
+- **VM 신원 라벨:** 오래 쌓는 이력은 이름이 아니라 `vm_uuid`로 VM을 잇습니다(8.1 "Prometheus 출력 변경(2.2.1 뒤 공개 main, VM 식별 라벨)"). 패널과 기록 규칙은 `by (vm_uuid)`로 묶고 이름(`vm`·`vm_name`)은 표시에만 씁니다 — 이름을 바꾸거나 지운 VM의 이름을 다시 써도 시계열이 섞이지 않습니다. VM 계열은 실행 VM (이름, UUID) 순 앞 64대이고, 밖에 남은 실행 VM 수는 `purecvisor_vm_diag_prom_truncated`가 알려 줍니다.
+
+Grafana 패널 질의 예(`$vm_uuid`는 대시보드 변수):
+
+| 패널 | PromQL | 단위·주의 |
+|---|---|---|
+| VM CPU(코어 수) | `sum by (vm_uuid) (rate(purecvisor_vm_cpu_seconds_total{vm_uuid=~"$vm_uuid"}[2m]))` | 1 = 코어 하나. 에뮬레이터 스레드 포함이라 vCPU 수를 넘을 수 있다. VM 재시작의 counter 되감김은 `rate()`가 처리 |
+| vCPU 대기 비율 | `rate(purecvisor_vm_vcpu_delay_seconds_total{vm_uuid=~"$vm_uuid"}[2m])` | vCPU 합산 초/초. VMware CPU Ready와 같은 지표가 아니다(8.1) |
+| CPU 상한 걸림 | `rate(purecvisor_vm_cpu_throttled_periods_total[5m]) / rate(purecvisor_vm_cpu_periods_total[5m])` | 0~1 |
+| 디스크 처리량 | `rate(purecvisor_vm_disk_read_bytes_total[2m])`, `rate(purecvisor_vm_disk_write_bytes_total[2m])` | B/s |
+| 디스크 IOPS | `rate(purecvisor_vm_disk_read_requests_total[2m])` | |
+| 디스크 평균 지연 | `rate(purecvisor_vm_disk_read_time_seconds_total[5m]) / rate(purecvisor_vm_disk_read_requests_total[5m])` | 초. 요청 0이면 NaN — 빈칸으로 둔다 |
+| 네트워크 | `rate(purecvisor_vm_net_rx_bytes_total[2m])`, `…tx_bytes_total`, `…_packets_total` | B/s, pps |
+| 메모리 | `purecvisor_vm_memory_rss_bytes`, `purecvisor_vm_memory_guest_used_bytes`, `purecvisor_vm_memory_alloc_bytes` | gauge — `rate` 금지. 값 없으면 계열 없음(0 아님) |
+| VM 압박(PSI) | `rate(purecvisor_cgroup_pressure_memory_full_seconds_total{kind="vm"}[5m])`, `…io_some…`, `…cpu_some…` | 0~1(정체 시간 비율). `vm_name`·`vm_uuid` 라벨 |
+| 할당률 | `purecvisor_host_vcpu_allocated{scope="running"} / purecvisor_host_logical_cpus` | 1 초과 = 과할당 |
+| 수집 건강 | `purecvisor_vm_diag_sample_age_seconds`, `purecvisor_vm_diag_prom_truncated`, `up{job="purecvisor"}` | 경보 예: 나이 > 30초 5분 지속, truncated > 0 |
+
+계열이 없으면(정지 VM·묶음 없음·표본기 stale) Grafana에 빈칸으로 둡니다 — 0으로 채우지 않습니다(`Null value: null`, `connect null values: never`).
+
+**보관:** Prometheus 기본 보관은 15일입니다. 단일 Prometheus는 `--storage.tsdb.retention.time=90d`(+ `--storage.tsdb.retention.size`로 디스크 상한)와 용량 계획용 5분 기록 규칙(`record: pcv:vm_cpu_cores:rate5m` 등)을 두고 대시보드 장기 구간은 기록 규칙 계열을 씁니다. 1년 이상은 장기 저장소(Thanos·Mimir·VictoriaMetrics 다운샘플)를 운영자가 고릅니다 — 제품이 보증하지 않습니다. 크기 추정: VM 20대 × VM 계열 약 20 + 호스트 계열 수백 ≈ 1,000계열, 15초 간격이면 하루 약 9 MB, 90일 약 0.8 GB입니다. 엣지 노드에는 로컬 보관이 없는 agent 모드를 권합니다.
+
+### 8.10.2 VM 구성 변경 이력
+
+VM 정의의 **관측된 변화**(vCPU·메모리·디스크·NIC·장치·한도·autostart·PCV metadata)를 VM UUID 단위로 1년(기본) 보관합니다(2.2.1 뒤 공개 main). 데몬이 libvirt 이벤트·VM 조작 요청 완료·15분 대조 스캔·기동 확인 때 정의를 읽어 지난번과 다를 때만 한 줄 적습니다 — VM을 켜고 끄기만 해서는 적지 않습니다. 감사(누가 무엇을 불렀나, 30일)와 다른 기록이며 둘을 행위자·메서드·시각으로 대조합니다.
+
+- **화면:** VM 상세 `타임라인` 탭 위쪽 "구성 변경(서버 기록)". 줄을 누르면 경로별 이전·이후 값을 봅니다. 탭을 열 때 한 번만 부르고 스스로 새로 고치지 않습니다("새로고침"·"더 보기").
+- **REST:** `GET /api/v1/vms/{name}/config-history`, `GET /api/v1/vm-config-history?vm=&uuid=&since=&until=&limit=&cursor=`(시각은 unix ms, limit 1~200·기본 50, 기간 기본 최근 7일), `GET /api/v1/vm-config-history/{id}`(id = 32자 hex). RPC `vm.config.history.list`·`vm.config.history.get`(VIEWER).
+- **CLI:** `pcvctl vm config-history [--vm 이름|UUID] [--uuid UUID] [--since 시각] [--until 시각] [--limit N]`(시각은 unix ms 또는 ISO 8601), `pcvctl vm config-history-show <id>`. `--format=json`은 응답 그대로(다음 쪽 커서 `next_cursor` 포함).
+- **읽는 법:**
+  - 시각 앞 `~`(CLI)나 "~ 사이"(화면)는 정확한 시각을 모른다는 뜻입니다 — 변경이 그 사이 어딘가에서 일어났습니다(데몬이 멈춘 사이·이벤트를 놓쳐 대조 스캔이 잡은 경우).
+  - "기록 공백"(`gaps[]`)은 데몬 중지·libvirt 연결 끊김·비정상 종료 추정·저장 실패·기록 꺼짐·보관 정리 구간입니다. 공백 안의 변경은 공백 뒤 첫 관측에 창 시각으로 나타납니다.
+  - `live — 재시작 때 사라짐`은 실행 중에만 걸린 값(핫플러그·live 한도)입니다. VM을 다시 시작하면 사라지며 그 사라짐은 행이 아닙니다.
+  - "디스크 크기 요청"은 `vm.resize_disk`·`vm.disk.live_resize`의 **요청 크기**입니다. 실제 볼륨 크기 확인이 아니고 RPC 밖 크기 변경(`zfs set volsize`·`qemu-img resize`)은 보이지 않습니다.
+  - "바뀜(내용 비공개)"는 비밀을 운반할 수 있는 구간(qemu 명령줄·sysinfo·설명·외부 metadata·커널 cmdline·목록 밖 장치)입니다. 값은 저장하지 않고 바뀌었는지만 압니다. 그래픽 비밀번호·원격 디스크 자격 증명은 어디에도 저장하지 않습니다.
+- **누가 무엇을 보나:** ADMIN은 전부입니다. 그 밖은 줄마다 **기록 당시** 소유자 기준으로 자기 VM과 같은 테넌트 사용자 소유 VM만 봅니다(10.2 "VM 읽기 범위"와 같은 술어). 그래서 소유자를 넘기면 옛 소유자·옛 테넌트는 넘기기 전 줄을 계속 보고 새 소유자는 넘긴 뒤 줄부터 봅니다 — 넘긴 사실 자체(그 줄)는 새 소유자 쪽 기록입니다. 이름으로 찾으면 지금 정의된 VM만 찾습니다 — 지운 VM은 UUID로 찾습니다. 다른 주체·다른 테넌트 행위자는 "다른 주체"로 가립니다.
+- **알려진 한계:** 소유자 테넌트 조회가 실패한 순간(RBAC DB 오류)에 적힌 줄은 소유자 본인과 ADMIN에게만 보입니다(같은 테넌트 동료에게는 안 보인다 — 닫는 쪽). 플러그인이 등록한 RPC는 요청 귀속 없이 대조 스캔으로만 잡힙니다.
+- **설정 `[vm_config_history]`:**
+
+| 키 | 기본 | 뜻 |
+|---|---|---|
+| `enabled` | `true` | `false`면 기록·조회를 끈다(조회는 `store.state=disabled`, 끈 구간은 공백) |
+| `db_path` | `/var/lib/purecvisor/vm_config_history.db` | 키 파일은 같은 디렉터리의 `vm_config_history.key` |
+| `retention_days` | `365` | 1~3650 |
+| `max_db_mb` | `128` | 16~4096. 넘으면 기록이 가장 많은 VM의 오래된 줄부터 정리, 못 줄이면 `over_cap` |
+| `actor_retention_days` | `30` | 1~`retention_days`. 행위자 이름만 지운다(메서드는 남음). 감사(30일)보다 길게 두면 대조할 증거 없이 이름만 남는다 |
+| `reconcile_interval_s` | `900` | 0 = 대조 스캔 끔 |
+| `debounce_ms` | `2000` | 200~10000. 짧은 시간 안 여러 변경은 한 줄 |
+| `undefine_grace_ms` | `10000` | 1000~60000. 이름 바꾸기(같은 UUID 재정의)가 "삭제"로 남지 않게 기다리는 시간 |
+
+- **관측:** Prometheus `purecvisor_vm_config_history_rows`·`_db_bytes`·`_store_state{state}`·`_captures_total{result}`·`_write_failures_total`·`_coalesced_total`·`_intents_dropped_total`, 데몬 로그 `[vm-cfg-hist]`.
+- **백업·원복:** DB 세 파일(`.db`·`-wal`·`-shm`)과 키 파일을 함께 다룹니다. 키 파일은 감사 DB와 같은 민감 등급이고 일반 DB 백업 목록에 넣지 않습니다(DB 사본만으로는 지문을 대입 검증할 수 없게). 이 기능 전 패키지로 내리면 두 파일을 무시하고, 다시 올리면 그동안은 "비정상 종료 추정" 공백으로 보이고 기록을 이어 갑니다. 저장 구조는 [데이터베이스 아키텍처](/ko/development/database-architecture/) "VM 구성 변경 이력 DB"를 봅니다.
+
 ### 8.11 WebSocket 메트릭 Push
 
 `ws://127.0.0.1:8080/api/v1/ws/events`에 연결한 뒤 5초 안에 `{"type":"auth","token":"<access_token>"}`를 보내야 한다. 성공하면 `{"type":"auth_ok"}`가 오고, 5초 안에 인증하지 않으면 연결을 닫는다(URL의 `?token=`은 무시한다). 이벤트는 `{"type":…,"ts":…,"payload":{…}}` 형식이며 `metric`(텔레메트리 갱신마다, `payload.vm_count`)·`job.complete`·`healing`·`anomaly`·`forecast`가 온다.
@@ -6176,7 +6255,7 @@ libvirt 도메인과 맞춘 실제 이름(`vm_name`)과 UUID(`vm_uuid`)를 달�
 | bootstrap admin | `admin / configured password` |
 | 전용 admin | 설치 직후 RBAC `admin` 역할 사용자 추가 권장 |
 | 앱 셸 | 고정 사이드바 트리(236px) + topbar(브레드크럼·통합 검색·세션) + 글로벌 statusbar |
-| JS 모듈 | `app.js` + `app.bundle.js` + `modules/*.js` 31개 + `i18n.js` + `sw.js` |
+| JS 모듈 | `app.js` + `app.bundle.js` + `modules/*.js` 32개 + `i18n.js` + `sw.js` |
 | 프레임워크 | Vanilla JS (단일 번들 + 임베디드 UI) |
 
 ### 13.2 페이지 구조
@@ -8004,7 +8083,8 @@ Ubuntu 26.04 컨테이너의 설치·업그레이드·제거 lifecycle과 개발
 `vm.memory.stats`가 VM 설정을 바꾸지 않는 조회가 되며 응답에 `guest_stats`를 더했습니다. 이벤트 센터·대시보드의 VM CPU·메모리 칸은
 VM 진단 응답으로 채워집니다. 2026-11-19 변경은 응답 필드 하나를 더한 것 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식을 바꾸지
 않았습니다. 2026-11-20에는 VM 계열 Prometheus 라벨에 `vm_uuid`가 붙고 VM 종류 cgroup PSI가 실제 VM 이름을 냅니다(라벨 변경, 8.1절).
-제품 버전 문자열은 `2.2.1` 그대로입니다.
+같은 날 VM 구성 변경 이력(8.10.2절)을 더했습니다 — 조회 RPC 2개·REST 3개·`pcvctl` 명령 2개·VM 상세 타임라인 절과 새 로컬 DB
+`vm_config_history.db`(공개 DB 10개째, 키 파일 별도), `daemon.conf`의 `[vm_config_history]` 절입니다. 제품 버전 문자열은 `2.2.1` 그대로입니다.
 
 **2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
 도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.

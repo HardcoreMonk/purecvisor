@@ -92,6 +92,7 @@ _producer_wait(guint milliseconds)
 #include "modules/daemons/pcv_virt_listener_guard.h"
 #include "modules/virt/pcv_virt_open.h"
 #include "modules/virt/virt_conn_pool.h"
+#include "modules/daemons/vm_config_history.h"
 #include "modules/dispatcher/guest_agent_exec.h"                                       
                                                 
 
@@ -671,6 +672,12 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
     const char *vm_name = virDomainGetName(dom);
     const gboolean uuid_valid = virDomainGetUUIDString(dom, uuid) == 0;
 
+    if (uuid_valid && event == VIR_DOMAIN_EVENT_DEFINED)
+        pcv_vm_cfg_hist_note_uuid(uuid, "libvirt_defined");
+    else if (uuid_valid && event == VIR_DOMAIN_EVENT_UNDEFINED)
+        pcv_vm_cfg_hist_note_undefined(uuid);
+    else if (uuid_valid && event == VIR_DOMAIN_EVENT_STARTED)
+        pcv_vm_cfg_hist_note_started(uuid);
                                                      
                                                      
                                                                
@@ -769,6 +776,18 @@ _domain_device_cb(virConnectPtr conn, virDomainPtr dom,
     (void)conn; (void)devAlias; (void)opaque;
                                                                                
     _schedule_sg_sync(virDomainGetName(dom));
+    char uuid[VIR_UUID_STRING_BUFLEN];
+    if (virDomainGetUUIDString(dom, uuid) == 0)
+        pcv_vm_cfg_hist_note_uuid(uuid, "device_changed");
+}
+
+static void
+_domain_metadata_cb(virConnectPtr conn, virDomainPtr dom, int type, const char *nsuri, void *opaque)
+{
+    (void)conn; (void)type; (void)nsuri; (void)opaque;
+    char uuid[VIR_UUID_STRING_BUFLEN];
+    if (virDomainGetUUIDString(dom, uuid) == 0)
+        pcv_vm_cfg_hist_note_uuid(uuid, "metadata_changed");
 }
 
                                                            
@@ -825,6 +844,7 @@ typedef struct {
     gint lifecycle_callback_id;
     gint device_added_callback_id;
     gint device_removed_callback_id;
+    gint metadata_callback_id;
 } PcvVirtEventListener;
 
 static void
@@ -834,6 +854,7 @@ _event_listener_reset(PcvVirtEventListener *listener)
     listener->lifecycle_callback_id = -1;
     listener->device_added_callback_id = -1;
     listener->device_removed_callback_id = -1;
+    listener->metadata_callback_id = -1;
 }
 
                                                                          
@@ -855,6 +876,10 @@ _event_listener_close(PcvVirtEventListener *listener)
     _deregister_device_callbacks(listener->connection,
                                  &listener->device_added_callback_id,
                                  &listener->device_removed_callback_id);
+    if (listener->metadata_callback_id >= 0) {
+        virConnectDomainEventDeregisterAny(listener->connection, listener->metadata_callback_id);
+        listener->metadata_callback_id = -1;
+    }
     virConnectClose(listener->connection);
     _event_listener_reset(listener);
 }
@@ -874,7 +899,9 @@ _event_listener_open(PcvVirtEventListener *listener)
     _event_listener_reset(listener);
 
                                                                                                        
-    listener->connection = pcv_virt_open_bounded("qemu:///system", FALSE, PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);
+    const gchar *ev_uri = g_getenv("PCV_EVENTS_LIBVIRT_URI");
+    listener->connection = pcv_virt_open_bounded((ev_uri && *ev_uri) ? ev_uri : "qemu:///system", FALSE,
+                                                 PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);
     if (!listener->connection)
         return FALSE;
 
@@ -908,6 +935,12 @@ _event_listener_open(PcvVirtEventListener *listener)
     _register_device_callbacks(listener->connection,
                                &listener->device_added_callback_id,
                                &listener->device_removed_callback_id);
+    listener->metadata_callback_id = virConnectDomainEventRegisterAny(
+        listener->connection, NULL, VIR_DOMAIN_EVENT_ID_METADATA_CHANGE,
+        VIR_DOMAIN_EVENT_CALLBACK(_domain_metadata_cb), NULL, NULL);
+    if (listener->metadata_callback_id < 0)
+        g_warning("⚠️ [Events] metadata change callback registration failed (config history falls back to reconcile)");
+    pcv_vm_cfg_hist_coverage(TRUE, NULL);
     virt_conn_pool_note_libvirtd_ok();                               
     return TRUE;
 }
@@ -980,6 +1013,7 @@ static gpointer libvirt_listener_watchdog_thread(gpointer data) {
                 PCV_VIRT_LISTENER_HEALTHCHECK_INTERVAL_MS)) {
             g_critical("🚨 [Events] listener watchdog interval is invalid; "
                        "lifecycle monitoring disabled");
+            pcv_vm_cfg_hist_coverage(FALSE, "listener_lost");
             virt_conn_pool_note_coverage_end();
             _event_listener_close(&listener);
             return NULL;
@@ -1002,6 +1036,7 @@ static gpointer libvirt_listener_watchdog_thread(gpointer data) {
                   "(is_alive=%d rpc_probe=%d); "
                   "ending coverage and reconnecting",
                   alive_result, rpc_probe_result);
+        pcv_vm_cfg_hist_coverage(FALSE, "listener_lost");
         disconnected_at_us = g_get_monotonic_time();
         _event_listener_close(&listener);
         reconnect_attempt = 0U;
@@ -1026,6 +1061,8 @@ static gpointer libvirt_listener_watchdog_thread(gpointer data) {
    
 void init_virt_events_daemon(void) {
     GError *error = NULL;
+
+    pcv_vm_cfg_hist_start_default();
     g_atomic_int_set(&g_producer_stop, FALSE);
     g_producer_thread = g_thread_try_new("libvirt-events",
                                        libvirt_listener_watchdog_thread,
@@ -1047,4 +1084,5 @@ pcv_virt_events_shutdown(void)
         g_thread_join(g_producer_thread);
         g_producer_thread = NULL;
     }
+    pcv_vm_cfg_hist_shutdown();
 }

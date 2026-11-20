@@ -18,6 +18,7 @@
                                                                                 
 #include "rpc_offload.h"
 
+#include "api/dispatcher_policy.h"
 #include "api/drain.h"
 #include "modules/dispatcher/poll_async.h"
 #include "modules/dispatcher/rpc_utils.h"
@@ -62,6 +63,8 @@ static const struct { const gchar *method; PcvOffloadLane lane; } g_table[] = {
     { "jobs.list", PCV_OFFLOAD_LANE_SCOPE_READ },
     { "jobs.get", PCV_OFFLOAD_LANE_SCOPE_READ },
     { "vm.delete.status", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "vm.config.history.list", PCV_OFFLOAD_LANE_SCOPE_READ },
+    { "vm.config.history.get", PCV_OFFLOAD_LANE_SCOPE_READ },
 
     { "dpdk.list", PCV_OFFLOAD_LANE_HOST_READ },
     { "dpdk.status", PCV_OFFLOAD_LANE_HOST_READ },
@@ -265,10 +268,12 @@ _lane_worker(gpointer data, gpointer unused)
             pcv_spawn_set_thread_override(pcv_poll_guard_spawn_override, guard);
         gboolean permitted = !r->owner_check ||
             r->owner_check(r->method, r->params, r->rpc_id, r->server, r->connection, r->actor);
-        if (permitted && r->cont)
+        if (permitted && r->cont) {
             r->precheck_passed = TRUE;
-        else if (permitted)
+        } else if (permitted) {
+            pcv_dispatcher_run_authorized_hooks(r->method, r->params);
             r->handler(r->params, r->rpc_id, r->server, r->connection);
+        }
         if (guard) {
             pcv_spawn_set_thread_override(NULL, NULL);
             if (permitted && r->response)

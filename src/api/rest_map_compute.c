@@ -64,6 +64,29 @@
 #include "api/rest_async.h"
 #include "api/rest_transport.h"
 #include "api/rest_request_auth.h"
+#include "modules/virt/vm_config_history_view.h"
+
+static JsonObject *
+_vmch_query(GHashTable *query, gboolean *bad)
+{
+    JsonObject *p = json_object_new();
+    static const gchar *const ints[] = {"since", "until", "limit", NULL};
+    static const gchar *const strs[] = {"vm", "uuid", "cursor", NULL};
+    for (guint i = 0; query && ints[i]; i++) {
+        const gchar *v = g_hash_table_lookup(query, ints[i]);
+        gint64 n = 0;
+        if (v && !g_ascii_string_to_signed(v, 10, G_MININT64, G_MAXINT64, &n, NULL))
+            *bad = TRUE;
+        else if (v)
+            json_object_set_int_member(p, ints[i], n);
+    }
+    for (guint i = 0; query && strs[i]; i++) {
+        const gchar *v = g_hash_table_lookup(query, strs[i]);
+        if (v)
+            json_object_set_string_member(p, strs[i], v);
+    }
+    return p;
+}
 
                                                                                                                                                     
                                                                  
@@ -407,6 +430,24 @@ pcv_rest_map_compute(PcvRestRequest *rq)
         } else if (g_strcmp0(action, "delete-status") == 0 && g_strcmp0(method, "GET") == 0) {
             rq->rpc = pcv_rest_build_rpc_name("vm.delete.status", name);
 
+        } else if (g_strcmp0(action, "config-history") == 0 && g_strcmp0(method, "GET") == 0) {
+
+            gboolean bad = FALSE;
+            JsonObject *p = _vmch_query(query, &bad);
+            if (json_object_has_member(p, "vm") || json_object_has_member(p, "uuid")) {
+                json_object_unref(p);
+                pcv_rest_send_error(msg, 400, "BAD_REQUEST", "vm and uuid come from the path");
+                return PCV_REST_STEP_CLEANUP;
+            }
+            json_object_set_string_member(p, "vm", name);
+            if (bad) {
+                json_object_unref(p);
+                pcv_rest_send_error(msg, 400, "BAD_REQUEST", "since, until, limit must be integers");
+                return PCV_REST_STEP_CLEANUP;
+            }
+            rq->rpc = pcv_rest_build_rpc("vm.config.history.list", p);
+            json_object_unref(p);
+
         } else if (g_strcmp0(action, "rename") == 0 && g_strcmp0(method, "PUT") == 0) {
             if (!body || !json_object_has_member(body, "new_name")) {
                 pcv_rest_send_error(msg, 400, "BAD_REQUEST", "new_name required");
@@ -734,6 +775,28 @@ pcv_rest_map_compute(PcvRestRequest *rq)
             JsonObject *p = json_object_new();
             json_object_set_string_member(p, "name", name);
             rq->rpc = pcv_rest_build_rpc("container.memory.stats", p);
+            json_object_unref(p);
+        }
+    }
+
+    else if (g_strcmp0(resource, "vm-config-history") == 0 && g_strcmp0(method, "GET") == 0 && *action == '\0') {
+        if (*name == '\0') {
+            gboolean bad = FALSE;
+            JsonObject *p = _vmch_query(query, &bad);
+            if (bad) {
+                json_object_unref(p);
+                pcv_rest_send_error(msg, 400, "BAD_REQUEST", "since, until, limit must be integers");
+                return PCV_REST_STEP_CLEANUP;
+            }
+            rq->rpc = pcv_rest_build_rpc("vm.config.history.list", p);
+            json_object_unref(p);
+        } else if (!pcv_vm_cfg_entry_id_valid(name)) {
+            pcv_rest_send_error(msg, 400, "BAD_REQUEST", "id must be 32 lowercase hex");
+            return PCV_REST_STEP_CLEANUP;
+        } else {
+            JsonObject *p = json_object_new();
+            json_object_set_string_member(p, "id", name);
+            rq->rpc = pcv_rest_build_rpc("vm.config.history.get", p);
             json_object_unref(p);
         }
     }

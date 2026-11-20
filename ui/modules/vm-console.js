@@ -953,6 +953,10 @@ function renderTimeline(b, v) {
   var el = PCV.uxlib.el;
   var parts = [];
   parts.push(el('h3', { class: 'mb-14' }, _L('타임라인', 'Timeline') + ': ' + v.name));
+  var hist = el('div', { class: 'vmch-section mb-14' });
+  parts.push(hist);
+  parts.push(el('h4', { class: 'mb-8' }, _L('이 브라우저의 최근 이벤트(힌트)', 'Recent events in this browser (hint)')),
+    el('div', { class: 'color-muted mb-8', style: 'font-size:11px' }, _L('새로고침하면 사라지고 이름이 포함된 다른 VM 이벤트도 섞일 수 있습니다.', 'Cleared on reload; events of other VMs whose names contain this name may appear.')));
   if (events.length === 0) {
     parts.push(el('div', { class: 'empty-state', style: 'text-align:center;padding:30px' },
       el('div', { style: 'font-size:36px;opacity:.5' }, '🕑'),
@@ -974,6 +978,7 @@ function renderTimeline(b, v) {
   }
   PCV.uxlib.clearEl(b);
   b.appendChild(PCV.uxlib.frag(parts));
+  if (PCV.vmConfigHistory) return PCV.vmConfigHistory.render(hist, v);
 }
                         
    

@@ -422,6 +422,14 @@ const gchar *
 pcv_disp_dispatcher_audit_target_from_params(const gchar *method, JsonObject *params)
 {
     const gchar *target = NULL;
+    if (g_str_has_prefix(method ? method : "", "vm.config.history.")) {
+        static const gchar *hist_keys[] = {"vm", "uuid", "id", NULL};
+        for (guint i = 0; hist_keys[i]; i++) {
+            target = pcv_disp_json_string_member(params, hist_keys[i]);
+            if (target && *target) return target;
+        }
+        return NULL;
+    }
     if (g_str_has_prefix(method ? method : "", "container."))
         target = pcv_disp_container_owner_scope_target_from_params(method, params);
     else

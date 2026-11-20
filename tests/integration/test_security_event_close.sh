@@ -164,8 +164,8 @@ fi
 pass "S1: 격리 데몬 기동 + pcvctl(격리 소켓) 응답 + 사건 DB 스키마 + REST /health 준비"
 
 rm_n="$(uds daemon.version '{}' | jq -r '.result.rpc_methods // empty' 2>/dev/null)"
-if [ "$rm_n" = "321" ]; then pass "S3: daemon.version rpc_methods = 321"
-else fail "S3: daemon.version rpc_methods = ${rm_n:-<없음>} (기대 321)"; fi
+if [ "$rm_n" = "323" ]; then pass "S3: daemon.version rpc_methods = 323"
+else fail "S3: daemon.version rpc_methods = ${rm_n:-<없음>} (기대 323)"; fi
 
 seed_event sec-e2e-cli open warn
 seed_event sec-e2e-rest open crit

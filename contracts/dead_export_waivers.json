@@ -538,5 +538,31 @@
     "evidence": [
       "tests/fixtures/plugin_api_probe.c"
     ]
+  },
+  "pcv_vm_cfg_hist_sync": {
+    "reason": "구성 변경 이력 워커의 큐와 대기 캡처가 다 처리될 때까지 기다리는 테스트 전용 동기화 진입점이다.",
+    "evidence": [
+      "tests/test_vm_config_history_worker.c",
+      "tests/test_vm_config_history_handler.c",
+      "tests/test_vm_config_history_nudge.c"
+    ]
+  },
+  "pcv_vm_cfg_hist_test_counter": {
+    "reason": "구성 변경 이력 워커의 캡처·병합·쓰기 실패 계수를 확인하는 테스트 전용 조회다.",
+    "evidence": [
+      "tests/test_vm_config_history_worker.c"
+    ]
+  },
+  "pcv_vm_cfg_hist_test_fail_writes": {
+    "reason": "저장소 쓰기를 강제로 실패시켜 degraded 상태와 기록 공백을 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_vm_config_history_worker.c"
+    ]
+  },
+  "pcv_vm_cfg_intents_size": {
+    "reason": "요청 의도 표의 상한·만료 정리를 확인하는 테스트 전용 조회다.",
+    "evidence": [
+      "tests/test_vm_config_history_decide.c"
+    ]
   }
 }

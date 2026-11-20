@@ -69,6 +69,9 @@ var EP = (function() {
     VM_CLONE:             function(n)    { return B() + '/vms/' + enc(n) + '/clone'; },
     VM_DISK:              function(n)    { return B() + '/vms/' + enc(n) + '/disk'; },
     VM_DELETE_STATUS:     function(n)    { return B() + '/vms/' + enc(n) + '/delete-status'; },
+
+    VM_CONFIG_HISTORY:    function(q)    { var s = Object.keys(q || {}).filter(function(k) { return q[k] !== undefined && q[k] !== null && q[k] !== ''; }).map(function(k) { return enc(k) + '=' + enc(String(q[k])); }).join('&'); return B() + '/vm-config-history' + (s ? '?' + s : ''); },
+    VM_CONFIG_HISTORY_GET:function(id)   { return B() + '/vm-config-history/' + enc(id); },
     VM_RENAME:            function(n)    { return B() + '/vms/' + enc(n) + '/rename'; },
     VM_OWNER:             function(n)    { return B() + '/vms/' + enc(n) + '/owner'; },
     VM_EXPORT:            function(n)    { return B() + '/vms/' + enc(n) + '/export'; },

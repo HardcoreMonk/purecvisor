@@ -37,4 +37,10 @@ gboolean pcv_disp_vm_method_is_read(const gchar *method);
                                    
 gboolean pcv_disp_vm_read_needs_precheck(const gchar *method);
 
+typedef void (*PcvDispatchAuthorizedHook)(const gchar *method, JsonObject *params, gpointer user_data);
+
+void pcv_dispatcher_register_authorized_hook(PcvDispatchAuthorizedHook hook, gpointer user_data);
+
+void pcv_dispatcher_run_authorized_hooks(const gchar *method, JsonObject *params);
+
 #endif                              

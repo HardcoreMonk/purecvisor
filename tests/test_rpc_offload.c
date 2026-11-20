@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "api/dispatcher_policy.h"
 #include "api/drain.h"
 #include "modules/audit/pcv_audit.h"
 #include "modules/dispatcher/poll_async.h"
@@ -534,6 +535,40 @@ test_owner_scope_denied_in_worker(Fx *fx, gconstpointer unused)
     _wait_until(_finish_at_least, GUINT_TO_POINTER(2));
     g_assert_cmpuint(g_fx.handler_calls, ==, 1);
     g_assert_cmpuint(pcv_test_uds_response_count(), ==, 1);
+}
+
+static gint  g_authz_hook_calls;
+static guint g_authz_handler_calls_at_hook;
+static void
+_authz_hook(const gchar *method, JsonObject *params, gpointer user_data)
+{
+    (void)method; (void)params; (void)user_data;
+    const gchar *actor = pcv_rpc_completion_actor();
+    if (!actor || !g_str_has_prefix(actor, "authz-"))
+        return;
+    g_authz_handler_calls_at_hook = g_fx.handler_calls;
+    g_atomic_int_inc(&g_authz_hook_calls);
+}
+
+static void
+test_authorized_hook_after_owner_check(Fx *fx, gconstpointer unused)
+{
+    (void)fx; (void)unused;
+    static gboolean registered;
+    if (!registered) {
+        pcv_dispatcher_register_authorized_hook(_authz_hook, NULL);
+        registered = TRUE;
+    }
+    g_atomic_int_set(&g_authz_hook_calls, 0);
+    g_assert_true(_submit_full("t.libvirt", "z1", "authz-deny", _h_ok, _owner_deny, NULL, NULL));
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(1));
+    g_assert_cmpuint(g_fx.handler_calls, ==, 0);
+    g_assert_cmpint(g_atomic_int_get(&g_authz_hook_calls), ==, 0);
+    g_assert_true(_submit_full("t.libvirt", "z2", "authz-ok", _h_ok, _owner_allow, NULL, NULL));
+    _wait_until(_finish_at_least, GUINT_TO_POINTER(2));
+    g_assert_cmpuint(g_fx.handler_calls, ==, 1);
+    g_assert_cmpint(g_atomic_int_get(&g_authz_hook_calls), ==, 1);
+    g_assert_cmpuint(g_authz_handler_calls_at_hook, ==, 0);
 }
 
                                                             
@@ -1472,6 +1507,7 @@ test_rpc_offload_register(void)
     ADD("actor_scope_isolated", test_actor_scope_isolated);
     ADD("terminating_rejects_queued", test_terminating_rejects_queued);
     ADD("owner_scope_denied_in_worker", test_owner_scope_denied_in_worker);
+    ADD("authorized_hook_after_owner_check", test_authorized_hook_after_owner_check);
     ADD("parser_lives_until_done", test_parser_lives_until_done);
     ADD("prom_paired", test_prom_paired);
     ADD("stale_queued_mutation_rejected", test_stale_queued_mutation_rejected);

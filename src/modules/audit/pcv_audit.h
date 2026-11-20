@@ -190,6 +190,10 @@ void pcv_audit_log(const gchar *username, const gchar *method,
                                        
   
                                           
+typedef void (*PcvAuditCompletionTap)(const gchar *username, const gchar *method, const gchar *target,
+                                      const gchar *result, gint error_code);
+
+void pcv_audit_set_completion_tap(PcvAuditCompletionTap tap);
    
 gint64 pcv_audit_get_total_count(void);
 

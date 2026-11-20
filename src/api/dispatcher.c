@@ -171,6 +171,7 @@
 #include "modules/dispatcher/handler_vm_clone.h"
 #include "modules/dispatcher/handler_vm_create.h"
 #include "modules/dispatcher/handler_vm_admin.h"
+#include "modules/dispatcher/handler_vm_config_history.h"
 #include "modules/dispatcher/handler_suricata.h"
 #include "modules/dispatcher/handler_alert.h"
 #include "modules/dispatcher/handler_daemon.h"
@@ -836,6 +837,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         dispatcher_request_context_free(ctx);
         goto rpc_done;
     }
+    pcv_dispatcher_run_authorized_hooks(method, params);
 
                                
                                                                     
@@ -1036,6 +1038,8 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "vm.guest.shutdown",  (gpointer)handle_vm_guest_shutdown_request);
     g_hash_table_insert(g_rpc_routes, "vm.delete",          (gpointer)handle_vm_delete_request);
     g_hash_table_insert(g_rpc_routes, "vm.delete.status",   (gpointer)handle_vm_delete_status);
+    g_hash_table_insert(g_rpc_routes, "vm.config.history.list", (gpointer)handle_vm_config_history_list);
+    g_hash_table_insert(g_rpc_routes, "vm.config.history.get",  (gpointer)handle_vm_config_history_get);
     g_hash_table_insert(g_rpc_routes, "vm.list",            (gpointer)handle_vm_list_request);
     g_hash_table_insert(g_rpc_routes, "vm.limit",           (gpointer)handle_vm_limit_request);
     g_hash_table_insert(g_rpc_routes, "vm.metrics",         (gpointer)handle_vm_metrics_request);

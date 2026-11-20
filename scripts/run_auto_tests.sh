@@ -440,6 +440,8 @@ if $RUN_TIER1; then
 
                                                                                                     
                                                                                         
+            run_isolated_test "VM 구성 변경 이력 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_vm_config_history.sh"
                                                                                           
             run_isolated_test "LXC unprivileged 생성 정책 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_lxc_unprivileged_policy.sh"

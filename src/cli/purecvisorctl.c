@@ -187,6 +187,7 @@
 #include "cli_vm_owner.h"
 #include "cli_host_device.h"
 #include "cli_monitor_diag.h"
+#include "cli_vm_config_history.h"
 #include "modules/dispatcher/rpc_utils.h"                                  
 #include "modules/network/dpdk_manager.h"                               
 
@@ -851,7 +852,6 @@ void cmd_snapshot_verify(int argc, char *argv[]) {
                                                                        
            
                                                                           
-
 
    
                                                                     
@@ -1738,7 +1738,6 @@ void cmd_container_snapshot(int argc, char *argv[]) {
                                                                        
            
                                                                           
-
 
                                                                        
           
@@ -4003,7 +4002,6 @@ void cmd_alert_reload(int argc __attribute__((unused)), char *argv[] __attribute
                                                                        
                        
                                                                           
-
 
                                                                        
                    
@@ -7523,6 +7521,8 @@ static CommandRoute routes[] = {
     {"vm","vnc",         cmd_vm_vnc,         "Get VNC port for a running VM"},
     {"vm","eject",       cmd_vm_eject,       "Eject ISO from virtual cdrom"},
     {"vm","delete-status",cmd_vm_delete_status,"Check VM delete progress"},
+    {"vm","config-history",cmd_vm_config_history,"VM configuration change history"},
+    {"vm","config-history-show",cmd_vm_config_history_show,"Show one configuration change"},
     {"vm","memory-stats",  cmd_vm_memory_stats,   "VM memory balloon/RSS/swap stats"},
     {"vm","cpu-stats",     cmd_vm_cpu_stats,       "VM CPU time + per-vCPU stats"},
     {"vm","disk-resize",   cmd_vm_disk_resize,     "Live resize VM disk"},

@@ -49,5 +49,7 @@
   "vpc.service.publish":    { "required": ["attachment_id", "protocol", "listen_address", "listen_port", "target_port", "allowed_sources"], "optional": ["tenant"], "keys_via": "handler-vpc-helper" },
   "vpc.service.unpublish":  { "required": ["publish_id"], "optional": ["tenant"], "keys_via": "handler-vpc-helper" },
   "vpc.reconcile":          { "required": [], "optional": [] },
-  "monitor.vm.diag":        { "required": [], "optional": ["vm"] }
+  "monitor.vm.diag":        { "required": [], "optional": ["vm"] },
+  "vm.config.history.list": { "required": [], "optional": ["vm", "uuid", "since", "until", "limit", "cursor"] },
+  "vm.config.history.get":  { "required": ["id"], "optional": [] }
 }

@@ -1,0 +1,75 @@
+<domain type='kvm'>
+  <name>web</name>
+  <uuid>6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F</uuid>
+  <metadata>
+    <pcv:owner xmlns:pcv="urn:purecvisor:metadata">alice</pcv:owner>
+    <pcv:overlay xmlns:pcv="urn:purecvisor:overlay:1" network_mode="overlay" tenant="t1"/>
+    <pcv:qos xmlns:pcv="urn:purecvisor:qos:1" min_mbps="10" max_mbps="100" burst_kb="64"/>
+  </metadata>
+  <memory  unit="KiB">4194304</memory>
+  <currentMemory unit='KiB'>4194304</currentMemory>
+  <memtune>
+    <hard_limit unit='KiB'>5242880</hard_limit>
+  </memtune>
+  <vcpu placement='static' current='2'>4</vcpu>
+  <cputune>
+    <shares>1024</shares>
+    <vcpupin vcpu='1' cpuset='3'/>
+    <vcpupin vcpu='0' cpuset='2'/>
+  </cputune>
+  <os>
+    <type arch='x86_64' machine='pc-q35-8.2'>hvm</type>
+    <boot dev='hd'/>
+    <boot dev='cdrom'/>
+  </os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough' check='none' migratable='on'>
+    <topology sockets='1' dies='1' cores='4' threads='1'/>
+  </cpu>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <resource>
+    <partition>/machine</partition>
+  </resource>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='block' device='disk'>
+      <driver discard='unmap' io='native' cache='none' type='raw' name='qemu'/>
+      <source dev='/dev/zvol/pcvpool/vms/web-disk0'/>
+      <target dev='vda' bus='virtio'/>
+      <iotune><total_iops_sec>500</total_iops_sec></iotune>
+      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+    <controller type='usb' index='0' model='qemu-xhci'>
+      <address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/>
+    </controller>
+    <interface type='bridge'>
+      <mac address='52:54:00:AA:BB:01'/>
+      <source bridge='br0'/>
+      <bandwidth>
+        <inbound average='12500' peak='25000' burst='64'/>
+      </bandwidth>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+    </interface>
+    <serial type='pty'><target type='isa-serial' port='0'/></serial>
+    <console type='pty'><target type='serial' port='0'/></console>
+    <channel type='unix'>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+      <address type='virtio-serial' controller='0' bus='0' port='1'/>
+    </channel>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>
+    </graphics>
+    <video><model type='virtio' heads='1' primary='yes'/></video>
+    <memballoon model='virtio'/>
+    <rng model='virtio'><backend model='random'>/dev/urandom</backend></rng>
+  </devices>
+  <seclabel type='dynamic' model='apparmor' relabel='yes'/>
+</domain>

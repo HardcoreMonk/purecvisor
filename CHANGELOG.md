@@ -68,8 +68,23 @@
 - (2026-11-20) pre-commit 7단계 데몬 바이너리 크기 상한을 3 MiB(3,145,728 B)에서 3.5 MiB(3,670,016 B)로 올렸다. 이
   단계는 debug 빌드 데몬에서 디버그 정보·심볼표를 뺀 크기를 잰다. 2.2.1 뒤 공개 main은 3,023,304 B였고 아래 VM 구성 변경
   이력이 약 120 KB를 더해 3,146,248 B로 상한을 넘는다. 검사 방식은 그대로다. 가이드 품질 게이트 표를 맞췄다.
-- `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식 변경이 없다. 제품 버전
-  문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
+- (2026-11-20) **VM 구성 변경 이력:** VM 정의의 관측된 변화(vCPU·메모리·디스크·NIC·장치·한도·autostart·PCV metadata)를
+  VM UUID 단위로 새 로컬 DB `vm_config_history.db`(0600, 지문용 소금은 같은 디렉터리의 0600 키 파일
+  `vm_config_history.key`)에 기본 1년 보관한다. 허용 목록 필드만 저장하고 비밀을 운반할 수 있는 구간은 "바뀜" 지문만
+  남긴다. VM 시작·정지만으로는 행이 생기지 않는다. 트리거는 libvirt 이벤트(DEFINED·UNDEFINED·장치·새 METADATA_CHANGE
+  구독), VM 조작 요청의 의도와 완료, 15분 대조 스캔, 기동 기준선이며 기록하지 못한 구간은 `gaps[]` 공백으로 드러난다.
+  조회는 RPC `vm.config.history.list`·`vm.config.history.get`(VIEWER, 행마다 기록 시점 소유자로 범위 판정), REST
+  `GET /api/v1/vm-config-history`·`/api/v1/vm-config-history/{id}`·`/api/v1/vms/{name}/config-history`, `pcvctl vm
+  config-history`·`config-history-show`, VM 상세 `타임라인` 탭 위 "구성 변경(서버 기록)" 절이다. 기존 브라우저 이벤트
+  목록은 "이 브라우저의 최근 이벤트(힌트)"로 이름을 바꿨다. 설정 `[vm_config_history]`(기본 켜짐, 가이드 8.10.2), 지표
+  `purecvisor_vm_config_history_*`. 외부 Prometheus·Grafana로 성능 이력을 보관하는 권장 구성은 가이드 8.10.1. C 단위 시험
+  `/vm_config_history/*`, 계약 시험 3개(`check-server-defect-contracts`), 브라우저 UI 시험, 격리 데몬 E2E
+  `tests/integration/test_vm_config_history.sh`(`run_auto_tests.sh` Tier 1)를 더했다. 이 E2E는 이벤트 listener를
+  `test:///default`에 붙이는 시험 전용 환경 변수 `PCV_EVENTS_LIBVIRT_URI`를 쓴다(운영 unit은 설정하지 않는다).
+- 2026-11-19 변경까지는 `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식
+  변경이 없었다. 2026-11-20 VM 구성 변경 이력이 조회 RPC 2개·REST 3개·`pcvctl` 명령 2개와 새 DB `vm_config_history.db`(+ 키
+  파일), `daemon.conf`의 `[vm_config_history]` 절을 더했다(기존 RPC·REST·DB·설정 형식은 그대로다). 제품 버전 문자열은
+  `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
 
 ## 2.2.1 기능 릴리스 — 2026-11-18
 

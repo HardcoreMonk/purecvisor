@@ -5,7 +5,7 @@
 > **2026-10-02 역사 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **기준 시점:** 2026-11-18 공개 소스 2.2.1 (SQLite 9개 파일·29개 영구 테이블)
+> **기준 시점:** 2026-11-20 2.2.1 뒤 공개 main (SQLite 10개 파일·33개 영구 테이블 — 2.2.1 릴리스는 9개·29개)
 >
 > **대상:** `purecvisor-single`의 SQLite 기반 영속 상태
 >
@@ -24,14 +24,14 @@ PureCVisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 
 ## 1. 아키텍처 개요
 
-`purecvisor-single`은 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 9개로 상태를 나눠
-저장한다. 이 9개 파일에는 영구 테이블 29개가 있으며, 모두 한 Single Edge 노드 안에서만
+`purecvisor-single`은 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 10개로 상태를 나눠
+저장한다. 이 10개 파일에는 영구 테이블 33개가 있으며, 모두 한 Single Edge 노드 안에서만
 사용한다. 노드 간 복제·합의·분산 트랜잭션은 제공하지 않는다. 각 모듈이 자기 DB의 연결과
 스키마를 소유하고 대부분 WAL 모드로 연다.
 
 <div class="pcv-database-summary pcv-technical-wide" role="list" aria-label="데이터베이스 아키텍처 핵심 수치">
-  <div class="pcv-database-summary-item" role="listitem"><strong>9</strong><span>로컬 SQLite 파일</span></div>
-  <div class="pcv-database-summary-item" role="listitem"><strong>29</strong><span>영구 테이블</span></div>
+  <div class="pcv-database-summary-item" role="listitem"><strong>10</strong><span>로컬 SQLite 파일</span></div>
+  <div class="pcv-database-summary-item" role="listitem"><strong>33</strong><span>영구 테이블</span></div>
   <div class="pcv-database-summary-item" role="listitem"><strong>0</strong><span>외부 DBMS</span></div>
   <div class="pcv-database-summary-item" role="listitem"><strong>0</strong><span>DB 간 원자 트랜잭션</span></div>
 </div>
@@ -42,12 +42,12 @@ PureCVisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
   <div class="pcv-map-bar">
     <strong id="pcv-database-architecture-title">Single Edge · 로컬 데이터 흐름</strong>
     <div class="pcv-map-meta">
-      <span class="pcv-status"><i aria-hidden="true"></i>9 DB · 29 TABLES</span>
+      <span class="pcv-status"><i aria-hidden="true"></i>10 DB · 33 TABLES</span>
       <a class="pcv-architecture-source-open" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener">SVG 원본 열기 <span aria-hidden="true">↗</span></a>
     </div>
   </div>
-  <a class="pcv-architecture-source-canvas pcv-database-architecture-canvas" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트 요청이 purecvisorsd 제어면으로 들어와 요청 종류에 따라 9개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신하고 Linux KVM 실제 상태 및 응답 완료 채널과 연결되는 데이터베이스 아키텍처 SVG를 새 탭에서 확대해서 보기">
-    <img class="pcv-architecture-source-image pcv-database-architecture-image" src="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" width="1440" height="1040" loading="lazy" decoding="async" alt="CLI, Web UI와 REST 요청이 인증 및 dispatcher로 들어와 짧은 작업은 즉시 응답하고 긴 작업만 GTask를 사용하며, 요청 종류에 따라 정책 정본, 작업 상태, 감사 및 Web Push 저장소 중 관련 저장소를 읽거나 갱신하는 PureCVisor Single Edge 데이터 흐름">
+  <a class="pcv-architecture-source-canvas pcv-database-architecture-canvas" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트 요청이 purecvisorsd 제어면으로 들어와 요청 종류에 따라 10개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신하고 Linux KVM 실제 상태 및 응답 완료 채널과 연결되는 데이터베이스 아키텍처 SVG를 새 탭에서 확대해서 보기">
+    <img class="pcv-architecture-source-image pcv-database-architecture-image" src="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" width="1440" height="1040" loading="lazy" decoding="async" alt="CLI, Web UI와 REST 요청이 인증 및 dispatcher로 들어와 짧은 작업은 즉시 응답하고 긴 작업만 GTask를 사용하며, 요청 종류에 따라 정책 정본, 작업 상태, 감사·VM 구성 변경 이력 및 Web Push 저장소 중 관련 저장소를 읽거나 갱신하는 PureCVisor Single Edge 데이터 흐름">
   </a>
   <figcaption id="pcv-database-architecture-note" class="pcv-architecture-source-note">실선은 호출·읽기·쓰기·적용, 점선은 비동기 실행·진행·완료 통지와 증거 기록을 뜻한다.<br>화살표는 외래 키나 여러 DB를 묶는 하나의 transaction을 뜻하지 않는다.<br>좁은 화면에서는 그림 영역을 좌우로 스크롤하고, 전체 크기는 ‘SVG 원본 열기’에서 확인한다.</figcaption>
 </figure>
@@ -57,7 +57,7 @@ PureCVisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 
 - **정본과 정책**: RBAC, Local VPC, Security Group, Security DB와 자원 등록 DB가 사용자·네트워크·보안·호스트 자원 경계의 의도를 보존한다.
 - **작업 상태**: VM lock과 Job 상태 registry가 충돌 방지·진행률·재시작 판정을 보존한다. DB가 worker를 실행하거나 작업을 꺼내 주지는 않는다.
-- **증거와 외부 통합**: Audit은 변조 탐지형 감사 증거를, Security는 보안 이벤트를, Web Push는 브라우저 구독과 발송 결과를 보존한다.
+- **증거·이력과 외부 통합**: Audit은 변조 탐지형 감사 증거를, Security는 보안 이벤트를, VM 구성 변경 이력은 VM 정의의 관측된 변화를(증거 원장은 아니다, §17), Web Push는 브라우저 구독과 발송 결과를 보존한다.
 
 ### 1.2 저장소 레지스트리
 
@@ -71,6 +71,7 @@ PureCVisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 | Security Group | 네트워크 정책 정본 | 보안 그룹, 규칙, VM 바인딩 | `/var/lib/purecvisor/security_groups.db` | 현재 코드 상수 |
 | Local VPC | desired state 정본 | tenant VPC, subnet, attachment, Service Publish | `/var/lib/purecvisor/vpc.db` | `pcv_vpc_init()` 인자(테스트 주입) |
 | Web Push | 외부 통합 상태 | 사용자별 브라우저 Push 구독 | `/var/lib/purecvisor/pcv_webpush.db` | 현재 `main.c` 고정 인자 |
+| VM 구성 변경 이력 | 관측 이력(증거 아님) | VM 정의의 관측된 변화(허용 목록 요약·지문·차이)와 기록 공백 구간(§17) | `/var/lib/purecvisor/vm_config_history.db`(+ 키 파일 `vm_config_history.key`) | `[vm_config_history] db_path` |
 | 자원 등록 | 인가 정본(호스트 자원 경계) | 비ADMIN이 참조할 수 있는 호스트 자원 등록·테넌트 허용, 테넌트 VPC 주소 풀(§11) | `/var/lib/purecvisor/resource_registry.db` | 코드 상수 `PCV_RES_DEFAULT_DB_PATH`(시험은 `pcv_res_registry_open()` 인자) |
 
 비개발자 관점에서 보면 이 구조는 하나의 거대한 DB가 아니라 “작은 장부 여러 권”에 가깝다. VM 작업 충돌 방지, 감사 기록, 사용자 인증, 보안 이벤트처럼 성격이 다른 기록을 분리해 장애 영향 범위와 백업 단위를 줄인다.
@@ -86,7 +87,7 @@ Job ID, audit, 로그, WebSocket 결과를 함께 대조해야 한다.
 |---|---|---|
 | 인증·정책·desired state | RBAC, Security, Security Group, Local VPC, 자원 등록이 의도를 보존 | 실제 커널·가상화 상태는 별도 적용 또는 reconcile 필요 |
 | 작업 중 상태 | VM lock과 Job 상태 registry가 충돌 방지와 진행률을 보존 | 실제 작업 결과는 libvirt·qcow2/raw·선택형 ZFS·파일시스템과 함께 판정 |
-| 증거·외부 통합 | Audit, Security event, Web Push가 과거 사실이나 외부 전달 상태를 보존 | 현재 host 상태를 직접 제어하지 않으며 삭제·손상 시 증거 또는 구독이 유실됨 |
+| 증거·이력·외부 통합 | Audit, Security event, VM 구성 변경 이력, Web Push가 과거 사실·관측 기록이나 외부 전달 상태를 보존 | 현재 host 상태를 직접 제어하지 않으며 삭제·손상 시 증거 또는 구독이 유실됨 |
 
 Local VPC DB는 desired state의 정본이지만 bridge, dnsmasq, nftables, libvirt XML과 후보
 OVN backend는 actual state다. 데몬은 시작 시 둘을 수렴시킨다. VM DB는 VM 정의의 정본이 아니라 작업
@@ -122,11 +123,13 @@ BPF manager에서 확인한다.
 | Security Group | DB 미가용 시 일부 경로는 인메모리·커널 동작을 계속하고 영속화를 생략 | 재시작 뒤 정책 복원이 보장되지 않는다. |
 | Local VPC | 미래 schema는 DDL 전에 거부. 치명적 init/migration/reconcile 실패는 listener 전에 중단하고 격리 가능한 actual 오류는 quarantine | desired state를 임의로 덮어쓰지 않는 fail-closed 경계다. |
 | Web Push | 초기화 실패 시 알림 발송만 no-op으로 축소 | webhook·이력·핵심 서비스는 유지되지만 Push 채널은 사용할 수 없다. |
+| VM 구성 변경 이력 | 열기·쓰기 실패는 `store.state`(`unavailable`·`degraded`)와 기록 공백으로 드러내고 계속 | VM 조작과 데몬 기동은 막지 않는다. 그 구간의 변경은 다음 관측에 창 시각으로 남거나 공백으로 보인다(§17). |
 | 자원 등록 | 데몬 시작 때 열지 않고 첫 사용 때 연다. 열기·이관 실패나 지원보다 높은 `user_version`이면 관리 RPC(`resource.*`·`vpc.pool.*`)는 −32603이고, 비ADMIN의 자원 참조·VPC subnet 풀 판정은 거절(−32006, fail-closed) | ADMIN 요청은 이 DB를 보지 않아 영향이 없다. 비ADMIN의 호스트 자원 참조와 VPC subnet 생성만 막힌다. |
 
 ### 연결 수명과 종료 순서
 
-`main.c`는 RBAC, Web Push, Local VPC, VM 상태, Job 상태 registry와 Audit을 명시적으로 종료한다.
+`main.c`는 RBAC, Web Push, Local VPC, VM 상태, Job 상태 registry와 Audit을 명시적으로 종료한다. VM 구성 변경 이력은
+libvirt 이벤트 생산자 종료 안에서 워커를 멈추고 닫는다(§17).
 Web Push는 새 발화를 막은 뒤 진행 중 전송을 취소하고 최대 30초만 기다린다. Local VPC는
 요청 drain 뒤 libvirt·spawn 종료 전에 닫는다. Audit은 `pcv_audit_shutdown()`에서 writer
 종료를 요청하고 남은 queue를 처리한 worker의 종료를 기다린 뒤 DB를 닫는다.
@@ -160,7 +163,7 @@ example.db-shm
 4. 복원 뒤 `PRAGMA integrity_check`, 모듈별 schema 검사, audit hashchain, VPC reconcile을 수행한다.
 
 `config.backup` RPC는 `/etc/purecvisor/daemon.conf`만
-`/var/lib/purecvisor/daemon.conf.<timestamp>`로 복사한다. 9개 SQLite DB를 백업하지 않는다.
+`/var/lib/purecvisor/daemon.conf.<timestamp>`로 복사한다. 10개 SQLite DB를 백업하지 않는다.
 
 복구 우선순위는 데이터 성격에 따라 다르다.
 
@@ -169,6 +172,7 @@ example.db-shm
 | 높음 | RBAC, Local VPC, Security Group, Security, 자원 등록 | 인증·desired state·암호화 키의 무결성과 actual state 재수렴. 자원 등록 DB는 판(`user_version`)이 바이너리와 맞아야 한다(§11) |
 | 증거 보존 | Audit, Security event | audit 체인 검증과 보안 이벤트 원본 시각 보존 |
 | 운영 재구성 가능 | VM lock과 Job 상태 registry | 고아 락 제거, 비종료 job의 실패·재시도 판정 |
+| 관측 이력 | VM 구성 변경 이력 | DB 세 파일과 키 파일을 같은 단위로. 키를 잃으면 불투명 구간 비교만 새로 시작한다(값 칸 비교는 그대로, §17) |
 | 통합 상태 | Web Push | DB와 `webpush_vapid.pem`을 같은 복구 단위로 관리. PEM이 바뀌면 기존 구독은 재등록 필요 |
 
 ### DB 파일 직접 수정 금지
@@ -187,8 +191,11 @@ example.db-shm
 모듈 초기화 시 `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, 일부
 `ALTER TABLE ... ADD COLUMN`로 구조를 보장한다. RBAC는 `PRAGMA user_version`을 API key
 저장 role 마이그레이션의 1회성 표식으로만 사용한다(1 = 실효 role 동결, 2 = 저장 role 하향, §6).
-Local VPC는 `PRAGMA user_version=2`, 자원 등록은 `PRAGMA user_version=2`(§11)를 사용하며 지원
+Local VPC는 `PRAGMA user_version=2`, 자원 등록은 `PRAGMA user_version=2`(§11), VM 구성 변경 이력은 `PRAGMA user_version=1`(§17)을 사용하며 지원
 버전보다 높은 DB를 변경하지 않고 거부한다. Job 상태 DB도 `PRAGMA user_version=2`를 쓴다(§5).
+
+2.2.1 뒤 공개 main(2026-11-20)은 새 DB 파일 `vm_config_history.db`와 영구 테이블 4개(§17)를 더했다. 기존 DB의 스키마는
+바뀌지 않았다. 이전 판 바이너리로 되돌리면 이 파일과 키 파일은 무시된다.
 
 2.2.0 대비 2.2.1의 스키마 변화는 둘이고 둘 다 `user_version`을 올리지 않는다 — 이전 판 바이너리가 같은 DB를 그대로 쓰게
 하려는 것이다. Job 상태 DB `jobs`에 행위자 열 `actor`·`actor_tenant`(없을 때만 `ALTER TABLE … ADD COLUMN`, §5)와
@@ -224,14 +231,14 @@ libvirt 정의를 읽기만 한다.
 
 ### 접근 권한과 헬스 관측 경계
 
-systemd unit의 `UMask=0077`이 기본 파일 생성을 제한하며 자원 등록 DB와 Web Push VAPID PEM은
+systemd unit의 `UMask=0077`이 기본 파일 생성을 제한하며 자원 등록 DB, VM 구성 변경 이력 DB·키 파일과 Web Push VAPID PEM은
 코드에서도 `0600`을 강제한다. Security Group DB는 열기 전에 본체와 기존 `-wal`·`-shm`을 `0600`으로
 보정하고, 보정 실패는 경고만 남긴다(§8). RBAC hash·salt, TOTP secret, Push endpoint·key,
 WireGuard 암호문, 감사 기록은 모두 민감 데이터로 취급한다. DB 파일을 공개 artifact나
 일반 진단 번들에 포함하지 않는다.
 
 서비스 top-level health는 disk, Audit DB·chain, VM state 등 일부 핵심 probe만 포함하며
-9개 저장소 모두의 쓰기 가능성을 증명하지 않는다. 따라서 `health=ok`와 “모든 DB 정상”은
+10개 저장소 모두의 쓰기 가능성을 증명하지 않는다. 따라서 `health=ok`와 “모든 DB 정상”은
 같은 명제가 아니다.
 
 ---
@@ -1212,6 +1219,7 @@ make test
 | Security Group DB | nftables restore와 VM binding 동작 |
 | Local VPC DB | `/vpc/model`, `/vpc/store`, `/vpc/policy`, schema v1→v2·future-version 무변경 거부, backend readiness/ownership, restart reconcile |
 | Web Push DB | `tests/test_webpush.c`, endpoint SSRF, 사용자별 10개 상한, VAPID rotate·구독 폐기, bounded shutdown |
+| VM 구성 변경 이력 DB | `tests/test_vm_config_history_store.c`(`/vm_config_history/store` — 0600·심볼릭 링크 거절, 소금이 DB·WAL에 없음, 미래 판 거부, 표 생성 전 `auto_vacuum`, 공정 정리, 행위자 만료), `/vm_config_history/worker`, 격리 E2E `tests/integration/test_vm_config_history.sh` |
 | 자원 등록 DB | `tests/test_resource_registry.c`(`/resource_registry` — 0판·1판 이관, 미래 판 거부, 0600), `tests/test_resource_gate.c`(`/resource_gate`). 판을 올리면 이전 판 바이너리의 원복 동작과 백업 복원 절차를 업그레이드 안내에 적는다 |
 
 ---
@@ -1232,6 +1240,7 @@ make test
 | 보안 그룹 | `src/modules/network/security_group.c` |
 | Local VPC desired state와 actual 수렴 | `src/modules/network/vpc/vpc_store.c`, `src/modules/network/vpc/vpc_manager.c`, `src/modules/network/vpc/vpc_backend_ovn.c` |
 | Web Push 구독·VAPID | `src/modules/daemons/pcv_webpush.c`, `src/modules/daemons/pcv_webpush_crypto.c`, 각 헤더 |
+| VM 구성 변경 이력 | `src/modules/core/vm_config_history_store.c`, `src/modules/virt/vm_config_history_norm.c`, `src/modules/virt/vm_config_history_decide.c`, `src/modules/daemons/vm_config_history.c`, `src/modules/dispatcher/handler_vm_config_history.c` |
 | 자원 등록·테넌트 허용·VPC 주소 풀 | `src/modules/resource/resource_registry.c`, `src/modules/resource/resource_gate.c`, `src/modules/dispatcher/handler_resource.c`, `src/modules/dispatcher/handler_vpc.c` |
 
 ---
@@ -1240,3 +1249,120 @@ make test
 
 `vm.inspect`는 DB schema를 추가하지 않는다. read-only 조회도 완료/timeout/거절 audit를 기록하지만 Job을
 생성하거나 결과 journal을 쓰지 않는다.
+
+---
+
+## 17. VM 구성 변경 이력 DB
+
+### 목적
+
+VM 정의(영구 정의와 실행 중 live 덮어쓰기)의 **관측된 상태 변화**를 VM UUID와 기록 시점 이름·소유자·소유자 테넌트로
+영속 기록한다(2.2.1 뒤 공개 main, 사용법은 운영 가이드 8.10.2). Audit DB가 "누가 무엇을 불렀나"(30일, 해시체인)라면 이 DB는
+"정의가 어떻게 바뀌었나"(기본 365일)다. 증거 원장이 아니다 — 해시체인이 없고 늦은 행위자 채우기(30초 안 한 번)를 허용한다.
+두 DB를 잇는 외래 키는 없다(행위자·메서드·시각으로 대조한다).
+
+### 위치와 초기화
+
+| 항목 | 값 |
+|---|---|
+| 기본 경로 | `/var/lib/purecvisor/vm_config_history.db` (`[vm_config_history] db_path`) |
+| 키 파일 | 같은 디렉터리의 `vm_config_history.key`(이름 고정, 32바이트 설치 소금) |
+| 코드 | 저장소 `src/modules/core/vm_config_history_store.c`, 정규화 `src/modules/virt/vm_config_history_norm.c`, 판단 `src/modules/virt/vm_config_history_decide.c`, 투영 `src/modules/virt/vm_config_history_view.c`, 캡처 워커 `src/modules/daemons/vm_config_history.c`, 조회 `src/modules/dispatcher/handler_vm_config_history.c` |
+| 초기화 | 데몬이 libvirt 이벤트 listener보다 먼저 캡처 워커(`vm-cfg-hist`, 단일 writer)를 시작하고 워커가 처음 만든다. 패키지에 빈 파일을 넣지 않는다 |
+| 파일 mode | DB와 키 파일 모두 `open(O_NOFOLLOW)`·정규 파일만, `0600`(기존 파일이 다르면 `fchmod`). 심볼릭 링크는 거절한다 |
+| 열기 순서 | 새 파일이면 표 생성 **전에** `PRAGMA auto_vacuum=INCREMENTAL` → `journal_mode=WAL`·`journal_size_limit=8 MiB`·`foreign_keys=ON` → 표 생성과 `user_version=1`을 한 트랜잭션 |
+| 조회 | `vm.config.history.list`·`get`(SCOPE_READ 레인)은 요청마다 `SQLITE_OPEN_READONLY`로 열고 키 파일을 열지 않는다 |
+| 스키마 버전 | `PRAGMA user_version=1`. 1보다 높으면 열지 않고 `store.state='unavailable'`(데몬은 계속) |
+| 장애 동작 | 쓰기 실패는 `store.state='degraded'`와 공백(`store_write_failed`), 크기 상한을 못 지키면 `over_cap`, `enabled=false`면 `disabled`. 어느 경우에도 VM 조작과 데몬 기동은 막지 않는다 |
+| 종료 | libvirt 이벤트 생산자 join 뒤 워커를 멈추고 열린 관측 구간(epoch)을 `shutdown`으로 닫는다 |
+
+설정 `[vm_config_history]`: `enabled`(true), `retention_days`(365, 1~3650), `max_db_mb`(128, 16~4096), `actor_retention_days`
+(30, 1~`retention_days`), `reconcile_interval_s`(900, 0 = 끔 또는 60~86400), `debounce_ms`(2000, 200~10000),
+`undefine_grace_ms`(10000, 1000~60000). 범위 밖 값은 기본값과 WARN 한 번이다.
+
+### 키 파일(설치 소금)
+
+불투명 구간(qemu 명령줄 이름공간·sysinfo·description·title·외부 metadata·launchSecurity·커널 cmdline·허용 목록 밖 장치)은
+값을 저장하지 않고 `HMAC-SHA256(소금, 정준 바이트)` 앞 16바이트 지문만 저장한다. 소금 32바이트는 **키 파일에만** 있고
+DB의 `meta`에는 `salt_id`(키 SHA-256 앞 8바이트 hex)만 둔다 — 분석용으로 복사한 DB 사본만으로는 지문 대입 오라클이 되지
+않는다. 키 파일은 Audit DB와 같은 민감 등급이며 일반 DB 백업 목록에 넣지 않는다. 키를 잃거나 새로 만들면 `salt_id`가
+바뀌고, 그 뒤 첫 비교는 지문 차이를 변경으로 세지 않는다(`cause`에 `+salt_rotated`, 값 칸 차이만 행이 된다).
+
+### 스키마
+
+#### 테이블: `meta`
+
+| 컬럼 | 타입/제약 | 의미 |
+|---|---|---|
+| `key` | `TEXT PRIMARY KEY` | `salt_id`, `normalizer_version`, `created_at`, `pruned_before`(정리한 가장 최근 시각 — 그 이전 기간은 "정리됨") |
+| `value` | `TEXT NOT NULL` | 값 |
+
+#### 테이블: `coverage_epoch`
+
+| 컬럼 | 타입/제약 | 의미 |
+|---|---|---|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | 관측 구간 ID |
+| `started_at` | `INTEGER NOT NULL` | 구간 시작(unix ms) |
+| `last_alive_at` | `INTEGER NOT NULL` | 마지막 심장 박동(300초 주기) |
+| `ended_at` | `INTEGER`, nullable | 구간 끝. 열린 채 남은 구간은 다음 기동이 `last_alive_at`으로 닫는다 |
+| `end_reason` | `TEXT`, nullable | `shutdown`·`listener_lost`·`crash_inferred`·`store_write_failed`·`disabled` |
+
+#### 테이블: `config_change`
+
+| 컬럼 | 타입/제약 | 의미 |
+|---|---|---|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | 내부 순번. 응답·커서에 내지 않는다 |
+| `entry_id` | `TEXT NOT NULL UNIQUE` | 무작위 128비트(hex 32자) — 응답의 `id` |
+| `vm_uuid`, `vm_name` | `TEXT NOT NULL` | VM UUID와 기록 시점 이름 |
+| `owner`, `owner_tenant` | `TEXT`, nullable | 기록 시점 소유자·소유자 테넌트(조회 범위 판정에 쓴다) |
+| `kind` | `TEXT NOT NULL` | `baseline`·`created`·`changed`·`undefined`·`resized` |
+| `scope` | `TEXT NOT NULL` | `config`·`live`·`both` |
+| `cause` | `TEXT NOT NULL` | `libvirt_defined`·`libvirt_undefined`·`device_changed`·`metadata_changed`·`rpc`·`reconcile`·`startup`·`reconnect`(+ `+normalizer_upgrade`·`+salt_rotated`) |
+| `observed_at`, `window_start` | `INTEGER NOT NULL`, `INTEGER` | 관측 시각과 창 시작 — 창이 있으면 변경이 그 사이 어딘가 |
+| `attribution` | `TEXT NOT NULL` | `rpc`·`rpc_ambiguous`·`none` |
+| `actor`, `actor_tenant` | `TEXT`, nullable | 요청 행위자. `actor_retention_days`(30일) 뒤 NULL |
+| `actor_expired` | `INTEGER NOT NULL DEFAULT 0` | 행위자 만료 표시 |
+| `actor_method`, `actor_result` | `TEXT`, nullable | 요청 메서드와 결과 |
+| `config_digest`, `live_digest` | `TEXT NOT NULL`, `TEXT` | 정규화한 영구 정의·live 덮어쓰기의 지문 |
+| `snapshot_json`, `changes_json` | `TEXT NOT NULL` | 허용 목록 요약과 경로별 이전·이후 값 |
+| `prev_id` | `INTEGER`, nullable | 같은 UUID 직전 행(내부) |
+| `normalizer_version`, `salt_id` | `INTEGER NOT NULL`, `TEXT NOT NULL` | 정규화 판과 지문 소금 ID |
+| `epoch_id` | `INTEGER NOT NULL`, `coverage_epoch(id)` FK | 기록한 관측 구간 |
+
+#### 테이블: `vm_latest`
+
+| 컬럼 | 타입/제약 | 의미 |
+|---|---|---|
+| `vm_uuid` | `TEXT PRIMARY KEY` | VM UUID |
+| `last_id` | `INTEGER NOT NULL` | 그 UUID의 마지막 `config_change` 행 |
+| `last_confirmed_at` | `INTEGER NOT NULL` | 마지막 확인 시각 |
+| `present` | `INTEGER NOT NULL` | 지금 영구 정의돼 있는지 |
+| `current_name` | `TEXT`, nullable | 지금 이름(list의 이름 풀이 전용) |
+| `run_id`, `run_started_at`, `run_live_digest` | `INTEGER`, `INTEGER`, `TEXT` | 실행 기준선(도메인 ID·시작 시각·live 지문) — 시작·정지만으로 행이 생기지 않게 한다 |
+
+#### 인덱스
+
+| 인덱스 | 대상 | 목적 |
+|---|---|---|
+| `ix_cc_uuid` | `config_change(vm_uuid, id)` | UUID별 이력 |
+| `ix_cc_observed` | `config_change(observed_at, entry_id)` | 기간 조회와 커서 |
+| `ix_cc_scope` | `config_change(owner_tenant, owner, observed_at)` | 비ADMIN 범위 조회 |
+| `ix_latest_name` | `vm_latest(current_name) WHERE present = 1` | 지금 정의된 VM의 이름 풀이 |
+
+`config_change`를 `vm_name`으로 찾는 질의는 두지 않는다 — 지운 VM 이름을 새 VM이 다시 써도 옛 이력이 새 소유자에게
+보이지 않게 한다(지운 VM은 UUID로만 찾는다).
+
+### 보관·정리
+
+워커가 1시간마다 한 주기를 돈다: 나이(`retention_days`) → 행위자 만료(`actor_retention_days`) → DB + WAL 크기가
+`max_db_mb`를 넘으면 90%까지 **행이 가장 많은 UUID의 오래된 행부터** → `pruned_before`보다 완전히 오래되고 행이 가리키지
+않는 epoch → `incremental_vacuum`·`wal_checkpoint(TRUNCATE)`. 지금 정의된 VM의 최신 행은 나이·상한과 무관하게 남긴다(그래서
+상한 아래로 못 내려가면 `over_cap`). 묶음은 500행씩 짧은 트랜잭션이다.
+
+### 백업·원복
+
+- 백업 단위는 `vm_config_history.db`·`-wal`·`-shm` 세 파일과 키 파일이다. 재구성할 수 없는 관측 기록이지만 데몬 동작에
+  필요하지는 않다 — 잃으면 다음 기동이 새 이력을 시작한다(`baseline` 행).
+- 이 기능 전 데몬으로 내리면 두 파일을 무시한다. 다시 올리면 열린 epoch를 `crash_inferred`로 닫고 기준선을 다시 잡는다 —
+  내린 동안은 공백으로 보인다.
+- `config.backup` RPC는 이 DB를 백업하지 않는다(다른 DB와 같다).

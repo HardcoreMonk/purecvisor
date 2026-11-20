@@ -68,6 +68,9 @@ reconcile_interval_sec = 300
 
 [grpc]
 
+
+[vm_config_history]
+
 [update]
                                                           
                                                        

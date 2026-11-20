@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 320, REST = cfg.REST_COUNT || 227, METRICS = cfg.METRICS_COUNT || '164+';
+  var RPC = cfg.RPC_COUNT || 322, REST = cfg.REST_COUNT || 230, METRICS = cfg.METRICS_COUNT || '164+';
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -100,6 +100,8 @@ function renderHelp(b) {
       ['vm.guest.shutdown', 1, 'vm guest-shutdown', 'summary', '게스트 에이전트 통한 우아한 ACPI 종료', 'Graceful ACPI shutdown via guest agent'],
       ['vm.delete', 1, 'vm delete', 'summary', 'VM 삭제 (비동기 Job; VM 이름과 맞는 첫 디스크만 함께 삭제, operator는 소유 범위)', 'Delete VM (async job; only the first disk named after the VM is deleted with it; owner-scoped for operator)'],
       ['vm.delete.status', 0, 'vm delete-status', 'summary', '최근 VM 삭제 Job 상태 조회', 'Latest VM-delete job status'],
+      ['vm.config.history.list', 0, 'vm config-history', 'summary', 'VM 구성 변경 이력(서버 기록) — 기간·VM·커서', 'VM configuration change history (server record) — period, VM, cursor'],
+      ['vm.config.history.get', 0, 'vm config-history-show', 'summary', '구성 변경 한 건 상세(이전·이후 값)', 'Show one configuration change (before/after)'],
       ['vm.list', 0, 'vm list', 'dashboard', '전체 VM 목록 (offset/limit 페이징)', 'List all VMs (offset/limit paging)'],
       ['vm.inspect', 2, 'vm inspect', '-', 'UUID 기반 비밀정보 제외 영구 구성 관측 (관리자 전용)', 'Observe redacted persistent configuration by UUID (admin-only)'],
       ['vm.limit', 1, 'vm limit', 'summary', 'cgroup CPU/MEM 제한 설정', 'Set cgroup CPU/MEM limits'],
@@ -658,6 +660,9 @@ function renderSwaggerApi(b) {
       { m: 'PUT', p: '/vms/{name}/vcpu', d: _L('vCPU 설정', 'Set vCPU'), body: '{"vcpu_count":4}' },
       { m: 'PUT', p: '/vms/{name}/memory', d: _L('메모리 설정', 'Set memory'), body: '{"memory_mb":4096}' },
       { m: 'GET', p: '/vms/{name}/delete-status', d: _L('최근 삭제 Job 상태', 'Latest delete job status') },
+      { m: 'GET', p: '/vms/{name}/config-history', d: _L('VM 구성 변경 이력(?since·until·limit·cursor)', 'VM configuration change history (?since, until, limit, cursor)') },
+      { m: 'GET', p: '/vm-config-history', d: _L('전체 구성 변경 이력(?vm·uuid·since·until·limit·cursor, 보이는 VM만)', 'Configuration change history (?vm, uuid, since, until, limit, cursor; visible VMs only)') },
+      { m: 'GET', p: '/vm-config-history/{id}', d: _L('구성 변경 한 건(이전·이후 값)', 'One configuration change (before/after)') },
       { m: 'PUT', p: '/vms/{name}/rename', d: _L('이름 변경', 'Rename VM'), body: '{"new_name":"pcv-example-vm2"}' },
       { m: 'PUT', p: '/vms/{name}/owner', d: _L('소유자 이관(ADMIN)', 'Transfer owner (admin)'), body: '{"owner":"alice","expected_owner":null}' },
       { m: 'POST', p: '/vms/{name}/iso', d: _L('ISO 마운트', 'Mount ISO'), body: '{"iso_path":"/isos/pcv-example.iso"}' },

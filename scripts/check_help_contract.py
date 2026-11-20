@@ -83,6 +83,7 @@ ROUTE_ALIASES = {
     ("POST", "/auth/apikeys/{}/revoke"): "auth.apikey.revoke",
     ("POST", "/auth/totp/recovery/regenerate"): "auth.totp.recovery.regenerate",
     ("POST", "/backup/history"): "backup.history",                                                
+    ("GET", "/vm-config-history/{}"): "vm.config.history.get",
 }
 
                                                   
