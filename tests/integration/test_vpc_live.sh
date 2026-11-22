@@ -506,7 +506,13 @@ cat >"$TMPDIR_LIVE/rootfs/init" <<'GUEST_INIT'
 /bin/nc -ll -p 10022 -e /bin/sh &
 /bin/nc -ll -p 8080 -e /bin/reply &
 echo "pcv-vpc-live guest ready"
-exec /bin/sh
+
+pcv_last=0
+
+while IFS= read -r pcv_line; do
+    if ! /bin/sh -n -c "$pcv_line" 2>/dev/null; then pcv_last=2; continue; fi
+    (exit "$pcv_last"); eval "$pcv_line"; pcv_last=$?
+done
 GUEST_INIT
 cat >"$TMPDIR_LIVE/rootfs/bin/reply" <<'GUEST_REPLY'
 #!/bin/sh
@@ -808,7 +814,9 @@ AFTER_RESTART_VPC_XML="$(vpc_xml_fingerprint \
     || die "재시작 reconcile 뒤 VPC NIC/metadata projection이 바뀌었다: before=$BEFORE_RESTART_VPC_XML after=$AFTER_RESTART_VPC_XML"
 pgrep -a -x dnsmasq | grep -Fq "dnsmasq-$BRIDGE_A1.conf" \
     || die "재시작 reconcile 뒤 dnsmasq가 없다"
-nft list table inet pcv_vpc | grep -Fq "$ATTACHMENT_A_IP" \
+
+NFT_VPC_AFTER_RESTART="$(nft list table inet pcv_vpc)"
+grep -Fq "$ATTACHMENT_A_IP" <<<"$NFT_VPC_AFTER_RESTART" \
     || die "재시작 reconcile 뒤 Service Publish target rule이 없다"
 pass "daemon 재시작 뒤 bridge/DHCP/libvirt/nft desired state 수렴"
 

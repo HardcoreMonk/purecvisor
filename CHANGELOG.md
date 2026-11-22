@@ -111,6 +111,9 @@
 - (2026-11-21) **모니터링 차트 시간축:** 개요 차트의 X축 라벨이 고정 5초 간격(`-5s`, `now`)을 지어내지 않고 표본의 실제
   수집 시각(HH:MM:SS)을 쓴다. 노드마다 수집이 빠진 회차가 달라도 각 노드 값은 시각으로 맞춘 칸에 그린다. UI 시험
   `tests/ui/charts-time-axis.test.mjs` 추가.
+- (2026-11-21) Local VPC 실호스트 시험(`tests/integration/test_vpc_live.sh`)의 하네스 수정: busybox 1.37 대화형 셸의 줄
+  편집이 콘솔 입력을 삼키던 문제, 부팅 중 잘린 줄의 구문 오류로 게스트 init이 끝나던 문제, `pipefail`에서
+  `nft list … | grep -q`가 SIGPIPE로 거짓 실패하던 문제를 고쳤다. 제품 코드는 바뀌지 않았다.
   `daemon.conf`의 `[dpdk]` 절과 `dpdk.status` 응답의 `vhost_pmd_affinity` 객체를 더했고 RPC·REST·DB는 그대로다. 2026-11-21 io_uring·차트 변경은
   RPC·REST·DB·설정 형식을 바꾸지 않았다. 제품 버전 문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
 
