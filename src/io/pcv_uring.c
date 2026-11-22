@@ -81,6 +81,13 @@
 #define URING_LOG_DOM "io_uring"
 
                                                            
+static int (*_submit_fn)(struct io_uring *ring) = io_uring_submit;
+
+void
+pcv_uring_set_submit_fn_for_test(int (*fn)(struct io_uring *ring))
+{
+    _submit_fn = fn ? fn : io_uring_submit;
+}
 
    
                                                   
@@ -167,13 +174,18 @@ _on_uring_ready(gint fd, GIOCondition cond __attribute__((unused)), gpointer dat
     struct io_uring_cqe *cqe;
     unsigned head;                                           
 
+drain:
     io_uring_for_each_cqe(&ctx->ring, head, cqe) {
                                                  
         guint sqe_id = (guint)io_uring_cqe_get_data64(cqe);
 
-        PcvUringPendingOp *op = g_hash_table_lookup(ctx->pending,
-                                                     GUINT_TO_POINTER(sqe_id));
-        if (op) {
+        gpointer found = NULL;
+        g_mutex_lock(&ctx->submit_mu);
+        gboolean have = sqe_id != 0 &&
+            g_hash_table_steal_extended(ctx->pending, GUINT_TO_POINTER(sqe_id), NULL, &found);
+        g_mutex_unlock(&ctx->submit_mu);
+        if (have) {
+            PcvUringPendingOp *op = found;
                                                            
             if (op->callback)
                 op->callback(ctx, cqe->res, op->user_data);
@@ -182,11 +194,14 @@ _on_uring_ready(gint fd, GIOCondition cond __attribute__((unused)), gpointer dat
             if (op->buf_index >= 0 && ctx->buf_pool)
                 pcv_uring_buf_release(ctx->buf_pool, op->buf_index);
 
-            g_hash_table_remove(ctx->pending, GUINT_TO_POINTER(sqe_id));
+            _pending_free(op);
         }
                                      
         io_uring_cqe_seen(&ctx->ring, cqe);
     }
+
+    if (io_uring_cq_has_overflow(&ctx->ring) && io_uring_get_events(&ctx->ring) >= 0)
+        goto drain;
 
     return G_SOURCE_CONTINUE;
 }
@@ -287,7 +302,7 @@ _register_pending(PcvUringCtx *ctx, PcvUringCallback cb, gpointer data, gint buf
 gboolean
 _submit_ring(PcvUringCtx *ctx)
 {
-    int ret = io_uring_submit(&ctx->ring);
+    int ret = _submit_fn(&ctx->ring);
     if (ret >= 0)
         return TRUE;
 
@@ -300,7 +315,7 @@ _submit_ring(PcvUringCtx *ctx)
 
         PCV_LOG_WARN(URING_LOG_DOM, "io_uring_submit returned EAGAIN, retrying after 1ms yield");
         g_usleep(1000);                                                    
-        ret = io_uring_submit(&ctx->ring);
+        ret = _submit_fn(&ctx->ring);
         if (ret >= 0)
             return TRUE;
         PCV_LOG_WARN(URING_LOG_DOM, "io_uring_submit retry failed: %s", strerror(-ret));
@@ -413,6 +428,74 @@ pcv_uring_new(guint queue_depth, GError **error)
 }
 
    
+static gboolean
+_pending_has_fd(PcvUringCtx *ctx)
+{
+    GHashTableIter it;
+    gpointer v;
+    g_hash_table_iter_init(&it, ctx->pending);
+    while (g_hash_table_iter_next(&it, NULL, &v))
+        if (((PcvUringPendingOp *)v)->result_is_fd)
+            return TRUE;
+    return FALSE;
+}
+
+static guint
+_reap_undelivered(PcvUringCtx *ctx)
+{
+    guint closed = 0;
+    g_mutex_lock(&ctx->submit_mu);
+    GHashTableIter it;
+    gpointer k, v;
+    gboolean queued = FALSE;
+    g_hash_table_iter_init(&it, ctx->pending);
+    while (g_hash_table_iter_next(&it, &k, &v)) {
+        if (!((PcvUringPendingOp *)v)->result_is_fd)
+            continue;
+        struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx->ring);
+        if (!sqe)
+            break;
+        io_uring_prep_cancel64(sqe, (__u64)GPOINTER_TO_UINT(k), 0);
+        io_uring_sqe_set_data64(sqe, 0);
+        queued = TRUE;
+    }
+    if (queued)
+        (void)_submit_fn(&ctx->ring);
+
+    gint64 deadline = g_get_monotonic_time() + 200 * G_TIME_SPAN_MILLISECOND;
+    for (;;) {
+        struct io_uring_cqe *cqe;
+        unsigned head, seen = 0;
+        io_uring_for_each_cqe(&ctx->ring, head, cqe) {
+            guint id = (guint)io_uring_cqe_get_data64(cqe);
+            gpointer found = NULL;
+            if (id != 0 &&
+                g_hash_table_steal_extended(ctx->pending, GUINT_TO_POINTER(id), NULL, &found)) {
+                PcvUringPendingOp *op = found;
+                if (op->result_is_fd && cqe->res >= 0) {
+                    close(cqe->res);
+                    closed++;
+                }
+                if (op->buf_index >= 0 && ctx->buf_pool)
+                    pcv_uring_buf_release(ctx->buf_pool, op->buf_index);
+                _pending_free(op);
+            }
+            seen++;
+        }
+        io_uring_cq_advance(&ctx->ring, seen);
+        if (!_pending_has_fd(ctx) || g_get_monotonic_time() >= deadline)
+            break;
+        struct __kernel_timespec ts = { .tv_sec = 0, .tv_nsec = 10 * 1000 * 1000 };
+        struct io_uring_cqe *w = NULL;
+        int r = io_uring_wait_cqe_timeout(&ctx->ring, &w, &ts);
+        if (r < 0 && r != -ETIME && r != -EINTR)
+            break;
+    }
+    g_mutex_unlock(&ctx->submit_mu);
+    if (closed > 0)
+        PCV_LOG_WARN(URING_LOG_DOM, "Closed %u undelivered accept FD(s) at shutdown", closed);
+    return closed;
+}
 
   
 
@@ -434,6 +517,9 @@ pcv_uring_free(PcvUringCtx *ctx)
                          
     if (ctx->glib_source_id > 0)
         g_source_remove(ctx->glib_source_id);
+
+    if (ctx->pending)
+        (void)_reap_undelivered(ctx);
 
                     
     if (ctx->event_fd >= 0)
@@ -542,9 +628,11 @@ pcv_uring_submit_read(PcvUringCtx *ctx, int fd, void *buf, gsize len,
 
     gboolean ok = _submit_ring(ctx);
     if (!ok) {
-
-
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
+
+
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data64(sqe, 0);
     }
     g_mutex_unlock(&ctx->submit_mu);
     return ok;
@@ -598,9 +686,11 @@ pcv_uring_submit_write(PcvUringCtx *ctx, int fd, const void *buf, gsize len,
 
     gboolean ok = _submit_ring(ctx);
     if (!ok) {
+        g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
                                                            
 
-        g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data64(sqe, 0);
     }
     g_mutex_unlock(&ctx->submit_mu);
     return ok;

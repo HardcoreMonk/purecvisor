@@ -54,6 +54,48 @@ window.pcvDestroyChart = pcvDestroyChart;
                                                      
                                                                            
    
+function _pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+function pcvSampleLabels(timestamps, n) {
+  var ts = Array.isArray(timestamps) ? timestamps.slice(-n) : [];
+  var out = [];
+  for (var i = 0; i < n; i++) {
+    var t = ts[i - (n - ts.length)];
+    if (typeof t !== 'number' || !isFinite(t)) { out.push(''); continue; }
+    var d = new Date(t);
+    out.push(_pad2(d.getHours()) + ':' + _pad2(d.getMinutes()) + ':' + _pad2(d.getSeconds()));
+  }
+  return out;
+}
+window.pcvSampleLabels = pcvSampleLabels;
+
+function pcvAlignToAxis(axisTs, ts, data, tolMs) {
+  var out = [], j = 0, tol = typeof tolMs === 'number' ? tolMs : 2000;
+  ts = ts || []; data = data || [];
+  var off = ts.length - data.length;
+  for (var i = 0; i < axisTs.length; i++) {
+    var t = axisTs[i], v = null;
+    while (j < ts.length && ts[j] < t - tol) j++;
+    for (var k = j; k < ts.length && ts[k] <= t + tol; k++) {
+      var di = k - off;
+      if (di >= 0 && di < data.length) { v = data[di]; break; }
+    }
+    out.push(v === undefined ? null : v);
+  }
+  return out;
+}
+window.pcvAlignToAxis = pcvAlignToAxis;
+
+function pcvNodeAxis(tsLists, n) {
+  var all = [];
+  (tsLists || []).forEach(function(ts) { if (Array.isArray(ts)) all = all.concat(ts); });
+  all.sort(function(a, b) { return a - b; });
+  var axis = [];
+  all.forEach(function(t) { if (!axis.length || t - axis[axis.length - 1] > 2000) axis.push(t); });
+  return axis.slice(-(n || 60));
+}
+window.pcvNodeAxis = pcvNodeAxis;
+
 function pcvTimeSeries(canvasId, series, opts) {
                                                            
                                  
@@ -65,19 +107,17 @@ function pcvTimeSeries(canvasId, series, opts) {
                                                                
                                                                      
   var maxLen = Math.max.apply(null, series.map(function(s){return s.data.length;}).concat([1]));
-  var labels = [];
-  for (var i = 0; i < maxLen; i++) {
-    var ago = (maxLen - 1 - i) * 5;                             
-    labels.push(ago === 0 ? 'now' : '-' + ago + 's');
-  }
+  var labels = pcvSampleLabels(opts.timestamps, maxLen);
 
   var datasets = series.map(function(s, idx) {
     var c = s.color || PCV_CHART_COLORS[idx % PCV_CHART_COLORS.length];
                                                     
     var pr = s.data.length <= 2 ? 3 : 0;
+    var pad = [];
+    for (var k = s.data.length; k < maxLen; k++) pad.push(null);
     return {
       label: s.label,
-      data: s.data,
+      data: pad.concat(s.data),
       borderColor: c,
       backgroundColor: opts.fill ? c + '33' : 'transparent',
       borderWidth: 2,

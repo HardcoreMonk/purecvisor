@@ -564,5 +564,11 @@
     "evidence": [
       "tests/test_vm_config_history_decide.c"
     ]
+  },
+  "pcv_uring_set_submit_fn_for_test": {
+    "reason": "io_uring 제출 실패를 주입하는 테스트 전용 주입점이다. 프로덕션 호출자 없음이 의도다.",
+    "evidence": [
+      "tests/test_uring.c"
+    ]
   }
 }

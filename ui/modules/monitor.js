@@ -1141,25 +1141,22 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
                                                                        
   setTimeout(function() {
     if (typeof pcvTimeSeries !== 'function') return;
-    var cpuSeries = all.map(function(n) {
-      var hi = monHist[n.ip] || { cpu: [] };
-      return { label: n.node || n.ip, data: hi.cpu.slice(-60) };
-    });
-    var memSeries = all.map(function(n) {
-      var hi = monHist[n.ip] || { mem: [] };
-      return { label: n.node || n.ip, data: hi.mem.slice(-60) };
-    });
+
+    var axisTs = typeof pcvNodeAxis === 'function' ? pcvNodeAxis(all.map(function(n) { return (monHist[n.ip] || {}).ts; }), 60) : [];
+    function onAxis(hi, data) { return typeof pcvAlignToAxis === 'function' ? pcvAlignToAxis(axisTs, hi.ts, data, 2000) : (data || []).slice(-60); }
+    function nodeSeries(key) { return all.map(function(n) { var hi = monHist[n.ip] || {}; return { label: n.node || n.ip, data: onAxis(hi, hi[key]) }; }); }
+    var cpuSeries = nodeSeries('cpu'), memSeries = nodeSeries('mem');
     var netSeries = [];
     all.forEach(function(n, i) {
       var hi = monHist[n.ip] || { netRx: [], netTx: [], ts: [] };                                                  
-      var rxMb = PCV.vmdiag ? PCV.vmdiag.rateSeries(hi.netRx, hi.ts).slice(-60) : [];
-      var txMb = PCV.vmdiag ? PCV.vmdiag.rateSeries(hi.netTx, hi.ts).slice(-60) : [];
+      var rxMb = PCV.vmdiag ? onAxis(hi, PCV.vmdiag.rateSeries(hi.netRx, hi.ts)) : [];
+      var txMb = PCV.vmdiag ? onAxis(hi, PCV.vmdiag.rateSeries(hi.netTx, hi.ts)) : [];
       netSeries.push({ label: (n.node || n.ip) + ' RX', data: rxMb });
       netSeries.push({ label: (n.node || n.ip) + ' TX', data: txMb });
     });
-    pcvTimeSeries('pcv-chart-cpu', cpuSeries, { title: 'CPU %', unit: '%', max: 100, fill: false });
-    pcvTimeSeries('pcv-chart-mem', memSeries, { title: 'Memory %', unit: '%', max: 100, fill: false });
-    pcvTimeSeries('pcv-chart-net', netSeries, { title: 'Network MB/s', unit: ' MB/s', fill: false });
+    pcvTimeSeries('pcv-chart-cpu', cpuSeries, { title: 'CPU %', unit: '%', max: 100, fill: false, timestamps: axisTs });
+    pcvTimeSeries('pcv-chart-mem', memSeries, { title: 'Memory %', unit: '%', max: 100, fill: false, timestamps: axisTs });
+    pcvTimeSeries('pcv-chart-net', netSeries, { title: 'Network MB/s', unit: ' MB/s', fill: false, timestamps: axisTs });
   }, 100);
 }
 window.renderMonOverview = renderMonOverview;

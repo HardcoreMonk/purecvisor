@@ -181,7 +181,6 @@
 #include "modules/security/pcv_suricata_ips.h"                                      
 #include "modules/security/pcv_suricata_ips_rules.h"                                            
 #include "modules/network/tenant_overlay.h"                                
-#include "io/pcv_uring.h"                                                    
 #include "api/hot_reload.h"                                          
 #include "api/ws_server.h"                                               
 #include "modules/storage/storage_tier.h"                       
@@ -1661,39 +1660,6 @@ int main(int argc, char *argv[]) {
                                                                  
                                   
                                                  
-      
-                         
-                                                     
-                                                  
-                                             
-      
-              
-                                                            
-                                                       
-                                                            
-      
-                             
-                                            
-                                                               
-                                            
-       
-#if PCV_USE_URING
-    {
-        GError *uring_err = NULL;
-        PcvUringCtx *uring = pcv_uring_new(PCV_URING_DEFAULT_QUEUE_DEPTH, &uring_err);
-        if (uring) {
-            g_message("[main] io_uring initialized (queue_depth=%u, eventfd=%d)",
-                      PCV_URING_DEFAULT_QUEUE_DEPTH, uring->event_fd);
-                                                               
-        } else {
-                                                               
-            g_warning("[main] io_uring init failed: %s — using GLib I/O fallback",
-                      uring_err ? uring_err->message : "unknown");
-            if (uring_err) g_error_free(uring_err);
-        }
-    }
-#endif
-
     STAGE_END("network-storage");
 
                                                                     

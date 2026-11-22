@@ -133,6 +133,9 @@ pcv_uring_submit_accept(PcvUringCtx *ctx, int listen_fd,
     io_uring_prep_accept(sqe, listen_fd, addr, addrlen, 0);
     io_uring_sqe_set_data64(sqe, id);
 
+    ((PcvUringPendingOp *)g_hash_table_lookup(ctx->pending,
+                                              GUINT_TO_POINTER((guint)id)))->result_is_fd = TRUE;
+
     gboolean ok = _submit_ring(ctx);
     if (!ok) {
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));

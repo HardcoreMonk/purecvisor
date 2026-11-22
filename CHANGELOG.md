@@ -102,8 +102,17 @@
 - 2026-11-19 변경까지는 `vm.memory.stats` 응답의 `guest_stats` 필드 추가 말고는 RPC·REST·DB 스키마·`daemon.conf` 형식
   변경이 없었다. 2026-11-20 VM 구성 변경 이력이 조회 RPC 2개·REST 3개·`pcvctl` 명령 2개와 새 DB `vm_config_history.db`(+ 키
   파일), `daemon.conf`의 `[vm_config_history]` 절을 더했다(기존 RPC·REST·DB·설정 형식은 그대로다). 2026-11-21 PMD 정렬은
-  `daemon.conf`의 `[dpdk]` 절과 `dpdk.status` 응답의 `vhost_pmd_affinity` 객체를 더했고 RPC·REST·DB는 그대로다. 제품 버전
-  문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
+- (2026-11-21) **io_uring UDS 경로 정리:** 제출에 실패한 파일 read/write SQE를 소켓 래퍼처럼 NOP으로 바꿔 다음 제출에서
+  실행되지 않게 했다. 완료 처리 쪽도 제출 잠금 아래에서 대기 작업을 꺼내고 callback은 잠금 밖에서 부른다(제출 스레드와의
+  해시테이블 경합 제거). CQ가 넘쳐 커널 overflow 목록에 남은 완료는 제출이 멈춰도 `io_uring_get_events`로 옮겨 전달한다.
+  ring 해제 때는 진행 중인 accept를 취소하고, callback에 넘기지 못한 accept 결과 FD를 닫는다. `main.c`가 쓰지 않고 버리던
+  두 번째 ring 생성(기동 로그 `[main] io_uring initialized`)을 지웠다 — UDS 서버가 자기 ring을 소유한다. C 단위 시험
+  `/uring/*` 5개 추가.
+- (2026-11-21) **모니터링 차트 시간축:** 개요 차트의 X축 라벨이 고정 5초 간격(`-5s`, `now`)을 지어내지 않고 표본의 실제
+  수집 시각(HH:MM:SS)을 쓴다. 노드마다 수집이 빠진 회차가 달라도 각 노드 값은 시각으로 맞춘 칸에 그린다. UI 시험
+  `tests/ui/charts-time-axis.test.mjs` 추가.
+  `daemon.conf`의 `[dpdk]` 절과 `dpdk.status` 응답의 `vhost_pmd_affinity` 객체를 더했고 RPC·REST·DB는 그대로다. 2026-11-21 io_uring·차트 변경은
+  RPC·REST·DB·설정 형식을 바꾸지 않았다. 제품 버전 문자열은 `2.2.1`을 유지하며 새 버전이나 태그는 발급하지 않았다.
 
 ## 2.2.1 기능 릴리스 — 2026-11-18
 

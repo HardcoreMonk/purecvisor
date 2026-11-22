@@ -249,6 +249,8 @@ typedef struct {
     PcvUringCallback  callback;                             
     gpointer          user_data;                         
     gint              buf_index;                                          
+    gboolean          result_is_fd;
+
 } PcvUringPendingOp;
 
                                                                    
@@ -325,6 +327,8 @@ void         pcv_uring_free(PcvUringCtx *ctx);
                                             
    
 gboolean     pcv_uring_is_available(void);
+
+void         pcv_uring_set_submit_fn_for_test(int (*fn)(struct io_uring *ring));
 
                                                                    
                                     
